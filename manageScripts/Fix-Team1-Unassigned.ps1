@@ -1,8 +1,8 @@
 # Load the ConnectWise Manage PowerShell Module
 Import-Module ConnectWiseManageAPI
 
-# Get Open Tickets with Specific Resource and ClosedFlag
-$conditions = 'Resources="jspillers" and closedFlag=false'
+# Get Unassigned Tickets from Team 1
+$conditions = 'status/name = "New" AND team/name contains "1" AND closedFlag = false AND summary not contains "Wellness"'
 
 # Get tickets based on the conditions
 $ticketsToUpdate = Get-CWMTicket -condition $conditions -All
@@ -54,16 +54,26 @@ foreach ($ticket in $ticketsToUpdate) {
     # Construct New Title
     $newTitle = "$companyAcronym - $contactName - $ticketReason"
 
-    # Prepare Update Parameters
-    $updateParams = @{
+    # Prepare Update Parameters for title
+    $updateParamsTitle = @{
         ID = $ticket.id
         Operation = 'replace'
         Path = 'summary'
         Value = $newTitle
     }
 
-    # Update the ticket
-    Update-CWMTicket @updateParams
+    # Update the ticket title
+    #Update-CWMTicket @updateParamsTitle
 
-    Write-Host "Updated ticket $($ticket.id) title to '$newTitle'"
+    # Prepare Update Parameters for status
+    $updateParamsStatus = @{
+        ID = $ticket.id
+        Operation = 'replace'
+        Path = 'status'
+        Value = 'reviewed'
+    }
+
+    # Update the ticket status
+    #Update-CWMTicket @updateParamsStatus
+    Write-Host "Updated ticket $($ticket.id) title to '$newTitle' and status to 'reviewed'"
 }
