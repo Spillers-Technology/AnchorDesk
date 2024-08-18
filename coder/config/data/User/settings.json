@@ -1,0 +1,11 @@
+{
+    "workbench.colorTheme": "GitHub Dark Default",
+    "typescript.enablePromptUseWorkspaceTsdk": true,
+    "typescript.experimental.updateImportsOnPaste": true,
+    "typescript.inlayHints.enumMemberValues.enabled": true,
+    "typescript.inlayHints.functionLikeReturnTypes.enabled": true,
+    "typescript.inlayHints.parameterTypes.enabled": true,
+    "typescript.inlayHints.propertyDeclarationTypes.enabled": true,
+    "typescript.inlayHints.variableTypes.enabled": true,
+    "typescript.tsserver.nodePath": "node"
+}
