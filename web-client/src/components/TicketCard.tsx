@@ -72,7 +72,7 @@ const TicketCard: React.FC<TicketCardProps> = ({ ticket, onClick }) => {
             ))
           ) : (
             <Typography variant="body2" color="textSecondary">
-              No technicians available.
+              No technicians assigned.
             </Typography>
           )}
         </Box>

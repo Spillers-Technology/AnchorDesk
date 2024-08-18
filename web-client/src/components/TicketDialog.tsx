@@ -100,7 +100,7 @@ import {
               ))
             ) : (
               <Typography variant="body2" color="textSecondary">
-                No technicians available.
+                No technicians assigned.
               </Typography>
             )}
           </Box>
@@ -121,7 +121,7 @@ import {
               ))
             ) : (
               <Typography variant="body2" color="textSecondary">
-                No time entries available.
+                No time entries found.
               </Typography>
             )}
           </Box>
