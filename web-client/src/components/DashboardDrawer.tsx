@@ -1,39 +1,35 @@
-import { Drawer, List, ListItemButton, ListItemIcon, ListItemText, Divider, IconButton, Toolbar } from "@mui/material";
-import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import { styled } from "@mui/material/styles";
+import { Drawer, List, ListItem, ListItemText, ListItemIcon } from "@mui/material";
+import HomeIcon from "@mui/icons-material/Home";
+import SyncIcon from "@mui/icons-material/Sync";
+import { Divider, Toolbar } from "@mui/material";
 
-const DashboardDrawer = styled(Drawer)(({ }) => ({
-  width: 240,
-  flexShrink: 0,
-  "& .MuiDrawer-paper": {
-    width: 240,
-    boxSizing: "border-box",
-  },
-}));
-
-interface DrawerComponentProps {
+interface DashboardDrawerProps {
   drawerOpen: boolean;
   toggleDrawer: () => void;
+  switchToView: (view: "tickets" | "cwManage") => void;
 }
 
-function DrawerComponent({ drawerOpen, toggleDrawer }: DrawerComponentProps) {
+const DashboardDrawer: React.FC<DashboardDrawerProps> = ({ drawerOpen, toggleDrawer, switchToView }) => {
   return (
-    <DashboardDrawer variant="temporary" open={drawerOpen} onClose={toggleDrawer}>
-      <Toolbar>
-        <IconButton onClick={toggleDrawer}>
-          <ChevronLeftIcon />
-        </IconButton>
-      </Toolbar>
+    <Drawer variant="persistent" anchor="left" open={drawerOpen}>
+      <Toolbar /> {/* This will help offset the AppBar height */}
       <Divider />
       <List>
-        <ListItemButton>
-          <ListItemIcon>{/* Add icons if needed */}</ListItemIcon>
-          <ListItemText primary="Home" />
-        </ListItemButton>
-        {/* Add more ListItems for navigation */}
+        <ListItem button onClick={() => switchToView("tickets")}>
+          <ListItemIcon>
+            <HomeIcon />
+          </ListItemIcon>
+          <ListItemText primary="Tickets" />
+        </ListItem>
+        <ListItem button onClick={() => switchToView("cwManage")}>
+          <ListItemIcon>
+            <SyncIcon />
+          </ListItemIcon>
+          <ListItemText primary="CW Manage" />
+        </ListItem>
       </List>
-    </DashboardDrawer>
+    </Drawer>
   );
-}
+};
 
-export default DrawerComponent;
+export default DashboardDrawer;
