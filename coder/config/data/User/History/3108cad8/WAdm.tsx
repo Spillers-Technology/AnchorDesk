@@ -2,7 +2,7 @@ import { Drawer, List, ListItemButton, ListItemIcon, ListItemText, Divider, Icon
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import { styled } from "@mui/material/styles";
 
-const DashboardDrawer = styled(Drawer)(({ }) => ({
+const DashboardDrawer = styled(Drawer)(({ theme }) => ({
   width: 240,
   flexShrink: 0,
   "& .MuiDrawer-paper": {
@@ -11,12 +11,7 @@ const DashboardDrawer = styled(Drawer)(({ }) => ({
   },
 }));
 
-interface DrawerComponentProps {
-  drawerOpen: boolean;
-  toggleDrawer: () => void;
-}
-
-function DrawerComponent({ drawerOpen, toggleDrawer }: DrawerComponentProps) {
+function DrawerComponent({ drawerOpen :any; toggleDrawer: any}) {
   return (
     <DashboardDrawer variant="temporary" open={drawerOpen} onClose={toggleDrawer}>
       <Toolbar>

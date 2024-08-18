@@ -13,7 +13,6 @@ import { Database } from "./Database"; // Assume you have this from previous fil
 import TicketFactory from "./TicketFactory"; // Assume this is abstracted as well
 import DashboardAppBar from "./components/DashboardAppBar"; // Custom component
 import DashboardDrawer from "./components/DashboardDrawer"; // Custom component
-import { Ticket } from "./interfaces"; // Ensure you're importing the correct Ticket type from the right place
 
 // Define Theme for Styling
 const defaultTheme = createTheme({
@@ -22,6 +21,13 @@ const defaultTheme = createTheme({
     secondary: { main: "#f50057" }, // Example secondary color
   },
 });
+
+// Define Ticket type (assumed based on the context)
+interface Ticket {
+  id: number;
+  title: string;
+  description: string;
+}
 
 function App() {
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
@@ -39,7 +45,7 @@ function App() {
       try {
         await db.connect();
         const ticketFactory = new TicketFactory(db);
-        const fetchedTickets: Ticket[] = await ticketFactory.getAllTickets();
+        const fetchedTickets = await ticketFactory.getAllTickets();
         setTickets(fetchedTickets);
       } catch (err) {
         setError(err as Error);
@@ -65,13 +71,4 @@ function App() {
             <CardContent>
               <Typography variant="h5">Welcome to Your Dashboard</Typography>
               {error && <Typography color="error">Error: {error.message}</Typography>}
-              <Typography variant="body1">Total Tickets: {tickets.length}</Typography>
-            </CardContent>
-          </Card>
-        </Box>
-      </Box>
-    </ThemeProvider>
-  );
-}
-
-export default App;
+              <Typography variant="body1">Total Tickets: {tickets.length}</Typog
