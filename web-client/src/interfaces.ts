@@ -20,6 +20,7 @@ export interface Company {
 }
 
 export interface Ticket {
+  status: any;
   ticketnumber: number;
   company: Company;
   ticketSummary: string;

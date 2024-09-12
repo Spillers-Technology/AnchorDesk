@@ -16,6 +16,7 @@ import TicketCard from "./components/TicketCard";
 import FilterDialog from "./components/FilterDialog";
 import CWManageView from "./components/CWManageView";
 import TicketDialog from "./components/TicketDialog";
+import TicketTable from "./components/TicketTable";
 import { Ticket, Technician, Company } from "./interfaces";
 
 // Define Theme for Styling
@@ -42,23 +43,22 @@ function App() {
   const [filterDialogOpen, setFilterDialogOpen] = useState<boolean>(false);
   const [ticketDialogOpen, setTicketDialogOpen] = useState<boolean>(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
-  const [ticketNotes, setTicketNotes] = useState<any[]>([]); // New state for notes
+  const [ticketNotes, setTicketNotes] = useState<any[]>([]);
   const [currentView, setCurrentView] = useState<"tickets" | "myTickets" | "cwManage">("tickets");
+  const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+  const [cardSize, setCardSize] = useState<number>(5); // State to manage card size dynamically
 
   const toggleDrawer = () => {
     setDrawerOpen(!drawerOpen);
   };
 
-  // Function to fetch tickets from the backend based on the current view
   const fetchTickets = useCallback(
     async (forceUpdate: boolean = false) => {
       setLoading(true);
       try {
-        let endpoint = `/api/Tickets/Open${forceUpdate ? '?forceUpdate=true' : ''}`;
-
-        // If viewing "My Tickets," use the byresource route for 'jspillers'
+        let endpoint = `/api/Tickets/Open${forceUpdate ? "?forceUpdate=true" : ""}`;
         if (currentView === "myTickets") {
-          endpoint = `/api/Tickets/ByResource/jspillers${forceUpdate ? '?forceUpdate=true' : ''}`;
+          endpoint = `/api/Tickets/ByResource/jspillers${forceUpdate ? "?forceUpdate=true" : ""}`;
         }
 
         const response = await fetch(endpoint);
@@ -67,7 +67,6 @@ function App() {
         }
         const data = await response.json();
 
-        // Map the returned data to your Ticket interface structure
         const mappedTickets: Ticket[] = data.map((ticket: any) => ({
           ticketnumber: ticket.id,
           ticketSummary: " ", // ticket.name
@@ -86,25 +85,25 @@ function App() {
               } as Technician
             : null,
           priority: ticket.priority.name,
-          status: ticket.status.name, // Include the ticket status here
+          status: ticket.status.name,
+          dateEntered: ticket.dateEntered,
           timeEntries: ticket.timeEntries || [],
         }));
 
         setTickets(mappedTickets);
-        setFilteredTickets(mappedTickets); // Initially show all tickets
+        setFilteredTickets(mappedTickets);
       } catch (err) {
         setError(err as Error);
       } finally {
         setLoading(false);
       }
     },
-    [currentView] // Add currentView as a dependency to refetch when switching views
+    [currentView]
   );
 
-  // Function to fetch ticket notes (ensure this is defined)
   const fetchTicketNotes = async (ticketId: number) => {
     try {
-      const response = await fetch(`/api/Tickets/${ticketId}/Notes`); // Ensure this endpoint is correct
+      const response = await fetch(`/api/Tickets/${ticketId}/Notes`);
       if (!response.ok) {
         throw new Error("Failed to fetch ticket notes");
       }
@@ -120,10 +119,8 @@ function App() {
     setLoading(true);
     setSelectedTicket(ticket);
 
-    // Fetch notes when the ticket is clicked
     const notes = await fetchTicketNotes(ticket.ticketnumber);
-    setTicketNotes(notes); // Store the fetched notes in state
-
+    setTicketNotes(notes);
     setTicketDialogOpen(true);
     setLoading(false);
   };
@@ -131,7 +128,7 @@ function App() {
   const handleTicketDialogClose = () => {
     setTicketDialogOpen(false);
     setSelectedTicket(null);
-    setTicketNotes([]); // Clear notes when closing the dialog
+    setTicketNotes([]);
   };
 
   const applyFilters = (filtered: Ticket[]) => {
@@ -143,15 +140,26 @@ function App() {
     return summary.length > 100 ? `${summary.slice(0, 100)}...` : summary;
   };
 
+  const handleCardSizeChange = (event: any, newValue: number | number[]) => {
+    setCardSize(newValue as number);
+  };
+
   useEffect(() => {
-    fetchTickets(); // Fetch tickets when the view changes
+    fetchTickets();
   }, [fetchTickets, currentView]);
 
   return (
     <ThemeProvider theme={defaultTheme}>
       <Box sx={{ display: "flex", minHeight: "100vh" }}>
         <CssBaseline />
-        <DashboardAppBar drawerOpen={drawerOpen} toggleDrawer={toggleDrawer} />
+        <DashboardAppBar
+          drawerOpen={drawerOpen}
+          toggleDrawer={toggleDrawer}
+          currentView={currentView}
+          viewMode={viewMode} // Pass viewMode to AppBar
+          cardSize={cardSize} // Pass cardSize to AppBar
+          handleCardSizeChange={handleCardSizeChange} // Pass handler to AppBar
+        />
         <DashboardDrawer
           drawerOpen={drawerOpen}
           toggleDrawer={toggleDrawer}
@@ -159,11 +167,19 @@ function App() {
         />
 
         <Box component="main" sx={{ flexGrow: 1, p: 3, backgroundColor: "background.default" }}>
-          <Toolbar /> {/* To offset the AppBar height */}
+          <Toolbar />
 
           {currentView === "tickets" || currentView === "myTickets" ? (
             <>
-              <Button variant="contained" onClick={() => setFilterDialogOpen(true)}>
+              <Button
+                variant="contained"
+                onClick={() => setViewMode((prev) => (prev === "cards" ? "table" : "cards"))}
+                sx={{ mb: 2 }}
+              >
+                {viewMode === "cards" ? "Switch to Table View" : "Switch to Card View"}
+              </Button>
+
+              <Button variant="contained" onClick={() => setFilterDialogOpen(true)} sx={{ mb: 2, ml: 2 }}>
                 Filter Tickets
               </Button>
 
@@ -171,23 +187,27 @@ function App() {
               {loading ? (
                 <CircularProgress />
               ) : filteredTickets.length > 0 ? (
-                <Grid container spacing={3} sx={{ mt: 2 }}>
-                  {filteredTickets.map((ticket) => (
-                    <Grid item xs={12} sm={6} md={4} key={ticket.ticketnumber}>
-                      <TicketCard
-                        ticket={ticket}
-                        onClick={() => handleTicketClick(ticket)}
-                        shortenedSummary={shortenSummary(ticket.ticketSummary)}
-                      />
-                    </Grid>
-                  ))}
-                </Grid>
+                viewMode === "cards" ? (
+                  <Grid container spacing={3} sx={{ mt: 2 }}>
+                    {filteredTickets.map((ticket) => (
+                      <Grid item xs={12} sm={6} md={12 / cardSize} key={ticket.ticketnumber}>
+                        <TicketCard
+                          ticket={ticket}
+                          onClick={() => handleTicketClick(ticket)}
+                          shortenedSummary={shortenSummary(ticket.ticketSummary)}
+                        />
+                      </Grid>
+                    ))}
+                  </Grid>
+                ) : (
+                  <TicketTable tickets={filteredTickets} onRowClick={handleTicketClick} />
+                )
               ) : (
                 <Typography variant="body1">No tickets found.</Typography>
               )}
             </>
           ) : (
-            <CWManageView fetchTickets={() => fetchTickets(true)} /> // Force update when fetching via CWManageView
+            <CWManageView fetchTickets={() => fetchTickets(true)} />
           )}
         </Box>
 

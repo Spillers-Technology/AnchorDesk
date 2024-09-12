@@ -1,35 +1,41 @@
-import { Drawer, List, ListItem, ListItemText, ListItemIcon } from "@mui/material";
+import { Drawer, List, ListItem, ListItemText, ListItemIcon, Divider, Toolbar } from "@mui/material";
 import HomeIcon from "@mui/icons-material/Home";
 import SyncIcon from "@mui/icons-material/Sync";
-import PersonIcon from "@mui/icons-material/Person"; // New icon for "My Tickets"
-import { Divider, Toolbar } from "@mui/material";
+import AssignmentIcon from "@mui/icons-material/Assignment";
 
 interface DashboardDrawerProps {
   drawerOpen: boolean;
   toggleDrawer: () => void;
-  switchToView: (view: "tickets" | "myTickets" | "cwManage") => void; // Added "myTickets"
+  switchToView: (view: "tickets" | "myTickets" | "cwManage") => void;
 }
 
 const DashboardDrawer: React.FC<DashboardDrawerProps> = ({ drawerOpen, toggleDrawer, switchToView }) => {
   return (
-    <Drawer variant="persistent" anchor="left" open={drawerOpen}>
+    <Drawer
+      variant="temporary" // Change this to temporary for autoclose behavior
+      anchor="left"
+      open={drawerOpen}
+      onClose={toggleDrawer} // Close drawer when clicking outside
+      ModalProps={{
+        keepMounted: true, // Better open performance on mobile
+      }}
+    >
       <Toolbar /> {/* This will help offset the AppBar height */}
       <Divider />
       <List>
-        <ListItem button onClick={() => switchToView("tickets")}>
+        <ListItem button onClick={() => { switchToView("tickets"); toggleDrawer(); }}>
           <ListItemIcon>
             <HomeIcon />
           </ListItemIcon>
           <ListItemText primary="Tickets" />
         </ListItem>
-        {/* Add "My Tickets" below "Tickets" */}
-        <ListItem button onClick={() => switchToView("myTickets")}>
+        <ListItem button onClick={() => { switchToView("myTickets"); toggleDrawer(); }}>
           <ListItemIcon>
-            <PersonIcon />
+            <AssignmentIcon />
           </ListItemIcon>
           <ListItemText primary="My Tickets" />
         </ListItem>
-        <ListItem button onClick={() => switchToView("cwManage")}>
+        <ListItem button onClick={() => { switchToView("cwManage"); toggleDrawer(); }}>
           <ListItemIcon>
             <SyncIcon />
           </ListItemIcon>

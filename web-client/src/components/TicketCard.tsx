@@ -1,4 +1,4 @@
-import { Card, CardContent, Typography, Box } from "@mui/material";
+import { Card, CardContent, Typography, Box, Chip } from "@mui/material";
 import PriorityHighIcon from "@mui/icons-material/PriorityHigh";
 import BusinessIcon from "@mui/icons-material/Business";
 import { Ticket } from "../interfaces";
@@ -13,6 +13,14 @@ const statusColors: { [key: string]: string } = {
   // Add more statuses and colors as needed
 };
 
+// Map of priority colors
+const priorityColors: { [key: string]: string } = {
+  "Priority 1 - Critical": "#f44336", // Red
+  "Priority 2 - High": "#ff9800", // Orange
+  "Priority 3 - Normal Response": "#4caf50", // Green
+  "Priority 4 - Low": "#9c27b0", // Purple
+};
+
 interface TicketCardProps {
   ticket: Ticket;
   onClick: () => void;
@@ -21,6 +29,9 @@ interface TicketCardProps {
 
 const TicketCard: React.FC<TicketCardProps> = ({ ticket, onClick, shortenedSummary }) => {
   const statusColor = statusColors[ticket.status] || "#1976d2"; // Default color if status is not defined
+  const priorityColor = priorityColors[ticket.priority] || "#1976d2"; // Default color if priority is not defined
+
+  const formattedDate = new Date(ticket.dateEntered).toLocaleString(); // Format dateEntered
 
   return (
     <Card
@@ -43,19 +54,44 @@ const TicketCard: React.FC<TicketCardProps> = ({ ticket, onClick, shortenedSumma
       onClick={onClick}
     >
       <CardContent>
+        {/* Ticket Title */}
         <Typography variant="h6" gutterBottom>
           {ticket.ticketTitle}
         </Typography>
 
+        {/* Summary */}
         <Typography variant="body2" color="textSecondary">
           {shortenedSummary}
         </Typography>
 
+        {/* Company */}
         <Box sx={{ display: "flex", alignItems: "center", mt: 2 }}>
           <BusinessIcon sx={{ color: "#1976d2", mr: 1 }} />
           <Typography variant="body2" sx={{ color: "#666" }}>
             {ticket.company.CompanyName}
           </Typography>
+        </Box>
+
+        {/* Date Entered */}
+        <Box sx={{ display: "flex", alignItems: "center", mt: 2 }}>
+          <Typography variant="body2" sx={{ color: "#666" }}>
+            <strong>Date Entered:</strong> {formattedDate}
+          </Typography>
+        </Box>
+
+        {/* Priority */}
+        <Box sx={{ display: "flex", alignItems: "center", mt: 2 }}>
+          <Typography variant="body2" sx={{ color: "#666", mr: 1 }}>
+            <strong>Priority:</strong>
+          </Typography>
+          <Chip
+            label={ticket.priority}
+            sx={{
+              backgroundColor: priorityColor,
+              color: "#fff",
+              fontWeight: "bold",
+            }}
+          />
         </Box>
       </CardContent>
 
