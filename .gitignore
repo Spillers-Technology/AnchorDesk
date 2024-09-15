@@ -24,3 +24,4 @@ dist-ssr
 *.sw?
 
 coder/
+*storybook.log
