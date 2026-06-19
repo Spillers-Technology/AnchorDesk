@@ -9,7 +9,7 @@
 [![Build images](https://github.com/spilloid/materialticket/actions/workflows/publish-images.yml/badge.svg)](https://github.com/spilloid/materialticket/actions/workflows/publish-images.yml)
 [![Stack](https://img.shields.io/badge/stack-React%20·%20Fastify%20·%20Prisma%20·%20MariaDB-555.svg)](#architecture)
 
-[**Website**](https://spilloid.github.io/materialticket/) · [Quickstart](#quickstart) · [Architecture](#architecture) · [API](#api) · [Docs](docs/)
+[**Website**](https://spilloid.github.io/MaterialTicket/) · [Quickstart](#quickstart) · [Architecture](#architecture) · [API](#api) · [Docs](docs/)
 
 </div>
 
