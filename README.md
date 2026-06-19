@@ -1,6 +1,7 @@
 <div align="center">
 
 # materialticket
+<img width="1448" height="1086" alt="image" src="https://github.com/user-attachments/assets/da07a6e2-6b5b-4eaf-8620-e1243ab60f4c" />
 
 **A local-first ticketing platform for MSPs and IT teams — that also sees and acts on the machines behind the tickets.**
 
