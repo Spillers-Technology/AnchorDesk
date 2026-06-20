@@ -1,6 +1,6 @@
 {
-  "name": "materialticket-backend",
-  "version": "1.1.0",
+  "name": "anchordesk-backend",
+  "version": "1.2.0",
   "main": "dist/src/index.js",
   "scripts": {
     "test": "jest",
@@ -18,7 +18,7 @@
   ],
   "author": "Joseph Spillers",
   "license": "MIT",
-  "description": "materialticket backend — local-first ticketing + device/RMM API (Fastify + Prisma + PostgreSQL)",
+  "description": "anchordesk backend — local-first ticketing + device/RMM API (Fastify + Prisma + PostgreSQL)",
   "dependencies": {
     "@fastify/cookie": "^9.4.0",
     "@fastify/formbody": "^7.4.0",

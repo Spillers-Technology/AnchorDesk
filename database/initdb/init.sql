@@ -1,4 +1,4 @@
--- materialticket schema is managed by Prisma, not this file.
+-- anchordesk schema is managed by Prisma, not this file.
 --
 -- The authoritative schema lives in backend/prisma/schema.prisma and is applied
 -- with `npx prisma db push` (dev) or `prisma migrate` (stable). Postgres-specific

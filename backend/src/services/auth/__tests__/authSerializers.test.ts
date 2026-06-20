@@ -55,10 +55,10 @@ const baseSettings: AuthSetting = {
   oidcRedirectUri: null,
   samlEnabled: false,
   samlEntryPoint: null,
-  samlIssuer: 'materialticket',
+  samlIssuer: 'anchordesk',
   samlIdpCert: null,
   mfaRequired: true,
-  mfaIssuer: 'MaterialTicket',
+  mfaIssuer: 'AnchorDesk',
   updatedAt: new Date(),
 };
 

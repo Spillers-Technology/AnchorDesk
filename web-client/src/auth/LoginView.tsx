@@ -84,7 +84,7 @@ export default function LoginView({ onAuthenticated }: { onAuthenticated: (u: ap
     <Centered>
       <Card sx={{ width: 420, maxWidth: "92vw" }} elevation={6}>
         <CardContent>
-          <Typography variant="h5" gutterBottom>MaterialTicket</Typography>
+          <Typography variant="h5" gutterBottom>AnchorDesk</Typography>
           {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
           {recovery ? (

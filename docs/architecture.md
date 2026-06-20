@@ -2,11 +2,11 @@
 
 ## Overview
 
-materialticket is a local-first ticketing system. The PostgreSQL database is the source of truth. External platforms (ConnectWise, IMAP, etc.) are sync adapters that feed into the local store — they are not the core.
+anchordesk is a local-first ticketing system. The PostgreSQL database is the source of truth. External platforms (ConnectWise, IMAP, etc.) are sync adapters that feed into the local store — they are not the core.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                        materialticket                        │
+│                        anchordesk                        │
 │                                                              │
 │  ┌─────────────────┐        ┌─────────────────────────────┐ │
 │  │  React + MUI    │ /api/* │  Fastify (Node.js + TS)     │ │

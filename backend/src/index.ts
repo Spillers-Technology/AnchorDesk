@@ -96,7 +96,7 @@ async function start() {
   process.on('SIGINT', shutdown);
 
   await server.listen({ port: Number(config.serverPort), host: '0.0.0.0' });
-  server.log.info(`materialticket backend listening on :${config.serverPort}`);
+  server.log.info(`anchordesk backend listening on :${config.serverPort}`);
 
   // Postgres-specific indexes (full-text search + partial indexes).
   await ensurePgExtras(server.log).catch((err) => server.log.error({ err }, 'pgExtras failed'));

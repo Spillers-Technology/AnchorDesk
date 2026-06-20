@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: web-client
-  namespace: materialticket
+  namespace: anchordesk
   labels:
     app: web-client
 spec:
@@ -32,7 +32,7 @@ spec:
 
       containers:
         - name: web-client
-          image: ghcr.io/spilloid/materialticket-web:dev
+          image: ghcr.io/spilloid/anchordesk-web:dev
           imagePullPolicy: Always
           ports:
             - containerPort: 80

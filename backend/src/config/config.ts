@@ -33,7 +33,7 @@ export const config = {
   // MFA (TOTP) policy. Enabled/required by default; set MFA_REQUIRED=false to make
   // TOTP optional for local accounts. mfaIssuer labels the entry in authenticator apps.
   mfaRequired: process.env.MFA_REQUIRED !== 'false',
-  mfaIssuer: process.env.MFA_ISSUER || 'MaterialTicket',
+  mfaIssuer: process.env.MFA_ISSUER || 'AnchorDesk',
 
   // OIDC — works with Azure AD, Authentik, Okta, or any OIDC-compliant IdP.
   // These seed the AuthSetting row on first boot; the DB row wins afterward.
@@ -45,7 +45,7 @@ export const config = {
   // SAML 2.0 SP config (env seed).
   saml: {
     entryPoint: process.env.SAML_ENTRY_POINT || '',
-    issuer: process.env.SAML_ISSUER || 'materialticket',
+    issuer: process.env.SAML_ISSUER || 'anchordesk',
     idpCert: process.env.SAML_IDP_CERT || '',
   },
 
@@ -60,7 +60,7 @@ export const config = {
     secure: process.env.SMTP_SECURE === 'true', // true = implicit TLS (465)
     user: process.env.SMTP_USER || '',
     pass: process.env.SMTP_PASS || '',
-    from: process.env.SMTP_FROM || 'materialticket@localhost',
+    from: process.env.SMTP_FROM || 'anchordesk@localhost',
   },
 
   // Tactical RMM (optional) — enables device sync + running scripts on devices.

@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: db-init-sql
-  namespace: materialticket
+  namespace: anchordesk
 data:
   # Prisma db push runs as a backend init container and applies the full schema,
   # so this file only needs to create the database (POSTGRES_* env vars handle that).

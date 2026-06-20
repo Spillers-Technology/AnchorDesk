@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "materialticket": {
+    "anchordesk": {
       "type": "sse",
       "url": "https://tickets.spillerstech.us/mcp/sse"
     }

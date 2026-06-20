@@ -32,9 +32,9 @@ describe('password hashing', () => {
 describe('TOTP', () => {
   it('builds a valid otpauth URL and verifies a current code', () => {
     const secret = generateSecret();
-    const url = buildOtpauthUrl('alice', 'MaterialTicket', secret);
+    const url = buildOtpauthUrl('alice', 'AnchorDesk', secret);
     expect(url).toMatch(/^otpauth:\/\/totp\//);
-    expect(url).toContain('MaterialTicket');
+    expect(url).toContain('AnchorDesk');
 
     const code = authenticator.generate(secret);
     expect(verifyToken(secret, code)).toBe(true);

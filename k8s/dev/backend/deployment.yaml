@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
-  namespace: materialticket
+  namespace: anchordesk
   labels:
     app: backend
 spec:
@@ -32,19 +32,19 @@ spec:
 
         # Apply Prisma schema to the database (idempotent).
         - name: prisma-db-push
-          image: ghcr.io/spilloid/materialticket-backend:dev
+          image: ghcr.io/spilloid/anchordesk-backend:dev
           imagePullPolicy: Always
           command: ["npx", "prisma", "db", "push", "--skip-generate"]
           env:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: DATABASE_URL
 
       containers:
         - name: backend
-          image: ghcr.io/spilloid/materialticket-backend:dev
+          image: ghcr.io/spilloid/anchordesk-backend:dev
           imagePullPolicy: Always
           ports:
             - containerPort: 8060
@@ -56,63 +56,63 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: DATABASE_URL
             - name: OIDC_DISABLED
               value: "true"   # flip to false and set OIDC_* secrets for real auth
             - name: OIDC_ISSUER_URL
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: OIDC_ISSUER_URL
                   optional: true
             - name: OIDC_CLIENT_ID
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: OIDC_CLIENT_ID
                   optional: true
             - name: OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: OIDC_CLIENT_SECRET
                   optional: true
             # Auth (1.1.0): session signing, public base URL, bootstrap admin, SAML.
             - name: APP_BASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: APP_BASE_URL
                   optional: true
             - name: AUTH_SESSION_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: AUTH_SESSION_SECRET
                   optional: true
             - name: BOOTSTRAP_ADMIN_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: BOOTSTRAP_ADMIN_USERNAME
                   optional: true
             - name: BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: BOOTSTRAP_ADMIN_PASSWORD
                   optional: true
             - name: SAML_ENTRY_POINT
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: SAML_ENTRY_POINT
                   optional: true
             - name: SAML_IDP_CERT
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: SAML_IDP_CERT
                   optional: true
           readinessProbe:

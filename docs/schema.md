@@ -1,6 +1,6 @@
 # Database Schema
 
-materialticket uses PostgreSQL (since 1.1.0). The Prisma schema is the authoritative source of truth: [backend/prisma/schema.prisma](../backend/prisma/schema.prisma). `Json` columns are real `jsonb`, and ticket search uses a `tsvector` GIN index (see [backend/src/db/pgExtras.ts](../backend/src/db/pgExtras.ts)).
+anchordesk uses PostgreSQL (since 1.1.0). The Prisma schema is the authoritative source of truth: [backend/prisma/schema.prisma](../backend/prisma/schema.prisma). `Json` columns are real `jsonb`, and ticket search uses a `tsvector` GIN index (see [backend/src/db/pgExtras.ts](../backend/src/db/pgExtras.ts)).
 
 ---
 

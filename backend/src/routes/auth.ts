@@ -132,7 +132,7 @@ export async function authRoutes(server: FastifyInstance) {
     const settings = await getAuthSettings();
     const secret = totp.generateSecret();
     await userRepo.stageTotpSecret(user.id, secret);
-    const otpauthUrl = totp.buildOtpauthUrl(user.username, settings.mfaIssuer ?? 'MaterialTicket', secret);
+    const otpauthUrl = totp.buildOtpauthUrl(user.username, settings.mfaIssuer ?? 'AnchorDesk', secret);
     const qr = await totp.qrDataUrl(otpauthUrl);
     return reply.send({ otpauthUrl, qr, secret });
   });

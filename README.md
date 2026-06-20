@@ -1,16 +1,16 @@
 <div align="center">
 
-# materialticket
+# anchordesk
 <img width="1448" height="1086" alt="image" src="https://github.com/user-attachments/assets/da07a6e2-6b5b-4eaf-8620-e1243ab60f4c" />
 
 **A local-first ticketing platform for MSPs and IT teams — that also sees and acts on the machines behind the tickets.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.1.0-6750A4.svg)](https://github.com/spilloid/materialticket/releases)
-[![Build images](https://github.com/spilloid/materialticket/actions/workflows/publish-images.yml/badge.svg)](https://github.com/spilloid/materialticket/actions/workflows/publish-images.yml)
+[![Release](https://img.shields.io/badge/release-v1.1.0-6750A4.svg)](https://github.com/spilloid/anchordesk/releases)
+[![Build images](https://github.com/spilloid/anchordesk/actions/workflows/publish-images.yml/badge.svg)](https://github.com/spilloid/anchordesk/actions/workflows/publish-images.yml)
 [![Stack](https://img.shields.io/badge/stack-React%20·%20Fastify%20·%20Prisma%20·%20PostgreSQL-555.svg)](#architecture)
 
-[**Website**](https://spilloid.github.io/MaterialTicket/) · [Quickstart](#quickstart) · [Architecture](#architecture) · [API](#api) · [Docs](docs/)
+[**Website**](https://spilloid.github.io/AnchorDesk/) · [Quickstart](#quickstart) · [Architecture](#architecture) · [API](#api) · [Docs](docs/)
 
 </div>
 
@@ -18,7 +18,7 @@
 
 ## What it is
 
-**materialticket** is a self-hosted ticketing system where your **local PostgreSQL database is the source of truth**. External platforms — ConnectWise Manage, IMAP mailboxes, RMM tools — are *sync adapters* that feed into the local store, not the core. Run it completely standalone, or wire in as many integrations as you need; the product works the same either way.
+**anchordesk** is a self-hosted ticketing system where your **local PostgreSQL database is the source of truth**. External platforms — ConnectWise Manage, IMAP mailboxes, RMM tools — are *sync adapters* that feed into the local store, not the core. Run it completely standalone, or wire in as many integrations as you need; the product works the same either way.
 
 What sets it apart from a plain helpdesk: tickets are linked to the **devices** they're about (discovered by network probes, visualized as a live network map) and you can **run scripts** against those devices through your RMM, all from the ticket. Every mutation — to a ticket, note, device, or probe — appends to an **append-only audit log**, giving you full revision history and attribution out of the box.
 
@@ -82,7 +82,7 @@ cd web-client && npm install && npm run dev      # :5173
 
 Open **http://localhost:5173** — all `/api/*` requests proxy to the backend.
 
-For a production-like full stack: `docker compose up --build`. Prebuilt images are published to GHCR on every tagged release (`ghcr.io/spilloid/materialticket-backend`, `-web-client`).
+For a production-like full stack: `docker compose up --build`. Prebuilt images are published to GHCR on every tagged release (`ghcr.io/spilloid/anchordesk-backend`, `-web-client`).
 
 ## Configuration
 
@@ -90,7 +90,7 @@ Auth and integrations are driven by environment variables — see [backend/.env.
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | Yes | `postgresql://user:pass@host:5432/materialticket` |
+| `DATABASE_URL` | Yes | `postgresql://user:pass@host:5432/anchordesk` |
 | `APP_BASE_URL` | Prod | Public URL — builds OIDC/SAML callbacks |
 | `AUTH_SESSION_SECRET` | Prod | Signs session cookies (`openssl rand -hex 32`) |
 | `BOOTSTRAP_ADMIN_PASSWORD` | First boot | Creates the first local admin when the users table is empty |
@@ -125,7 +125,7 @@ Probes authenticate with an `X-Probe-Key` API key and are auth-exempt; everythin
 
 ## Probes & devices
 
-A probe is a scanner deployed on a customer LAN that pushes discovered devices into materialticket. The reference probe is [netviz](https://github.com/Spillers-Technology/netviz). An admin registers a probe (Admin → Probes, or `POST /probes`) and receives an API key once; the probe heartbeats and posts device records, which are upserted into the local `devices` table, rendered in the **Network** view, and can be linked to tickets. The wire contract lives in [backend/src/providers/NetVizProvider.ts](backend/src/providers/NetVizProvider.ts) (contract v1).
+A probe is a scanner deployed on a customer LAN that pushes discovered devices into anchordesk. The reference probe is [netviz](https://github.com/Spillers-Technology/netviz). An admin registers a probe (Admin → Probes, or `POST /probes`) and receives an API key once; the probe heartbeats and posts device records, which are upserted into the local `devices` table, rendered in the **Network** view, and can be linked to tickets. The wire contract lives in [backend/src/providers/NetVizProvider.ts](backend/src/providers/NetVizProvider.ts) (contract v1).
 
 ## Documentation
 

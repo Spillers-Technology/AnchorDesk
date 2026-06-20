@@ -1,4 +1,4 @@
-# materialticket — CLAUDE.md
+# anchordesk — CLAUDE.md
 
 Developer reference for working with this codebase. Keep this document updated as the project evolves.
 
@@ -6,7 +6,7 @@ Developer reference for working with this codebase. Keep this document updated a
 
 ## What this is
 
-materialticket is a **local-first ticketing system** built on Material UI design principles. The local PostgreSQL database is the source of truth; external systems (ConnectWise, IMAP, RMM tools) are sync adapters — not the core.
+anchordesk is a **local-first ticketing system** built on Material UI design principles. The local PostgreSQL database is the source of truth; external systems (ConnectWise, IMAP, RMM tools) are sync adapters — not the core.
 
 > **As of 1.1.0:** the database is **PostgreSQL** (was MariaDB) — chosen for `jsonb`, full-text search, and partial indexes. Auth is first-class: **local accounts + OIDC + SAML** with **server-side sessions**, **TOTP MFA (on by default)**, and **RBAC** (admin/technician/readonly). A **Network** view renders probe-discovered devices as a radial map.
 
@@ -60,7 +60,7 @@ GoF patterns in use:
 docker compose up -d db adminer
 ```
 
-Adminer (DB browser) runs at http://localhost:8081 — server `db`, user `stadmin`, db `materialticket`.
+Adminer (DB browser) runs at http://localhost:8081 — server `db`, user `stadmin`, db `anchordesk`.
 
 ### 2. Configure the backend
 
@@ -107,7 +107,7 @@ See [backend/.env.example](backend/.env.example) for the full list.
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | Yes | `postgresql://user:pass@host:5432/materialticket` |
+| `DATABASE_URL` | Yes | `postgresql://user:pass@host:5432/anchordesk` |
 | `APP_BASE_URL` | Prod | Public URL; builds OIDC/SAML callback URLs |
 | `AUTH_SESSION_SECRET` | Prod | Signs session cookies (`openssl rand -hex 32`) |
 | `BOOTSTRAP_ADMIN_PASSWORD` | First boot | Creates first local admin when users table is empty |

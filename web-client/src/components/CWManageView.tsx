@@ -120,7 +120,7 @@ export default function CWManageView({ onTicketsChanged }: Props) {
         Sync Management
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Sync tickets from external platforms into materialticket's local database.
+        Sync tickets from external platforms into anchordesk's local database.
         The local database is always the source of truth.
       </Typography>
 

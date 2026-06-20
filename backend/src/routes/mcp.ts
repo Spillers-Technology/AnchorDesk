@@ -7,7 +7,7 @@ import * as notes from '../repositories/noteRepository';
 import * as audit from '../repositories/auditRepository';
 
 function buildMcpServer(): McpServer {
-  const server = new McpServer({ name: 'materialticket', version: '1.0.0' });
+  const server = new McpServer({ name: 'anchordesk', version: '1.0.0' });
 
   server.tool(
     'list_tickets',

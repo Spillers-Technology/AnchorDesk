@@ -1,4 +1,4 @@
-# materialticket — k8s dev workflow
+# anchordesk — k8s dev workflow
 #
 # Prerequisites:
 #   - kubectl configured pointing at the cluster
@@ -17,9 +17,9 @@
 
 REGISTRY   ?= ghcr.io/spilloid
 TAG        ?= dev
-NS         ?= materialticket
-BACKEND_IMG = $(REGISTRY)/materialticket-backend:$(TAG)
-WEB_IMG     = $(REGISTRY)/materialticket-web:$(TAG)
+NS         ?= anchordesk
+BACKEND_IMG = $(REGISTRY)/anchordesk-backend:$(TAG)
+WEB_IMG     = $(REGISTRY)/anchordesk-web:$(TAG)
 
 .PHONY: all build push deploy redeploy secrets status logs logs-web logs-db \
         shell-backend shell-db db-push restart clean help
@@ -41,7 +41,7 @@ push: ## Push images to registry (docker login ghcr.io first)
 secrets: ## Create k8s Secret from k8s/dev/secrets.env (copy from secrets.example.env)
 	@test -f k8s/dev/secrets.env || (echo "ERROR: k8s/dev/secrets.env not found. Copy secrets.example.env and fill in values." && exit 1)
 	kubectl create namespace $(NS) --dry-run=client -o yaml | kubectl apply -f -
-	kubectl create secret generic materialticket-secrets \
+	kubectl create secret generic anchordesk-secrets \
 	  --from-env-file=k8s/dev/secrets.env \
 	  --namespace=$(NS) \
 	  --dry-run=client -o yaml | kubectl apply -f -
@@ -70,7 +70,7 @@ redeploy: build push restart ## Rebuild images, push, and restart pods
 
 # ─── Observability ────────────────────────────────────────────────────────────
 
-status: ## Show all resources in the materialticket namespace
+status: ## Show all resources in the anchordesk namespace
 	kubectl get all -n $(NS)
 	@echo ""
 	kubectl get ingress -n $(NS)
@@ -91,7 +91,7 @@ shell-backend: ## Open a shell in the running backend pod
 
 shell-db: ## Open a psql shell
 	kubectl exec -it -n $(NS) db-0 -- \
-	  sh -c 'psql -U $$POSTGRES_USER -d materialticket'
+	  sh -c 'psql -U $$POSTGRES_USER -d anchordesk'
 
 db-push: ## Run prisma db push inside the backend pod (apply schema changes)
 	kubectl exec -n $(NS) deploy/backend -- npx prisma db push
@@ -102,7 +102,7 @@ db-studio: ## Forward Prisma Studio port locally (http://localhost:5555)
 
 # ─── Teardown ─────────────────────────────────────────────────────────────────
 
-clean: ## Delete all materialticket resources (keeps PVC/data)
+clean: ## Delete all anchordesk resources (keeps PVC/data)
 	kubectl delete namespace $(NS) --ignore-not-found
 
 clean-all: ## Delete everything including Longhorn PVCs (DATA LOSS)

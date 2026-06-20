@@ -40,9 +40,9 @@ function build(s: AuthSetting): SAML {
   const samlConfig: SamlConfig = {
     callbackUrl: samlCallbackUrl(),
     entryPoint: s.samlEntryPoint,
-    issuer: s.samlIssuer || config.saml.issuer || 'materialticket',
+    issuer: s.samlIssuer || config.saml.issuer || 'anchordesk',
     idpCert: normalizeCert(s.samlIdpCert),
-    audience: s.samlIssuer || 'materialticket',
+    audience: s.samlIssuer || 'anchordesk',
     wantAssertionsSigned: true,
     wantAuthnResponseSigned: false,
     validateInResponseTo: 'never' as SamlConfig['validateInResponseTo'],

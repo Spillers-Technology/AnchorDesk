@@ -1,5 +1,5 @@
 /**
- * Thin API client for materialticket backend.
+ * Thin API client for anchordesk backend.
  *
  * All fetch calls go through here so auth headers, base URL,
  * and error handling are handled consistently in one place.

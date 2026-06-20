@@ -98,7 +98,7 @@ export async function getSmtp(): Promise<SmtpConfig> {
     secure: Boolean(v.secure ?? false),
     user: String(v.user ?? ''),
     pass: String(v.pass ?? ''),
-    from: String(v.from ?? 'materialticket@localhost'),
+    from: String(v.from ?? 'anchordesk@localhost'),
   };
 }
 

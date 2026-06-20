@@ -101,7 +101,7 @@ export function toPublicSettings(s: AuthSetting) {
     },
     mfa: {
       required: s.mfaRequired,
-      issuer: s.mfaIssuer ?? 'MaterialTicket',
+      issuer: s.mfaIssuer ?? 'AnchorDesk',
     },
   };
 }

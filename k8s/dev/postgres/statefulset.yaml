@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: db
-  namespace: materialticket
+  namespace: anchordesk
   labels:
     app: db
 spec:
@@ -23,16 +23,16 @@ spec:
             - containerPort: 5432
           env:
             - name: POSTGRES_DB
-              value: materialticket
+              value: anchordesk
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: POSTGRES_USER
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: materialticket-secrets
+                  name: anchordesk-secrets
                   key: POSTGRES_PASSWORD
             # Postgres writes into a subdir so the PVC root (with lost+found) is fine.
             - name: PGDATA
@@ -42,13 +42,13 @@ spec:
               mountPath: /var/lib/postgresql/data
           readinessProbe:
             exec:
-              command: ["sh", "-c", "pg_isready -U ${POSTGRES_USER} -d materialticket"]
+              command: ["sh", "-c", "pg_isready -U ${POSTGRES_USER} -d anchordesk"]
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
             exec:
-              command: ["sh", "-c", "pg_isready -U ${POSTGRES_USER} -d materialticket"]
+              command: ["sh", "-c", "pg_isready -U ${POSTGRES_USER} -d anchordesk"]
             initialDelaySeconds: 30
             periodSeconds: 20
             failureThreshold: 3

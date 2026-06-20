@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: db
-  namespace: materialticket
+  namespace: anchordesk
   labels:
     app: db
 spec:
@@ -11,4 +11,4 @@ spec:
   ports:
     - port: 5432
       targetPort: 5432
-  clusterIP: None   # headless — StatefulSet gets stable DNS: db.materialticket.svc.cluster.local
+  clusterIP: None   # headless — StatefulSet gets stable DNS: db.anchordesk.svc.cluster.local

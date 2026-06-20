@@ -1,8 +1,8 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: materialticket
-  namespace: materialticket
+  name: anchordesk
+  namespace: anchordesk
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-cloudflare
     nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
@@ -12,7 +12,7 @@ spec:
   tls:
     - hosts:
         - tickets.spillerstech.us
-      secretName: materialticket-tls
+      secretName: anchordesk-tls
   rules:
     - host: tickets.spillerstech.us
       http:

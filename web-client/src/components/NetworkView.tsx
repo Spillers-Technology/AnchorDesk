@@ -15,7 +15,7 @@ import * as api from "../api/client";
 
 /**
  * Network view — a port of NetViz's radial "firewall hierarchy" over
- * MaterialTicket's local Device inventory. A central node represents the
+ * AnchorDesk's local Device inventory. A central node represents the
  * network/probe; devices orbit it, sized by open-port count and colored by
  * status. Click a node for details. Data comes from the local Device table
  * (populated by netviz probes, Tactical sync, or manual entry) — no live

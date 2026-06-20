@@ -4,7 +4,7 @@
  * netviz (https://spillers-technology.github.io/netviz/) is a Go+Wails scanner
  * that emits device records over its event bus and exports versioned NetViz JSON.
  * A netviz instance deployed on a customer LAN acts as a *probe*: it POSTs its
- * scan results to MaterialTicket's ingest endpoint, and we normalize each record
+ * scan results to AnchorDesk's ingest endpoint, and we normalize each record
  * into our local Device model here.
  *
  * THIS FILE OWNS THE WIRE CONTRACT. The shape below (NetVizDeviceRecord) is the

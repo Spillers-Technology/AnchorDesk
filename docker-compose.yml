@@ -1,3 +1,4 @@
+name: anchordesk
 services:
   web-client:
     build:
@@ -12,7 +13,7 @@ services:
     restart: always
     environment:
       # Secrets come from the gitignored .env — never hardcode them here.
-      POSTGRES_DB: ${DB_NAME:-materialticket}
+      POSTGRES_DB: ${DB_NAME:-anchordesk}
       POSTGRES_USER: ${DB_USER:-mtapp}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     ports:
@@ -20,7 +21,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data:Z
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-mtapp} -d ${DB_NAME:-materialticket}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-mtapp} -d ${DB_NAME:-anchordesk}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -40,13 +41,9 @@ services:
     # backend/.env (volume-mounted) supplies OIDC/TRMM/SMTP; DATABASE_URL is
     # overridden here to reach the db service (not localhost) inside the network.
     environment:
-      DATABASE_URL: postgresql://${DB_USER:-mtapp}:${DB_PASSWORD}@db:5432/${DB_NAME:-materialticket}
+      DATABASE_URL: postgresql://${DB_USER:-mtapp}:${DB_PASSWORD}@db:5432/${DB_NAME:-anchordesk}
     volumes:
       - ./backend:/backend # Mount your project's src folder
       - /backend/node_modules
 volumes:
   pgdata:
-networks:
-  default:
-      name: "intune-depot-app"
-      external: true
