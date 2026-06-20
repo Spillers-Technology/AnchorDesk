@@ -178,6 +178,97 @@ export function updateAuthSettings(data: Record<string, unknown>) {
   return request<AuthSettings>("/auth/settings", { method: "PATCH", body: JSON.stringify(data) });
 }
 
+// ─── Admin console ───────────────────────────────────────────────────────────
+
+export interface AdminOverview {
+  tickets: { open: number; total: number };
+  devices: { total: number; online: number };
+  probes: { total: number; online: number };
+  users: number;
+  mailboxes: number;
+  recentAudit: AuditEvent[];
+}
+
+export interface AuditEvent {
+  id: string;
+  entityType: string;
+  entityId: number;
+  action: string;
+  changedBy: string | null;
+  oldValue: unknown;
+  newValue: unknown;
+  occurredAt: string;
+}
+
+export function getAdminOverview() {
+  return request<AdminOverview>("/admin/overview");
+}
+
+export function getAuditLog(opts: { entityType?: string; action?: string; limit?: number } = {}) {
+  const p = new URLSearchParams();
+  if (opts.entityType) p.set("entityType", opts.entityType);
+  if (opts.action) p.set("action", opts.action);
+  if (opts.limit) p.set("limit", String(opts.limit));
+  return request<AuditEvent[]>(`/admin/audit?${p}`);
+}
+
+// ─── Integrations ────────────────────────────────────────────────────────────
+
+export interface IntegrationsView {
+  smtp: { host?: string; port?: number; secure?: boolean; user?: string; from?: string; hasPass?: boolean };
+  connectwise: { server?: string; company?: string; publicKey?: string; hasPrivateKey?: boolean; hasClientId?: boolean };
+  tactical: { apiUrl?: string; hasApiKey?: boolean };
+}
+
+export function getIntegrations() {
+  return request<IntegrationsView>("/integrations");
+}
+
+export function updateIntegration(key: "smtp" | "connectwise" | "tactical", data: Record<string, unknown>) {
+  return request<Record<string, unknown>>(`/integrations/${key}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+
+// ─── Mailboxes (IMAP email-to-ticket) ─────────────────────────────────────────
+
+export interface Mailbox {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  username: string;
+  hasPassword: boolean;
+  folder: string;
+  companyName: string | null;
+  enabled: boolean;
+  lastUid: number | null;
+  lastPolledAt: string | null;
+  lastError: string | null;
+}
+
+export function listMailboxes() {
+  return request<Mailbox[]>("/mailboxes");
+}
+
+export function createMailbox(data: Record<string, unknown>) {
+  return request<Mailbox>("/mailboxes", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function updateMailbox(id: number, data: Record<string, unknown>) {
+  return request<Mailbox>(`/mailboxes/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+
+export function deleteMailbox(id: number) {
+  return request<void>(`/mailboxes/${id}`, { method: "DELETE" });
+}
+
+export function pollMailbox(id: number) {
+  return request<{ mailbox: string; processed: number; created: number; appended: number; error?: string }>(
+    `/mailboxes/${id}/poll`,
+    { method: "POST" }
+  );
+}
+
 // ─── Tickets ────────────────────────────────────────────────────────────────
 
 export interface TicketFilters {

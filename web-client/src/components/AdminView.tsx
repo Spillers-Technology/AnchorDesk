@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   Box,
-  Tab,
-  Tabs,
   Paper,
   Table,
   TableBody,
@@ -23,36 +21,132 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import Divider from "@mui/material/Divider";
+import {
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Card,
+  CardContent,
+  Grid,
+} from "@mui/material";
+import DashboardIcon from "@mui/icons-material/Dashboard";
+import PeopleIcon from "@mui/icons-material/People";
+import SecurityIcon from "@mui/icons-material/Security";
+import CableIcon from "@mui/icons-material/Cable";
+import EmailIcon from "@mui/icons-material/Email";
+import SyncIcon from "@mui/icons-material/Sync";
+import RouterIcon from "@mui/icons-material/Router";
+import DevicesIcon from "@mui/icons-material/Devices";
+import HistoryIcon from "@mui/icons-material/History";
 import * as api from "../api/client";
 
-type AdminTab = "users" | "auth" | "providers" | "probes" | "devices" | "mail";
+type AdminSection =
+  | "overview" | "users" | "auth" | "integrations" | "mailboxes"
+  | "providers" | "probes" | "devices" | "audit";
+
+const NAV: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
+  { id: "overview", label: "Overview", icon: <DashboardIcon /> },
+  { id: "users", label: "Users & Roles", icon: <PeopleIcon /> },
+  { id: "auth", label: "Authentication", icon: <SecurityIcon /> },
+  { id: "integrations", label: "Integrations", icon: <CableIcon /> },
+  { id: "mailboxes", label: "Mailboxes", icon: <EmailIcon /> },
+  { id: "providers", label: "Sync Providers", icon: <SyncIcon /> },
+  { id: "probes", label: "Probes", icon: <RouterIcon /> },
+  { id: "devices", label: "Devices", icon: <DevicesIcon /> },
+  { id: "audit", label: "Audit Log", icon: <HistoryIcon /> },
+];
 
 const ROLES = ["admin", "technician", "readonly"];
 
-/** Admin surface: users + auth, then sync providers, netviz probes, devices, mail. */
+/** Admin console — persistent left sub-nav with a content area per section. */
 export default function AdminView() {
-  const [tab, setTab] = useState<AdminTab>("users");
+  const [section, setSection] = useState<AdminSection>("overview");
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ mb: 1 }}>Admin</Typography>
-      <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 2 }} variant="scrollable" scrollButtons="auto">
-        <Tab label="Users" value="users" />
-        <Tab label="Authentication" value="auth" />
-        <Tab label="Sync Providers" value="providers" />
-        <Tab label="Probes" value="probes" />
-        <Tab label="Devices" value="devices" />
-        <Tab label="Mail" value="mail" />
-      </Tabs>
+    <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
+      <Paper variant="outlined" sx={{ width: { xs: "100%", md: 230 }, flexShrink: 0, position: { md: "sticky" }, top: { md: 88 } }}>
+        <List dense disablePadding>
+          {NAV.map((n) => (
+            <ListItemButton key={n.id} selected={section === n.id} onClick={() => setSection(n.id)}>
+              <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
+              <ListItemText primary={n.label} />
+            </ListItemButton>
+          ))}
+        </List>
+      </Paper>
 
-      {tab === "users" && <UsersPanel />}
-      {tab === "auth" && <AuthSettingsPanel />}
-      {tab === "providers" && <ProvidersPanel />}
-      {tab === "probes" && <ProbesPanel />}
-      {tab === "devices" && <DevicesPanel />}
-      {tab === "mail" && <MailPanel />}
-    </Box>
+      <Box sx={{ flexGrow: 1, minWidth: 0, width: "100%" }}>
+        {section === "overview" && <OverviewPanel onNavigate={setSection} />}
+        {section === "users" && <UsersPanel />}
+        {section === "auth" && <AuthSettingsPanel />}
+        {section === "integrations" && <IntegrationsPanel />}
+        {section === "mailboxes" && <MailboxesPanel />}
+        {section === "providers" && <ProvidersPanel />}
+        {section === "probes" && <ProbesPanel />}
+        {section === "devices" && <DevicesPanel />}
+        {section === "audit" && <AuditPanel />}
+      </Box>
+    </Stack>
   );
+}
+
+function OverviewPanel({ onNavigate }: { onNavigate: (s: AdminSection) => void }) {
+  const { data, loading, error } = useAsync(() => api.getAdminOverview());
+  if (loading) return <CircularProgress />;
+  if (error || !data) return <Alert severity="error">{error ?? "Failed to load"}</Alert>;
+
+  const stats: { label: string; value: string; sub?: string; go: AdminSection }[] = [
+    { label: "Open tickets", value: String(data.tickets.open), sub: `${data.tickets.total} total`, go: "overview" },
+    { label: "Devices online", value: `${data.devices.online}/${data.devices.total}`, go: "devices" },
+    { label: "Probes online", value: `${data.probes.online}/${data.probes.total}`, go: "probes" },
+    { label: "Active users", value: String(data.users), go: "users" },
+    { label: "Mailboxes", value: String(data.mailboxes), go: "mailboxes" },
+  ];
+
+  return (
+    <Stack spacing={2}>
+      <Typography variant="h5">Overview</Typography>
+      <Grid container spacing={2}>
+        {stats.map((s) => (
+          <Grid item xs={6} sm={4} md={2.4} key={s.label}>
+            <Card variant="outlined" sx={{ cursor: "pointer", "&:hover": { borderColor: "primary.main" } }} onClick={() => onNavigate(s.go)}>
+              <CardContent>
+                <Typography variant="h4">{s.value}</Typography>
+                <Typography variant="body2" color="text.secondary">{s.label}</Typography>
+                {s.sub && <Typography variant="caption" color="text.secondary">{s.sub}</Typography>}
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+          <Typography variant="subtitle2">Recent activity</Typography>
+          <Button size="small" onClick={() => onNavigate("audit")}>View all</Button>
+        </Stack>
+        <Stack spacing={0.5}>
+          {data.recentAudit.length === 0 && <Typography variant="body2" color="text.secondary">No activity yet.</Typography>}
+          {data.recentAudit.map((a) => (
+            <Box key={a.id} sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+              <Chip size="small" label={a.action} color={auditColor(a.action)} />
+              <Typography variant="body2">
+                {a.entityType} #{a.entityId} {a.changedBy ? `· ${a.changedBy}` : ""}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ ml: "auto" }}>
+                {new Date(a.occurredAt).toLocaleString()}
+              </Typography>
+            </Box>
+          ))}
+        </Stack>
+      </Paper>
+    </Stack>
+  );
+}
+
+function auditColor(action: string): "success" | "info" | "error" | "default" {
+  return action === "create" ? "success" : action === "delete" ? "error" : action === "update" ? "info" : "default";
 }
 
 function UsersPanel() {
@@ -436,30 +530,226 @@ function DevicesPanel() {
   );
 }
 
-function MailPanel() {
-  const { data, loading, error } = useAsync(() => api.getMailStatus());
+function IntegrationsPanel() {
+  const { data, loading, error, reload } = useAsync(() => api.getIntegrations());
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const save = async (key: "smtp" | "connectwise" | "tactical", patch: Record<string, unknown>) => {
+    setMsg(null);
+    try {
+      await api.updateIntegration(key, patch);
+      setMsg({ ok: true, text: `${key} saved` });
+      reload();
+    } catch (e) {
+      setMsg({ ok: false, text: errText(e) });
+    }
+  };
+
+  if (loading) return <CircularProgress />;
+  if (error || !data) return <Alert severity="error">{error ?? "Failed to load"}</Alert>;
+
+  return (
+    <Stack spacing={2} sx={{ maxWidth: 720 }}>
+      <Typography variant="h5">Integrations</Typography>
+      {msg && <Alert severity={msg.ok ? "success" : "error"} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+      <Alert severity="info">Seeded from environment variables; edits here take effect immediately and override the env defaults. Secrets are write-only — leave blank to keep the current value.</Alert>
+
+      <IntegrationCard
+        title="SMTP (outbound email)"
+        configured={!!data.smtp.host}
+        fields={[
+          { k: "host", label: "Host", value: data.smtp.host },
+          { k: "port", label: "Port", value: data.smtp.port, type: "number" },
+          { k: "user", label: "Username", value: data.smtp.user },
+          { k: "pass", label: "Password", secret: true, has: data.smtp.hasPass },
+          { k: "from", label: "From address", value: data.smtp.from },
+          { k: "secure", label: "Implicit TLS (465)", value: data.smtp.secure, type: "bool" },
+        ]}
+        onSave={(patch) => save("smtp", patch)}
+      />
+
+      <IntegrationCard
+        title="ConnectWise Manage"
+        configured={!!data.connectwise.server}
+        fields={[
+          { k: "server", label: "Server", value: data.connectwise.server },
+          { k: "company", label: "Company", value: data.connectwise.company },
+          { k: "publicKey", label: "Public key", value: data.connectwise.publicKey },
+          { k: "privateKey", label: "Private key", secret: true, has: data.connectwise.hasPrivateKey },
+          { k: "clientId", label: "Client ID", secret: true, has: data.connectwise.hasClientId },
+        ]}
+        onSave={(patch) => save("connectwise", patch)}
+      />
+
+      <IntegrationCard
+        title="Tactical RMM"
+        configured={!!data.tactical.apiUrl}
+        fields={[
+          { k: "apiUrl", label: "API URL", value: data.tactical.apiUrl },
+          { k: "apiKey", label: "API key", secret: true, has: data.tactical.hasApiKey },
+        ]}
+        onSave={(patch) => save("tactical", patch)}
+      />
+    </Stack>
+  );
+}
+
+interface IField { k: string; label: string; value?: unknown; secret?: boolean; has?: boolean; type?: "number" | "bool" }
+
+function IntegrationCard({ title, configured, fields, onSave }: { title: string; configured: boolean; fields: IField[]; onSave: (patch: Record<string, unknown>) => void }) {
+  const [draft, setDraft] = useState<Record<string, unknown>>({});
+  const set = (k: string, v: unknown) => setDraft((d) => ({ ...d, [k]: v }));
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+        <Typography variant="subtitle1">{title}</Typography>
+        <Chip size="small" color={configured ? "success" : "default"} label={configured ? "configured" : "not set"} />
+      </Stack>
+      <Stack spacing={1.5}>
+        {fields.map((f) =>
+          f.type === "bool" ? (
+            <label key={f.k}>
+              <Switch checked={f.k in draft ? !!draft[f.k] : !!f.value} onChange={(e) => set(f.k, e.target.checked)} /> {f.label}
+            </label>
+          ) : (
+            <TextField
+              key={f.k}
+              size="small"
+              label={f.label}
+              type={f.secret ? "password" : f.type === "number" ? "number" : "text"}
+              defaultValue={f.secret ? "" : (f.value ?? "")}
+              placeholder={f.secret ? (f.has ? "•••••• (set — blank keeps)" : "not set") : undefined}
+              onChange={(e) => set(f.k, f.type === "number" ? Number(e.target.value) : e.target.value)}
+            />
+          )
+        )}
+      </Stack>
+      <Box sx={{ mt: 1.5 }}>
+        <Button variant="contained" disabled={Object.keys(draft).length === 0} onClick={() => { onSave(draft); setDraft({}); }}>Save</Button>
+      </Box>
+    </Paper>
+  );
+}
+
+function MailboxesPanel() {
+  const { data, loading, error, reload } = useAsync(() => api.listMailboxes());
+  const [form, setForm] = useState({ name: "", host: "", port: 993, secure: true, username: "", password: "", folder: "INBOX", companyName: "" });
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const act = async (fn: () => Promise<unknown>, okText?: string) => {
+    setMsg(null);
+    try { await fn(); if (okText) setMsg({ ok: true, text: okText }); reload(); }
+    catch (e) { setMsg({ ok: false, text: errText(e) }); }
+  };
+  const create = () => act(async () => {
+    await api.createMailbox(form);
+    setForm({ name: "", host: "", port: 993, secure: true, username: "", password: "", folder: "INBOX", companyName: "" });
+  }, "Mailbox added");
+  const poll = (id: number) => act(async () => {
+    const r = await api.pollMailbox(id);
+    setMsg(r.error ? { ok: false, text: r.error } : { ok: true, text: `Polled: ${r.created} new tickets, ${r.appended} replies` });
+  });
 
   if (loading) return <CircularProgress />;
   if (error) return <Alert severity="error">{error}</Alert>;
 
   return (
-    <Paper variant="outlined" sx={{ p: 2 }}>
-      <Stack spacing={1}>
-        <Box>
-          {data?.configured ? (
-            <Chip color="success" label="SMTP configured" />
-          ) : (
-            <Chip color="warning" label="SMTP not configured" />
-          )}
-        </Box>
-        <Typography variant="body2">Host: {data?.host ?? "—"}</Typography>
-        <Typography variant="body2">Port: {data?.port}{data?.secure ? " (TLS)" : ""}</Typography>
-        <Typography variant="body2">From: {data?.from}</Typography>
-        <Alert severity="info" sx={{ mt: 1 }}>
-          SMTP is configured via backend env vars (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM).
-          Once set, tickets can send email and outbound messages are recorded on the ticket timeline.
-        </Alert>
+    <Stack spacing={2}>
+      <Typography variant="h5">Mailboxes (email-to-ticket)</Typography>
+      {msg && <Alert severity={msg.ok ? "success" : "error"} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+      <Alert severity="info">Each IMAP mailbox is polled for new mail: a new message opens a ticket; a reply threads into the original ticket as a note. Passwords are stored encrypted.</Alert>
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Add mailbox</Typography>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} flexWrap="wrap" useFlexGap>
+          <TextField size="small" label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <TextField size="small" label="IMAP host" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} />
+          <TextField size="small" label="Port" type="number" value={form.port} sx={{ width: 90 }} onChange={(e) => setForm({ ...form, port: Number(e.target.value) })} />
+          <TextField size="small" label="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+          <TextField size="small" label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <TextField size="small" label="Company" value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} />
+          <Button variant="contained" disabled={!form.name || !form.host || !form.username} onClick={create}>Add</Button>
+        </Stack>
+      </Paper>
+
+      <Paper variant="outlined">
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Name</TableCell><TableCell>Host</TableCell><TableCell>User</TableCell>
+              <TableCell>Company</TableCell><TableCell>Enabled</TableCell><TableCell>Last poll</TableCell><TableCell align="right">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {(data ?? []).map((m) => (
+              <TableRow key={m.id}>
+                <TableCell>{m.name}</TableCell>
+                <TableCell>{m.host}:{m.port}</TableCell>
+                <TableCell>{m.username}</TableCell>
+                <TableCell>{m.companyName ?? "—"}</TableCell>
+                <TableCell><Switch checked={m.enabled} onChange={(e) => act(() => api.updateMailbox(m.id, { enabled: e.target.checked }))} /></TableCell>
+                <TableCell>
+                  {m.lastError ? <Chip size="small" color="error" label="error" title={m.lastError} /> : m.lastPolledAt ? new Date(m.lastPolledAt).toLocaleString() : "never"}
+                </TableCell>
+                <TableCell align="right">
+                  <Button size="small" onClick={() => poll(m.id)}>Poll now</Button>
+                  <IconButton size="small" onClick={() => act(() => api.deleteMailbox(m.id))}><DeleteIcon fontSize="small" /></IconButton>
+                </TableCell>
+              </TableRow>
+            ))}
+            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={7}>No mailboxes configured.</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </Paper>
+    </Stack>
+  );
+}
+
+function AuditPanel() {
+  const [entityType, setEntityType] = useState("");
+  const [action, setAction] = useState("");
+  const { data, loading, error } = useAsync(
+    () => api.getAuditLog({ entityType: entityType || undefined, action: action || undefined, limit: 200 }),
+    [entityType, action]
+  );
+
+  return (
+    <Stack spacing={2}>
+      <Typography variant="h5">Audit Log</Typography>
+      <Stack direction="row" spacing={1}>
+        <Select size="small" displayEmpty value={entityType} onChange={(e) => setEntityType(e.target.value)} sx={{ minWidth: 150 }}>
+          <MenuItem value="">All entities</MenuItem>
+          {["ticket", "note", "device", "probe", "user", "mailbox"].map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+        </Select>
+        <Select size="small" displayEmpty value={action} onChange={(e) => setAction(e.target.value)} sx={{ minWidth: 130 }}>
+          <MenuItem value="">All actions</MenuItem>
+          {["create", "update", "delete", "sync"].map((a) => <MenuItem key={a} value={a}>{a}</MenuItem>)}
+        </Select>
       </Stack>
-    </Paper>
+
+      {loading ? <CircularProgress /> : error ? <Alert severity="error">{error}</Alert> : (
+        <Paper variant="outlined">
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>When</TableCell><TableCell>Action</TableCell><TableCell>Entity</TableCell><TableCell>By</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(data ?? []).map((a) => (
+                <TableRow key={a.id}>
+                  <TableCell>{new Date(a.occurredAt).toLocaleString()}</TableCell>
+                  <TableCell><Chip size="small" label={a.action} color={auditColor(a.action)} /></TableCell>
+                  <TableCell>{a.entityType} #{a.entityId}</TableCell>
+                  <TableCell>{a.changedBy ?? "—"}</TableCell>
+                </TableRow>
+              ))}
+              {(data ?? []).length === 0 && <TableRow><TableCell colSpan={4}>No audit events.</TableCell></TableRow>}
+            </TableBody>
+          </Table>
+        </Paper>
+      )}
+    </Stack>
   );
 }

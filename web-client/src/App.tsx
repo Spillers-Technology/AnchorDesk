@@ -11,7 +11,7 @@ import {
   Snackbar,
   Alert,
 } from "@mui/material";
-import { createTheme } from "@mui/material/styles";
+import { theme as defaultTheme } from "./theme";
 import DashboardAppBar from "./components/DashboardAppBar";
 import DashboardDrawer from "./components/DashboardDrawer";
 import TicketCard from "./components/TicketCard";
@@ -28,16 +28,6 @@ import * as api from "./api/client";
 import { useAuth } from "./auth/AuthContext";
 import LoginView from "./auth/LoginView";
 import AddIcon from "@mui/icons-material/Add";
-
-const defaultTheme = createTheme({
-  palette: {
-    primary: { main: "#1976d2" },
-    secondary: { main: "#f50057" },
-    background: { default: "#f4f6f8" },
-  },
-  shape: { borderRadius: 12 },
-  typography: { fontFamily: "Roboto, Arial, sans-serif" },
-});
 
 // Map local-DB ticket record to the component-facing Ticket interface.
 // The component interface uses CW-era field names; this adapter lets us keep
