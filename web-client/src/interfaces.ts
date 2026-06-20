@@ -28,6 +28,7 @@ export interface Note {
   type: "note" | "timeEntry";
   timeStart?: string;
   timeStop?: string;
+  minutes?: number;
 }
 
 export interface Ticket {

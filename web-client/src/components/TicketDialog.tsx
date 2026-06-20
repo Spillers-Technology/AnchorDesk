@@ -61,10 +61,20 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   const [assigneeId, setAssigneeId] = useState<number | "">("");
   const [allDevices, setAllDevices] = useState<any[]>([]);
   const [addDevice, setAddDevice] = useState<any | null>(null);
+  const [companies, setCompanies] = useState<api.Company[]>([]);
+  const [company, setCompany] = useState<api.Company | null>(null);
+  const [contacts, setContacts] = useState<api.Contact[]>([]);
+  const [contactId, setContactId] = useState<number | "">("");
+  const [timeMinutes, setTimeMinutes] = useState(0);
 
   const reloadDevices = useCallback(() => {
     if (ticket.localId == null) return;
     api.listTicketDevices(ticket.localId).then((d) => setDevices(d as any[])).catch(() => setDevices([]));
+  }, [ticket.localId]);
+
+  const reloadTime = useCallback(() => {
+    if (ticket.localId == null) return;
+    api.getTicketTime(ticket.localId).then((t) => setTimeMinutes(t.minutes)).catch(() => {});
   }, [ticket.localId]);
 
   // Load the cockpit: full ticket record, linked devices, script jobs, mail,
@@ -73,17 +83,52 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     if (!open || ticket.localId == null) return;
     const id = ticket.localId;
     api.getTicket(id).then((t) => {
-      setFull(t as any);
-      setStatus((t as any).status ?? status);
-      setAssigneeId(((t as any).assigneeId as number) ?? "");
+      const tt = t as any;
+      setFull(tt);
+      setStatus(tt.status ?? status);
+      setAssigneeId((tt.assigneeId as number) ?? "");
+      setCompany(tt.company ?? null);
+      setContactId((tt.contactId as number) ?? "");
+      if (tt.companyId) api.getCompany(tt.companyId).then((c) => setContacts(c.contacts ?? [])).catch(() => setContacts([]));
     }).catch(() => setFull(null));
     reloadDevices();
+    reloadTime();
     api.listTicketScriptJobs(id).then((j) => setJobs(j as any[])).catch(() => setJobs([]));
     api.getMailStatus().then((m) => setMailConfigured(m.configured)).catch(() => setMailConfigured(false));
     api.listAssignees().then(setAssignees).catch(() => setAssignees([]));
     api.listDevices({ pageSize: 500 }).then((d) => setAllDevices(d as any[])).catch(() => setAllDevices([]));
+    api.listCompanies().then(setCompanies).catch(() => setCompanies([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, ticket.localId]);
+
+  // Select (or create) a company on the ticket, then load its contacts.
+  const pickCompany = async (value: api.Company | string | null) => {
+    let c: api.Company | null = null;
+    if (typeof value === "string") {
+      const name = value.trim();
+      if (!name) return;
+      c = companies.find((x) => x.name.toLowerCase() === name.toLowerCase()) ?? (await api.createCompany({ name }).catch(() => null));
+      if (c && !companies.some((x) => x.id === c!.id)) setCompanies((prev) => [...prev, c!].sort((a, b) => a.name.localeCompare(b.name)));
+    } else {
+      c = value;
+    }
+    setCompany(c);
+    setContactId("");
+    setCompanyName(c?.name ?? "");
+    persist({ companyId: c?.id ?? null, contactId: null });
+    if (c) api.getCompany(c.id).then((full) => setContacts(full.contacts ?? [])).catch(() => setContacts([]));
+    else setContacts([]);
+  };
+
+  const pickContact = (id: number | "") => {
+    setContactId(id);
+    persist({ contactId: id === "" ? null : id });
+  };
+
+  const logTime = (minutes: number, note?: string) => {
+    if (ticket.localId == null || minutes <= 0) return;
+    api.logTicketTime(ticket.localId, minutes, note).then(() => { reloadTime(); onUpdated?.("time"); }).catch(() => {});
+  };
 
   const saveAssignee = (id: number | "") => {
     setAssigneeId(id);
@@ -179,7 +224,27 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                   </Box>
                   <EditableField label="Title" value={title} onSave={(v) => { setTitle(v); persist({ title: v }); }} />
                   <EditableField label="Priority" value={priority} options={[...TICKET_PRIORITIES]} onSave={(v) => { setPriority(v); persist({ priority: v }); }} />
-                  <EditableField label="Company" value={companyName} onSave={(v) => { setCompanyName(v); persist({ companyName: v }); }} />
+                  <Autocomplete
+                    size="small"
+                    freeSolo
+                    options={companies}
+                    getOptionLabel={(c) => (typeof c === "string" ? c : c.name)}
+                    value={company}
+                    onChange={(_e, v) => pickCompany(v)}
+                    renderInput={(params) => <TextField {...params} label="Company" placeholder="Search or type to add…" />}
+                  />
+                  {company && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Contact</Typography>
+                      <Select fullWidth size="small" value={contactId} displayEmpty sx={{ mt: 0.5 }}
+                        onChange={(e) => pickContact(e.target.value === "" ? "" : Number(e.target.value))}>
+                        <MenuItem value="">None</MenuItem>
+                        {contacts.map((c) => (
+                          <MenuItem key={c.id} value={c.id}>{c.name}{c.title ? ` · ${c.title}` : ""}</MenuItem>
+                        ))}
+                      </Select>
+                    </Box>
+                  )}
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Box sx={{ color: "text.secondary", display: "flex" }}><PersonIcon fontSize="small" /></Box>
                     <Typography variant="caption" color="text.secondary" sx={{ width: 70 }}>Assignee</Typography>
@@ -196,6 +261,9 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                 </Stack>
               </CardContent>
             </Card>
+
+            {/* Time tracking */}
+            <TimeCard minutes={timeMinutes} onLog={logTime} />
 
             {/* Linked devices */}
             <Card sx={{ mt: 2 }}>
@@ -292,6 +360,39 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     </Dialog>
   );
 };
+
+function fmtMinutes(m: number): string {
+  if (m <= 0) return "0m";
+  const h = Math.floor(m / 60);
+  const min = m % 60;
+  return h > 0 ? `${h}h${min ? ` ${min}m` : ""}` : `${min}m`;
+}
+
+function TimeCard({ minutes, onLog }: { minutes: number; onLog: (m: number, note?: string) => void }) {
+  const [custom, setCustom] = useState("");
+  const [note, setNote] = useState("");
+  const presets = [15, 30, 60, 120];
+  return (
+    <Card sx={{ mt: 2 }}>
+      <CardContent>
+        <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 1 }}>
+          <Typography variant="subtitle2" color="text.secondary">Time logged</Typography>
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>{fmtMinutes(minutes)}</Typography>
+        </Stack>
+        <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1, mb: 1 }}>
+          {presets.map((p) => (
+            <Button key={p} size="small" variant="outlined" onClick={() => onLog(p)}>+{fmtMinutes(p)}</Button>
+          ))}
+        </Stack>
+        <Stack direction="row" spacing={1}>
+          <TextField size="small" label="min" type="number" value={custom} onChange={(e) => setCustom(e.target.value)} sx={{ width: 84 }} />
+          <TextField size="small" label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} sx={{ flexGrow: 1 }} />
+          <Button variant="contained" disabled={!Number(custom)} onClick={() => { onLog(Number(custom), note); setCustom(""); setNote(""); }}>Log</Button>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
 
 function MetaRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (

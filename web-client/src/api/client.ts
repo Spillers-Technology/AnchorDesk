@@ -311,6 +311,79 @@ export function searchTickets(q: string, limit = 100) {
   return request<unknown[]>(`/tickets/search?q=${encodeURIComponent(q)}&limit=${limit}`);
 }
 
+// ─── Companies & contacts (CRM) ────────────────────────────────────────────────
+
+export interface Contact {
+  id: number;
+  companyId: number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  title: string | null;
+  isPrimary: boolean;
+}
+
+export interface Company {
+  id: number;
+  name: string;
+  domain: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  address: string | null;
+  notes: string | null;
+  createdAt: string;
+  contacts?: Contact[];
+  _count?: { tickets: number; contacts: number; devices: number };
+}
+
+export function listCompanies() {
+  return request<Company[]>("/companies");
+}
+export function getCompany(id: number) {
+  return request<Company>(`/companies/${id}`);
+}
+export function createCompany(data: Partial<Company>) {
+  return request<Company>("/companies", { method: "POST", body: JSON.stringify(data) });
+}
+export function updateCompany(id: number, data: Partial<Company>) {
+  return request<Company>(`/companies/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+export function deleteCompany(id: number) {
+  return request<void>(`/companies/${id}`, { method: "DELETE" });
+}
+export function getCompanyTickets(id: number) {
+  return request<unknown[]>(`/companies/${id}/tickets`);
+}
+export function getCompanyDevices(id: number) {
+  return request<unknown[]>(`/companies/${id}/devices`);
+}
+export function getCompanyTime(id: number) {
+  return request<{ minutes: number }>(`/companies/${id}/time`);
+}
+
+export function createContact(companyId: number, data: Partial<Contact>) {
+  return request<Contact>(`/companies/${companyId}/contacts`, { method: "POST", body: JSON.stringify(data) });
+}
+export function updateContact(id: number, data: Partial<Contact>) {
+  return request<Contact>(`/contacts/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+export function deleteContact(id: number) {
+  return request<void>(`/contacts/${id}`, { method: "DELETE" });
+}
+
+// ─── Time tracking ──────────────────────────────────────────────────────────────
+
+export function getTicketTime(ticketId: number) {
+  return request<{ minutes: number }>(`/tickets/${ticketId}/time`);
+}
+export function logTicketTime(ticketId: number, minutes: number, note?: string) {
+  return request<unknown>(`/tickets/${ticketId}/time`, {
+    method: "POST",
+    body: JSON.stringify({ minutes, note }),
+  });
+}
+
 export function createTicket(data: Record<string, unknown>) {
   return request<unknown>('/tickets', { method: 'POST', body: JSON.stringify(data) });
 }

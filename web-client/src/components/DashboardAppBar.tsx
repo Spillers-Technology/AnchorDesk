@@ -14,7 +14,7 @@ interface DashboardAppBarProps {
   drawerOpen: boolean;
   toggleDrawer: () => void;
   currentView: string;
-  viewMode: "cards" | "table" | "kanban" | "sync" | "admin" | "network";
+  viewMode: "cards" | "table" | "kanban" | "sync" | "admin" | "network" | "companies";
   cardSize: number;
   handleCardSizeChange: (event: any, newValue: number | number[]) => void;
 }
@@ -39,6 +39,8 @@ const DashboardAppBar: React.FC<DashboardAppBarProps> = ({
         return "Admin";
       case "network":
         return "Network";
+      case "companies":
+        return "Companies";
       case "kanban":
         return "Kanban Board";
       default:

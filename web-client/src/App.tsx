@@ -26,6 +26,7 @@ import FilterDialog from "./components/FilterDialog";
 import CWManageView from "./components/CWManageView";
 import AdminView from "./components/AdminView";
 import NetworkView from "./components/NetworkView";
+import CompaniesView from "./components/CompaniesView";
 import TicketDialog from "./components/TicketDialog";
 import TicketTable from "./components/TicketTable";
 import KanbanBoard from "./components/KanbanBoard";
@@ -74,6 +75,7 @@ function mapDbNote(n: Record<string, unknown>): Note {
     type: n.noteType === "time_entry" ? "timeEntry" : "note",
     timeStart: n.timeStart ? String(n.timeStart) : undefined,
     timeStop: n.timeStop ? String(n.timeStop) : undefined,
+    minutes: n.minutes != null ? Number(n.minutes) : undefined,
   };
 }
 
@@ -87,7 +89,7 @@ function App() {
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [ticketNotes, setTicketNotes] = useState<Note[]>([]);
-  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban" | "sync" | "admin" | "network">("cards");
+  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban" | "sync" | "admin" | "network" | "companies">("cards");
   const [cardSize, setCardSize] = useState(5);
   const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -127,6 +129,15 @@ function App() {
     if (ticket.localId != null) {
       const notes = await fetchTicketNotes(ticket.localId);
       setTicketNotes(notes);
+    }
+  };
+
+  const openTicketById = async (id: number) => {
+    try {
+      const t = await api.getTicket(id);
+      handleTicketClick(mapDbTicket(t as Record<string, unknown>));
+    } catch (err) {
+      console.error("open ticket failed", err);
     }
   };
 
@@ -277,6 +288,8 @@ function App() {
             <AdminView />
           ) : viewMode === "network" ? (
             <NetworkView />
+          ) : viewMode === "companies" ? (
+            <CompaniesView onOpenTicket={openTicketById} />
           ) : viewMode === "sync" ? (
             <CWManageView onTicketsChanged={fetchTickets} />
           ) : (

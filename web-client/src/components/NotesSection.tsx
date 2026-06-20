@@ -93,7 +93,7 @@ const NotesSection: React.FC<NotesSectionProps> = ({
                   </Typography>
                   <Typography variant="body2" sx={{ color: "#333" }}>
                     {note.type === "timeEntry"
-                      ? `Time Entry: ${note.timeStart} - ${note.timeStop}`
+                      ? `Time: ${note.minutes != null ? `${note.minutes}m` : `${note.timeStart} - ${note.timeStop}`}`
                       : "Note"}
                   </Typography>
                 </Box>
