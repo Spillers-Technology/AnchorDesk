@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { config } from '../config/config';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
+import { getSmtp } from '../services/settingsService';
 import * as ticketRepo from '../repositories/ticketRepository';
 import * as noteRepo from '../repositories/noteRepository';
 
@@ -9,19 +9,20 @@ interface IdParam { id: string }
 export async function mailRoutes(server: FastifyInstance) {
   // Mail config status for the admin UI (never returns credentials).
   server.get('/mail/status', async (_req: FastifyRequest, reply: FastifyReply) => {
+    const smtp = await getSmtp();
     return reply.send({
-      configured: mailTransport.isConfigured(),
-      from: config.smtp.from,
-      host: config.smtp.host || null,
-      port: config.smtp.port,
-      secure: config.smtp.secure,
+      configured: await mailTransport.isConfigured(),
+      from: smtp.from,
+      host: smtp.host || null,
+      port: smtp.port,
+      secure: smtp.secure,
     });
   });
 
   // Send an email from a ticket. The outbound message is recorded as a note so
   // the correspondence stays on the ticket's timeline.
   server.post('/tickets/:id/email', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
-    if (!mailTransport.isConfigured()) {
+    if (!(await mailTransport.isConfigured())) {
       return reply.status(503).send({ error: 'SMTP is not configured' });
     }
 

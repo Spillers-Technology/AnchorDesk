@@ -21,8 +21,9 @@ export interface OutboundMail {
 export interface MailTransport {
   readonly name: string;
 
-  /** True when the transport has enough config to actually send. */
-  isConfigured(): boolean;
+  /** True when the transport has enough config to actually send. Async because
+   *  config now lives in the DB (editable in Admin), not just env. */
+  isConfigured(): Promise<boolean>;
 
   /** Send a message. Returns the provider message id. */
   send(mail: OutboundMail): Promise<{ messageId: string }>;

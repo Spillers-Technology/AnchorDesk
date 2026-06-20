@@ -13,11 +13,15 @@ import { pingRoutes } from './routes/ping';
 import { mcpRoutes } from './routes/mcp';
 import { authRoutes } from './routes/auth';
 import { userRoutes } from './routes/users';
+import { integrationRoutes } from './routes/integrations';
+import { adminRoutes } from './routes/admin';
 import { registerAuthHook } from './middleware/auth';
 import { bootstrapAuth } from './services/auth/bootstrap';
 import { pruneExpiredSessions } from './services/auth/sessions';
+import { seedSettings } from './services/settingsService';
 import { ensurePgExtras } from './db/pgExtras';
 import { startScriptScheduler } from './services/scriptScheduler';
+import { startImapScheduler } from './services/imapScheduler';
 import { config } from './config/config';
 import { prisma } from './db/prisma';
 
@@ -51,6 +55,10 @@ async function start() {
   server.register(authRoutes);
   // Admin: user management + auth settings (admin role required).
   server.register(userRoutes);
+  // Admin: integrations (SMTP/CW/Tactical settings + IMAP mailboxes).
+  server.register(integrationRoutes);
+  // Admin: console overview + audit-log viewer.
+  server.register(adminRoutes);
 
   // Core local-DB routes (tickets, notes, history)
   server.register(ticketRoutes);
@@ -89,8 +97,12 @@ async function start() {
   // First-boot auth bootstrap (seed settings + create admin if users table empty).
   await bootstrapAuth(server.log).catch((err) => server.log.error({ err }, 'Auth bootstrap failed'));
 
-  // Poll for due scheduled script jobs.
+  // Seed integration settings from env + hydrate runtime config.
+  await seedSettings().catch((err) => server.log.error({ err }, 'Settings seed failed'));
+
+  // Poll for due scheduled script jobs + inbound email-to-ticket.
   startScriptScheduler(server.log);
+  startImapScheduler(server.log);
 
   // Sweep expired sessions hourly.
   setInterval(() => {

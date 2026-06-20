@@ -29,3 +29,15 @@ export async function getHistory(entityType: string, entityId: number) {
     orderBy: { occurredAt: 'desc' },
   });
 }
+
+/** Recent audit events across all entities, for the admin audit-log viewer. */
+export async function recent(opts: { entityType?: string; action?: AuditAction; limit?: number } = {}) {
+  const where: Record<string, unknown> = {};
+  if (opts.entityType) where.entityType = opts.entityType;
+  if (opts.action) where.action = opts.action;
+  return prisma.auditLog.findMany({
+    where,
+    orderBy: { occurredAt: 'desc' },
+    take: Math.min(opts.limit ?? 100, 500),
+  });
+}

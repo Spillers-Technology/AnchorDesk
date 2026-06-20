@@ -83,6 +83,40 @@ model AuthSetting {
   @@map("auth_settings")
 }
 
+// Generic key/value settings store (jsonb), used for integration config that an
+// admin edits in the UI: 'smtp', 'connectwise', 'tactical'. Seeded from env on
+// first boot; the DB row wins afterward. Secret fields are write-only over the API.
+model Setting {
+  key       String   @id @db.VarChar(100)
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+// An IMAP mailbox polled for inbound email-to-ticket. Passwords are stored
+// AES-256-GCM encrypted (ENCRYPTION_KEY) — never in plaintext, never serialized.
+model Mailbox {
+  id           Int       @id @default(autoincrement())
+  name         String    @db.VarChar(150)
+  host         String    @db.VarChar(255)
+  port         Int       @default(993)
+  secure       Boolean   @default(true)
+  username     String    @db.VarChar(255)
+  passwordEnc  String?   @map("password_enc") @db.Text
+  folder       String    @default("INBOX") @db.VarChar(100)
+  // Default company/board applied to tickets created from this mailbox.
+  companyName  String?   @map("company_name") @db.VarChar(150)
+  enabled      Boolean   @default(true)
+  // Highest processed IMAP UID — dedupes so a message becomes at most one ticket/note.
+  lastUid      Int?      @map("last_uid")
+  lastPolledAt DateTime? @map("last_polled_at")
+  lastError    String?   @map("last_error") @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@map("mailboxes")
+}
+
 model Ticket {
   id               Int          @id @default(autoincrement())
   ticketNumber     String?      @map("ticket_number") @db.VarChar(50)

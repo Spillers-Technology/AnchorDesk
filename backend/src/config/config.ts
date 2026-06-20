@@ -8,6 +8,10 @@ export const config = {
   // Database (required)
   databaseUrl: process.env.DATABASE_URL || '',
 
+  // AES key (hex) for encrypting stored secrets (mailbox passwords). 64 hex
+  // chars = AES-256. Falls back to a dev key so local dev boots; set in prod.
+  encryptionKey: process.env.ENCRYPTION_KEY || '0'.repeat(64),
+
   // Public base URL of the app — used to build OIDC/SAML callback URLs.
   appBaseUrl: (process.env.APP_BASE_URL || 'http://localhost:5173').replace(/\/$/, ''),
 
