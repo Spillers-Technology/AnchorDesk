@@ -12,6 +12,13 @@ import {
   Divider,
 } from "@mui/material";
 import * as api from "../api/client";
+import { statusColor as ticketStatusColor } from "../ticketVocab";
+
+interface LinkedTicket {
+  id: number;
+  title: string;
+  status: string;
+}
 
 /**
  * Network view — a port of NetViz's radial "firewall hierarchy" over
@@ -46,8 +53,8 @@ interface Probe {
   cidr?: string | null;
 }
 
-const CENTER = { x: 500, y: 310 };
-const VIEW = { w: 1000, h: 620 };
+const CENTER = { x: 500, y: 330 };
+const VIEW = { w: 1000, h: 690 };
 
 const statusColor = (s: string) =>
   s === "online" ? "#2e7d32" : s === "offline" ? "#9e9e9e" : "#ed6c02";
@@ -59,6 +66,8 @@ export default function NetworkView() {
   const [error, setError] = useState<string | null>(null);
   const [group, setGroup] = useState<string>("all");
   const [selected, setSelected] = useState<Device | null>(null);
+  const [hovered, setHovered] = useState<number | null>(null);
+  const [deviceTickets, setDeviceTickets] = useState<LinkedTicket[]>([]);
 
   useEffect(() => {
     Promise.all([api.listDevices({ pageSize: 500 }), api.listProbes()])
@@ -98,6 +107,20 @@ export default function NetworkView() {
       : group.startsWith("company:")
       ? group.slice(8)
       : "Network";
+
+  const detailDevice = selected ?? layout[0]?.device ?? null;
+
+  // Pull the tickets linked to the focused device (device → cases).
+  useEffect(() => {
+    if (!detailDevice) {
+      setDeviceTickets([]);
+      return;
+    }
+    api
+      .getDevice(detailDevice.id)
+      .then((d) => setDeviceTickets((((d as Record<string, unknown>).ticketLinks as { ticket: LinkedTicket }[]) ?? []).map((l) => l.ticket)))
+      .catch(() => setDeviceTickets([]));
+  }, [detailDevice?.id]);
 
   if (loading) return <CircularProgress />;
   if (error) return <Alert severity="error">{error}</Alert>;
@@ -143,28 +166,43 @@ export default function NetworkView() {
               {/* device nodes */}
               {layout.map((n) => {
                 const isSel = selected?.id === n.device.id;
+                const isHover = hovered === n.device.id;
                 const r = n.size / 2;
                 return (
-                  <g key={n.device.id} style={{ cursor: "pointer" }} onClick={() => setSelected(n.device)}>
+                  <g
+                    key={n.device.id}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => setSelected(n.device)}
+                    onMouseEnter={() => setHovered(n.device.id)}
+                    onMouseLeave={() => setHovered((h) => (h === n.device.id ? null : h))}
+                  >
+                    {/* generous transparent hit target so small nodes are easy to click */}
+                    <circle cx={n.x} cy={n.y} r={r + 14} fill="transparent" />
+                    {(isSel || isHover) && (
+                      <circle cx={n.x} cy={n.y} r={r + 5} fill="none" stroke="#fff" strokeOpacity={isSel ? 0.9 : 0.45} strokeWidth={2} />
+                    )}
                     <circle
                       cx={n.x}
                       cy={n.y}
                       r={r}
                       fill={statusColor(n.device.status)}
-                      stroke={isSel ? "#fff" : "#0b1020"}
-                      strokeWidth={isSel ? 3 : 1.5}
-                      opacity={n.device.status === "offline" ? 0.55 : 1}
+                      stroke="#0b1020"
+                      strokeWidth={1.5}
+                      opacity={n.device.status === "offline" ? 0.6 : 1}
                     >
                       <title>{`${label(n.device)} — ${n.device.ipAddress ?? ""} (${n.device.status})`}</title>
                     </circle>
-                    <text x={n.x} y={n.y + 4} textAnchor="middle" fill="#fff" fontSize={10} fontWeight={700}>
+                    <text x={n.x} y={n.y + 4} textAnchor="middle" fill="#fff" fontSize={12} fontWeight={700} pointerEvents="none">
                       {initial(n.device)}
                     </text>
                     {!!(n.device.openPorts?.length) && (
-                      <text x={n.x + r - 1} y={n.y - r + 3} textAnchor="middle" fill="#fff" fontSize={9}>
+                      <text x={n.x + r - 2} y={n.y - r + 2} textAnchor="middle" fill="#fff" fontSize={9} pointerEvents="none">
                         {n.device.openPorts.length}
                       </text>
                     )}
+                    <text x={n.x} y={n.y + r + 13} textAnchor="middle" fill="#cfd8ec" fontSize={9} pointerEvents="none">
+                      {shortLabel(n.device)}
+                    </text>
                   </g>
                 );
               })}
@@ -172,7 +210,7 @@ export default function NetworkView() {
             <LegendOverlay />
           </Paper>
 
-          <DeviceDetail device={selected ?? layout[0]?.device ?? null} probes={probes} />
+          <DeviceDetail device={detailDevice} probes={probes} tickets={deviceTickets} />
         </Stack>
       )}
     </Box>
@@ -197,7 +235,7 @@ function LegendOverlay() {
   );
 }
 
-function DeviceDetail({ device, probes }: { device: Device | null; probes: Probe[] }) {
+function DeviceDetail({ device, probes, tickets }: { device: Device | null; probes: Probe[]; tickets: LinkedTicket[] }) {
   if (!device) return null;
   const probe = probes.find((p) => p.id === device.probeId);
   const rows: [string, string | number | null | undefined][] = [
@@ -228,6 +266,23 @@ function DeviceDetail({ device, probes }: { device: Device | null; probes: Probe
           </Box>
         ))}
       </Stack>
+
+      <Divider sx={{ my: 1.5 }} />
+      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+        Tickets {tickets.length > 0 && `(${tickets.length})`}
+      </Typography>
+      {tickets.length === 0 ? (
+        <Typography variant="body2" color="text.secondary">No linked tickets.</Typography>
+      ) : (
+        <Stack spacing={0.75}>
+          {tickets.map((t) => (
+            <Box key={t.id} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Chip size="small" label={t.status} color={ticketStatusColor(t.status)} />
+              <Typography variant="body2" noWrap title={t.title}>#{t.id} {t.title}</Typography>
+            </Box>
+          ))}
+        </Stack>
+      )}
     </Paper>
   );
 }
@@ -236,6 +291,10 @@ function DeviceDetail({ device, probes }: { device: Device | null; probes: Probe
 
 function label(d: Device): string {
   return d.displayName || d.hostname || d.ipAddress || `device ${d.id}`;
+}
+function shortLabel(d: Device): string {
+  const l = d.hostname || d.displayName || d.ipAddress || `device ${d.id}`;
+  return l.length > 14 ? `${l.slice(0, 13)}…` : l;
 }
 function initial(d: Device): string {
   const t = (d.deviceType || label(d)).replace(/[^a-z0-9]/gi, "");
@@ -254,8 +313,8 @@ function radialLayout(devices: Device[]) {
     const ringCapacity = Math.max(12, Math.ceil(18 + ringIndex * 14));
     const position = index - ringStart;
     const angle = (position / ringCapacity) * Math.PI * 2 - Math.PI / 2 + ringIndex * 0.21;
-    const radius = Math.min(286, 92 + ringIndex * 44);
-    const size = Math.max(20, Math.min(40, 22 + (device.openPorts?.length ?? 0) * 3));
+    const radius = Math.min(278, 116 + ringIndex * 56);
+    const size = Math.max(34, Math.min(58, 30 + (device.openPorts?.length ?? 0) * 4));
     return {
       device,
       x: CENTER.x + Math.cos(angle) * radius,

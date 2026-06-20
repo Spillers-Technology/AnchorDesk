@@ -41,9 +41,11 @@ interface TicketDialogProps {
   onClose: () => void;
   notes: Note[];
   currentUser: any;
+  /** Called after a successful edit so the parent list reflects the change. */
+  onUpdated?: (field?: string) => void;
 }
 
-const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, notes, currentUser }) => {
+const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, notes, currentUser, onUpdated }) => {
   const [title, setTitle] = useState(ticket.ticketTitle);
   const [priority, setPriority] = useState(ticket.priority);
   const [companyName, setCompanyName] = useState(ticket.company.CompanyName);
@@ -102,8 +104,13 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
 
   const persist = useCallback(async (data: Record<string, unknown>) => {
     if (ticket.localId == null) return;
-    try { await api.updateTicket(ticket.localId, data); } catch (err) { console.error("Failed to save ticket edit:", err); }
-  }, [ticket.localId]);
+    try {
+      await api.updateTicket(ticket.localId, data);
+      onUpdated?.(Object.keys(data)[0]);
+    } catch (err) {
+      console.error("Failed to save ticket edit:", err);
+    }
+  }, [ticket.localId, onUpdated]);
 
   const handleStatus = (s: string) => { setStatus(s); persist({ status: s }); };
   const canEditNote = (note: Note) => note.authorId === currentUser.id.toString();

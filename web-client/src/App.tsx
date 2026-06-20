@@ -228,6 +228,7 @@ function App() {
           drawerOpen={drawerOpen}
           toggleDrawer={() => setDrawerOpen(!drawerOpen)}
           setViewMode={setViewMode}
+          currentView={viewMode}
           isAdmin={isAdmin}
         />
 
@@ -327,6 +328,10 @@ function App() {
             onClose={handleTicketDialogClose}
             notes={ticketNotes}
             currentUser={currentUser}
+            onUpdated={(field) => {
+              fetchTickets();
+              setToast({ message: field === "status" ? "Status updated" : "Ticket updated", severity: "success" });
+            }}
           />
         )}
 
