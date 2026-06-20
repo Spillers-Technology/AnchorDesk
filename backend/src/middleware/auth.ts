@@ -1,132 +1,178 @@
 /**
- * Generic OIDC bearer token middleware for Fastify.
+ * Unified authentication + RBAC for Fastify.
  *
- * Works with any OIDC-compliant identity provider:
- *   - Azure AD: OIDC_ISSUER_URL=https://login.microsoftonline.com/<tenant>/v2.0
- *   - Authentik: OIDC_ISSUER_URL=https://authentik.host/application/o/<slug>/
- *   - Any other OIDC IdP that exposes standard discovery metadata
+ * Two credential types are accepted, in order:
+ *   1. Session cookie  — interactive login (local / OIDC / SAML) → server-side
+ *      session row. This is the primary browser path.
+ *   2. Bearer token    — OIDC access token, for programmatic API clients. The
+ *      token is validated against the configured IdP (introspection → userinfo)
+ *      and the identity upserted as an SSO user.
  *
- * Validates bearer tokens via introspection, falling back to the userinfo
- * endpoint. Upserts a local user row so audit logs carry real user identity.
+ * Exempt paths: /ping, /probe/* (probe API-key auth), and the public /auth/*
+ * login endpoints. Everything else requires an active user.
  *
- * Set OIDC_DISABLED=true to bypass verification in local dev without an IdP.
+ * RBAC: every authenticated request carries a role. A baseline rule denies
+ * mutations (non-GET) to `readonly` users; admin-only surfaces add an explicit
+ * requireRole('admin') preHandler.
+ *
+ * OIDC_DISABLED=true bypasses all of this for local dev (every request = admin).
  */
-
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import * as oidcClient from 'openid-client';
-import { prisma } from '../db/prisma';
+import { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
+import * as oidc from 'openid-client';
+import { UserRole } from '@prisma/client';
 import { config } from '../config/config';
+import { resolveSession, SESSION_COOKIE } from '../services/auth/sessions';
+import { getAuthSettings } from '../services/auth/authConfig';
+import * as userRepo from '../repositories/userRepository';
+import { isPublic } from './publicPaths';
 
-interface OidcClaims {
-  sub: string;
-  preferred_username?: string;
-  name?: string;
-  email?: string;
-  [key: string]: unknown;
+export { isPublic };
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  displayName: string | null;
+  email: string | null;
+  role: UserRole;
+  authProvider: string;
 }
 
 declare module 'fastify' {
   interface FastifyRequest {
-    oidcClaims: OidcClaims;
+    user: AuthUser;
+    // Stable actor string for the audit log (username for humans, sub for tokens).
     actorSub: string;
   }
 }
 
-// Cached after first discovery — not re-initialized per request
-let oidcConfig: oidcClient.Configuration | null = null;
+const DEV_ADMIN: AuthUser = {
+  id: 0,
+  username: 'dev',
+  displayName: 'Dev User',
+  email: null,
+  role: 'admin',
+  authProvider: 'local',
+};
 
-async function getOidcConfig(): Promise<oidcClient.Configuration> {
-  if (oidcConfig) return oidcConfig;
+// ─── Bearer (OIDC access token) validation, for API clients ──────────────────
 
-  const auth = config.oidcClientSecret
-    ? oidcClient.ClientSecretPost(config.oidcClientSecret)
-    : oidcClient.None();
+let bearerConfig: { key: string; cfg: oidc.Configuration } | null = null;
 
-  oidcConfig = await oidcClient.discovery(
-    new URL(config.oidcIssuerUrl),
-    config.oidcClientId,
-    undefined,
-    auth
-  );
-
-  return oidcConfig;
+async function getBearerConfig(): Promise<oidc.Configuration | null> {
+  const s = await getAuthSettings();
+  if (!s.oidcEnabled || !s.oidcIssuerUrl || !s.oidcClientId) return null;
+  const key = `${s.oidcIssuerUrl}|${s.oidcClientId}`;
+  if (bearerConfig?.key === key) return bearerConfig.cfg;
+  const auth = s.oidcClientSecret ? oidc.ClientSecretPost(s.oidcClientSecret) : oidc.None();
+  const cfg = await oidc.discovery(new URL(s.oidcIssuerUrl), s.oidcClientId, undefined, auth);
+  bearerConfig = { key, cfg };
+  return cfg;
 }
 
-async function resolveClaimsFromToken(token: string): Promise<OidcClaims> {
-  const cfg = await getOidcConfig();
+async function resolveBearer(token: string): Promise<AuthUser | null> {
+  const cfg = await getBearerConfig();
+  if (!cfg) return null;
 
-  // Try introspection first (works for both opaque tokens and JWTs)
+  let claims: Record<string, unknown> | null = null;
   try {
-    const result = await oidcClient.tokenIntrospection(cfg, token);
-    if (result.active) {
-      return result as unknown as OidcClaims;
-    }
-    throw new Error('Token is not active');
+    const introspected = await oidc.tokenIntrospection(cfg, token);
+    if (introspected.active) claims = introspected as Record<string, unknown>;
   } catch {
-    // Fall through to userinfo — some IdPs don't expose introspection
+    /* fall through to userinfo */
   }
+  if (!claims) {
+    const userinfo = await oidc.fetchUserInfo(cfg, token, oidc.skipSubjectCheck);
+    claims = userinfo as unknown as Record<string, unknown>;
+  }
+  if (!claims?.sub) return null;
 
-  // Userinfo endpoint validates the token implicitly
-  const userinfo = await oidcClient.fetchUserInfo(cfg, token, oidcClient.skipSubjectCheck);
-  return userinfo as unknown as OidcClaims;
+  const user = await userRepo.upsertSso({
+    provider: 'oidc',
+    subject: String(claims.sub),
+    username: String(claims.preferred_username ?? claims.email ?? claims.sub),
+    displayName: typeof claims.name === 'string' ? claims.name : null,
+    email: typeof claims.email === 'string' ? claims.email : null,
+  });
+  if (!user.isActive) return null;
+  return toAuthUser(user);
 }
 
-async function upsertUser(claims: OidcClaims, server: FastifyInstance) {
-  try {
-    await prisma.user.upsert({
-      where: { oidcSub: claims.sub },
-      update: {
-        username: claims.preferred_username ?? claims.sub,
-        displayName: claims.name,
-        email: claims.email,
-        lastSeenAt: new Date(),
-      },
-      create: {
-        oidcSub: claims.sub,
-        username: claims.preferred_username ?? claims.sub,
-        displayName: claims.name,
-        email: claims.email,
-        role: 'technician',
-      },
-    });
-  } catch (err) {
-    server.log.warn('User upsert failed:', err);
-  }
+function toAuthUser(u: {
+  id: number;
+  username: string;
+  displayName: string | null;
+  email: string | null;
+  role: UserRole;
+  authProvider: string;
+}): AuthUser {
+  return {
+    id: u.id,
+    username: u.username,
+    displayName: u.displayName,
+    email: u.email,
+    role: u.role,
+    authProvider: u.authProvider,
+  };
 }
 
 export async function registerAuthHook(server: FastifyInstance) {
   if (config.oidcDisabled) {
-    server.log.warn('OIDC_DISABLED=true — all requests run as dev/system user');
+    server.log.warn('OIDC_DISABLED=true — all requests run as the dev admin user');
     server.addHook('onRequest', async (request: FastifyRequest) => {
-      request.oidcClaims = { sub: 'system', preferred_username: 'dev', name: 'Dev User' };
+      request.user = DEV_ADMIN;
       request.actorSub = 'system';
     });
     return;
   }
 
   server.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
-    if (request.url === '/ping') return;
-    // Probe self-service (heartbeat, device ingest) authenticates by API key,
-    // not OIDC — these are hit by unattended scanners on customer LANs.
-    if (request.url.startsWith('/probe/')) return;
+    if (isPublic(request.url)) return;
 
+    // 1. Session cookie (primary browser path).
+    const sessionToken = request.cookies?.[SESSION_COOKIE];
+    if (sessionToken) {
+      const user = await resolveSession(sessionToken);
+      if (user) {
+        request.user = toAuthUser(user);
+        request.actorSub = user.username;
+        return enforceBaseline(request, reply);
+      }
+    }
+
+    // 2. Bearer token (programmatic OIDC clients).
     const authHeader = request.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      return reply.status(401).send({ error: 'Missing bearer token' });
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        const user = await resolveBearer(authHeader.slice(7));
+        if (user) {
+          request.user = user;
+          request.actorSub = user.username;
+          return enforceBaseline(request, reply);
+        }
+      } catch (err) {
+        request.log.warn({ err }, 'Bearer auth failed');
+      }
     }
 
-    const token = authHeader.slice(7);
-
-    try {
-      const claims = await resolveClaimsFromToken(token);
-      request.oidcClaims = claims;
-      request.actorSub = claims.sub;
-
-      // Fire-and-forget — don't block the response on the DB write
-      upsertUser(claims, server);
-    } catch (err) {
-      server.log.warn('Auth failed:', err);
-      return reply.status(401).send({ error: 'Invalid or expired token' });
-    }
+    return reply.status(401).send({ error: 'Authentication required' });
   });
+}
+
+// Baseline RBAC: readonly users may only read.
+function enforceBaseline(request: FastifyRequest, reply: FastifyReply) {
+  const method = request.method.toUpperCase();
+  const isWrite = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+  if (isWrite && request.user.role === 'readonly') {
+    return reply.status(403).send({ error: 'Read-only role cannot modify data' });
+  }
+}
+
+/** preHandler factory: require one of the given roles (e.g. admin-only routes). */
+export function requireRole(...roles: UserRole[]): preHandlerHookHandler {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) return reply.status(401).send({ error: 'Authentication required' });
+    if (!roles.includes(request.user.role)) {
+      return reply.status(403).send({ error: `Requires role: ${roles.join(' or ')}` });
+    }
+  };
 }

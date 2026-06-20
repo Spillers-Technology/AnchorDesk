@@ -3,6 +3,7 @@ import { Probe, ProbeStatus } from '@prisma/client';
 import * as probeRepo from '../repositories/probeRepository';
 import * as deviceRepo from '../repositories/deviceRepository';
 import { NetVizProvider } from '../providers/NetVizProvider';
+import { requireRole } from '../middleware/auth';
 
 interface IdParam { id: string }
 
@@ -29,7 +30,7 @@ export async function probeRoutes(server: FastifyInstance) {
   });
 
   // Register a probe — apiKey is returned ONCE here and never again.
-  server.post('/probes', async (req: FastifyRequest, reply: FastifyReply) => {
+  server.post('/probes', { preHandler: requireRole('admin') }, async (req: FastifyRequest, reply: FastifyReply) => {
     const body = req.body as probeRepo.CreateProbeInput;
     if (!body?.name) return reply.status(400).send({ error: 'name is required' });
 
@@ -37,7 +38,7 @@ export async function probeRoutes(server: FastifyInstance) {
     return reply.status(201).send(probe); // includes apiKey
   });
 
-  server.delete('/probes/:id', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
+  server.delete<{ Params: IdParam }>('/probes/:id', { preHandler: requireRole('admin') }, async (req, reply) => {
     const probe = await probeRepo.remove(parseInt(req.params.id), req.actorSub);
     if (!probe) return reply.status(404).send({ error: 'Probe not found' });
     return reply.status(204).send();

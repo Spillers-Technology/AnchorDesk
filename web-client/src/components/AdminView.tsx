@@ -20,32 +20,207 @@ import {
   IconButton,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
+import Divider from "@mui/material/Divider";
 import * as api from "../api/client";
 
-type AdminTab = "providers" | "probes" | "devices" | "mail";
+type AdminTab = "users" | "auth" | "providers" | "probes" | "devices" | "mail";
 
-/** Lean admin surface: sync providers, netviz probes, device inventory, mail config.
- *  Deliberately not a full CRUD cathedral — toggles, lists, and the few actions
- *  that have nowhere else to live. */
+const ROLES = ["admin", "technician", "readonly"];
+
+/** Admin surface: users + auth, then sync providers, netviz probes, devices, mail. */
 export default function AdminView() {
-  const [tab, setTab] = useState<AdminTab>("providers");
+  const [tab, setTab] = useState<AdminTab>("users");
 
   return (
     <Box>
       <Typography variant="h5" sx={{ mb: 1 }}>Admin</Typography>
-      <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 2 }}>
+      <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 2 }} variant="scrollable" scrollButtons="auto">
+        <Tab label="Users" value="users" />
+        <Tab label="Authentication" value="auth" />
         <Tab label="Sync Providers" value="providers" />
         <Tab label="Probes" value="probes" />
         <Tab label="Devices" value="devices" />
         <Tab label="Mail" value="mail" />
       </Tabs>
 
+      {tab === "users" && <UsersPanel />}
+      {tab === "auth" && <AuthSettingsPanel />}
       {tab === "providers" && <ProvidersPanel />}
       {tab === "probes" && <ProbesPanel />}
       {tab === "devices" && <DevicesPanel />}
       {tab === "mail" && <MailPanel />}
     </Box>
   );
+}
+
+function UsersPanel() {
+  const { data, loading, error, reload } = useAsync(() => api.listUsers());
+  const [form, setForm] = useState({ username: "", password: "", displayName: "", email: "", role: "technician" });
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const act = async (fn: () => Promise<unknown>, okText?: string) => {
+    setMsg(null);
+    try {
+      await fn();
+      if (okText) setMsg({ ok: true, text: okText });
+      reload();
+    } catch (e) {
+      setMsg({ ok: false, text: errText(e) });
+    }
+  };
+
+  const create = () =>
+    act(async () => {
+      await api.createUser(form);
+      setForm({ username: "", password: "", displayName: "", email: "", role: "technician" });
+    }, "User created");
+
+  const resetPw = async (id: number) => {
+    const pw = window.prompt("New password (min 10 chars):");
+    if (pw) act(() => api.setUserPassword(id, pw), "Password reset");
+  };
+
+  if (loading) return <CircularProgress />;
+  if (error) return <Alert severity="error">{error}</Alert>;
+
+  return (
+    <Stack spacing={2}>
+      {msg && <Alert severity={msg.ok ? "success" : "error"} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Create local account</Typography>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} flexWrap="wrap" useFlexGap>
+          <TextField size="small" label="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+          <TextField size="small" label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <TextField size="small" label="Display name" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} />
+          <TextField size="small" label="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <Select size="small" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+            {ROLES.map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+          </Select>
+          <Button variant="contained" disabled={!form.username || form.password.length < 10} onClick={create}>Create</Button>
+        </Stack>
+      </Paper>
+
+      <Paper variant="outlined">
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Username</TableCell>
+              <TableCell>Name</TableCell>
+              <TableCell>Provider</TableCell>
+              <TableCell>Role</TableCell>
+              <TableCell>MFA</TableCell>
+              <TableCell>Active</TableCell>
+              <TableCell align="right">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {(data ?? []).map((u) => (
+              <TableRow key={u.id}>
+                <TableCell>{u.username}</TableCell>
+                <TableCell>{u.displayName ?? "—"}</TableCell>
+                <TableCell><Chip size="small" label={u.authProvider} /></TableCell>
+                <TableCell>
+                  <Select size="small" value={u.role} onChange={(e) => act(() => api.updateUser(u.id, { role: e.target.value }))}>
+                    {ROLES.map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <Chip size="small" color={u.mfaEnabled ? "success" : "default"} label={u.mfaEnabled ? "on" : "off"} />
+                </TableCell>
+                <TableCell>
+                  <Switch checked={u.isActive} onChange={(e) => act(() => api.updateUser(u.id, { isActive: e.target.checked }))} />
+                </TableCell>
+                <TableCell align="right">
+                  {u.authProvider === "local" && (
+                    <Button size="small" onClick={() => resetPw(u.id)}>Reset PW</Button>
+                  )}
+                  <IconButton size="small" onClick={() => act(() => api.deleteUser(u.id))}><DeleteIcon fontSize="small" /></IconButton>
+                </TableCell>
+              </TableRow>
+            ))}
+            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={7}>No users.</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </Paper>
+    </Stack>
+  );
+}
+
+function AuthSettingsPanel() {
+  const { data, loading, error, reload } = useAsync(() => api.getAuthSettings());
+  const [draft, setDraft] = useState<Record<string, unknown>>({});
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  if (loading) return <CircularProgress />;
+  if (error || !data) return <Alert severity="error">{error ?? "Failed to load"}</Alert>;
+
+  const set = (k: string, v: unknown) => setDraft((d) => ({ ...d, [k]: v }));
+  const save = async () => {
+    setMsg(null);
+    try {
+      await api.updateAuthSettings(draft);
+      setDraft({});
+      setMsg({ ok: true, text: "Auth settings saved" });
+      reload();
+    } catch (e) {
+      setMsg({ ok: false, text: errText(e) });
+    }
+  };
+  const val = <T,>(k: string, current: T): T => (k in draft ? (draft[k] as T) : current);
+
+  return (
+    <Stack spacing={2} sx={{ maxWidth: 720 }}>
+      {msg && <Alert severity={msg.ok ? "success" : "error"} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+      <Alert severity="info">
+        These settings are seeded from environment variables on first boot and become editable here. Secrets are write-only — leave blank to keep the current value.
+      </Alert>
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2">Local accounts & MFA</Typography>
+        <Stack direction="row" alignItems="center" spacing={2} sx={{ mt: 1 }} flexWrap="wrap">
+          <label><Switch checked={val("localEnabled", data.localEnabled)} onChange={(e) => set("localEnabled", e.target.checked)} /> Username/password login</label>
+          <label><Switch checked={val("mfaRequired", data.mfa.required)} onChange={(e) => set("mfaRequired", e.target.checked)} /> Require MFA (TOTP)</label>
+        </Stack>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2">OIDC SSO {data.oidc.hasClientSecret && <Chip size="small" label="secret set" sx={{ ml: 1 }} />}</Typography>
+        <Stack spacing={1} sx={{ mt: 1 }}>
+          <label><Switch checked={val("oidcEnabled", data.oidc.enabled)} onChange={(e) => set("oidcEnabled", e.target.checked)} /> Enabled</label>
+          <TextField size="small" label="Issuer URL" defaultValue={data.oidc.issuerUrl ?? ""} onChange={(e) => set("oidcIssuerUrl", e.target.value)} />
+          <TextField size="small" label="Client ID" defaultValue={data.oidc.clientId ?? ""} onChange={(e) => set("oidcClientId", e.target.value)} />
+          <TextField size="small" label="Client secret (write-only)" type="password" placeholder="leave blank to keep" onChange={(e) => set("oidcClientSecret", e.target.value)} />
+          <TextField size="small" label="Redirect URI (register with IdP)" value={data.oidc.redirectUri} InputProps={{ readOnly: true }} />
+        </Stack>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2">SAML SSO {data.saml.hasIdpCert && <Chip size="small" label="cert set" sx={{ ml: 1 }} />}</Typography>
+        <Stack spacing={1} sx={{ mt: 1 }}>
+          <label><Switch checked={val("samlEnabled", data.saml.enabled)} onChange={(e) => set("samlEnabled", e.target.checked)} /> Enabled</label>
+          <TextField size="small" label="IdP entry point (SSO URL)" defaultValue={data.saml.entryPoint ?? ""} onChange={(e) => set("samlEntryPoint", e.target.value)} />
+          <TextField size="small" label="SP issuer / entity ID" defaultValue={data.saml.issuer ?? ""} onChange={(e) => set("samlIssuer", e.target.value)} />
+          <TextField size="small" label="IdP signing certificate (PEM, write-only)" placeholder="leave blank to keep" multiline minRows={3} onChange={(e) => set("samlIdpCert", e.target.value)} />
+          <TextField size="small" label="ACS / callback URL (register with IdP)" value={data.saml.callbackUrl} InputProps={{ readOnly: true }} />
+        </Stack>
+      </Paper>
+
+      <Divider />
+      <Box>
+        <Button variant="contained" disabled={Object.keys(draft).length === 0} onClick={save}>Save changes</Button>
+      </Box>
+    </Stack>
+  );
+}
+
+function errText(e: unknown): string {
+  if (e instanceof api.ApiError) {
+    try { const p = JSON.parse(e.body); if (p?.error) return p.error; } catch { /* ignore */ }
+  }
+  return (e as Error).message;
 }
 
 function useAsync<T>(loader: () => Promise<T>, deps: unknown[] = []) {

@@ -1,6 +1,6 @@
 # Database Schema
 
-materialticket uses MariaDB. The Prisma schema is the authoritative source of truth: [backend/prisma/schema.prisma](../backend/prisma/schema.prisma).
+materialticket uses PostgreSQL (since 1.1.0). The Prisma schema is the authoritative source of truth: [backend/prisma/schema.prisma](../backend/prisma/schema.prisma). `Json` columns are real `jsonb`, and ticket search uses a `tsvector` GIN index (see [backend/src/db/pgExtras.ts](../backend/src/db/pgExtras.ts)).
 
 ---
 
@@ -74,18 +74,41 @@ Indexed on `(entity_type, entity_id)` for fast per-ticket history lookups.
 
 ### `users`
 
-Identity cache populated from the OIDC provider. No passwords stored here.
+Accounts for all auth methods. Local accounts store an Argon2/bcrypt hash and an
+optional TOTP secret; SSO accounts (OIDC/SAML) are keyed on `(auth_provider, subject)`.
+Secrets (`password_hash`, `totp_secret`, `totp_recovery`) are never serialized to clients.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | INT PK | |
-| `oidc_sub` | VARCHAR UNIQUE | Stable OIDC subject claim — the canonical identity |
-| `username` | VARCHAR | `preferred_username` from IdP |
-| `display_name` | VARCHAR | `name` claim from IdP |
-| `email` | VARCHAR | `email` claim from IdP |
-| `role` | ENUM | `admin`, `technician`, `readonly` |
-| `last_seen_at` | DATETIME | Updated on every authenticated request |
-| `created_at` | DATETIME | First time this user authenticated |
+| `auth_provider` | ENUM | `local`, `oidc`, `saml` |
+| `subject` | VARCHAR | OIDC `sub` / SAML nameID (null for local). `(auth_provider, subject)` unique |
+| `username` | VARCHAR UNIQUE | login name (local) or IdP `preferred_username` |
+| `password_hash` | VARCHAR | bcrypt hash; null for SSO-only accounts |
+| `display_name`, `email` | VARCHAR | profile fields |
+| `role` | ENUM | `admin`, `technician`, `readonly` — enforced by RBAC |
+| `is_active` | BOOL | deactivating kills live sessions |
+| `totp_secret` / `totp_enabled` / `totp_recovery` | VARCHAR / BOOL / JSON | TOTP MFA state (recovery codes stored as hashes) |
+| `last_seen_at`, `created_at`, `updated_at` | DATETIME | |
+
+### `sessions`
+
+Server-side sessions. The cookie holds an opaque random token; only its SHA-256
+hash is stored, and deleting a row revokes the session instantly.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | CUID PK | |
+| `user_id` | INT FK → users | cascade delete |
+| `token_hash` | VARCHAR UNIQUE | SHA-256 of the cookie token |
+| `user_agent`, `ip` | VARCHAR | request metadata |
+| `expires_at`, `created_at` | DATETIME | pruned hourly |
+
+### `auth_settings`
+
+Single row (`id = 1`) holding the effective auth config (local/OIDC/SAML toggles +
+public fields), seeded from env on first boot and editable from the Admin UI.
+Secrets are write-only over the API.
 
 ---
 

@@ -234,9 +234,9 @@
             <a class="btn btn-outline" href="https://github.com/spilloid/materialticket" target="_blank" rel="noopener" style="color:#fff;border-color:rgba(255,255,255,.5)">View on GitHub</a>
           </div>
           <div class="meta">
-            <span><b>Local-first</b> · MariaDB</span>
+            <span><b>Local-first</b> · PostgreSQL</span>
             <span><b>React + MUI</b> · Fastify</span>
-            <span><b>OIDC</b> auth</span>
+            <span><b>SSO + MFA</b> · RBAC</span>
             <span><b>MCP</b> ready</span>
           </div>
         </div>
@@ -281,8 +281,8 @@
         </div>
         <div class="card reveal">
           <div class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5h18v11H3z"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.5"/></svg></div>
-          <h3>Device inventory</h3>
-          <p>LAN probes push discovered devices into your database. Link them to tickets so a card shows the machine — and whether it's up.</p>
+          <h3>Device inventory &amp; network map</h3>
+          <p>LAN probes push discovered devices into your database. A <b>Network</b> view renders them as a live radial map — online/offline, open ports — and links them to tickets.</p>
         </div>
         <div class="card reveal">
           <div class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4.5 13H11l-1 9 9-12h-6.5z"/></svg></div>
@@ -291,8 +291,8 @@
         </div>
         <div class="card reveal">
           <div class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6z"/></svg></div>
-          <h3>OIDC authentication</h3>
-          <p>Auth is delegated to any OIDC provider — Azure AD, Authentik, and more. No passwords ever stored locally.</p>
+          <h3>SSO, MFA &amp; RBAC</h3>
+          <p>Local accounts, OIDC (Azure AD, Authentik, Okta…), and SAML 2.0 side by side — with TOTP MFA on by default and admin/technician/readonly roles enforced everywhere.</p>
         </div>
         <div class="card reveal">
           <div class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="3"/><path d="M5 12a7 7 0 0 1 7-7M19 12a7 7 0 0 1-7 7" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
@@ -312,7 +312,7 @@
       </div>
       <div class="how">
         <ol class="steps reveal">
-          <li><span class="num">1</span><div><h4>Tickets land locally</h4><p>Created in the UI, emailed in, or synced from ConnectWise — every ticket is written to your MariaDB first.</p></div></li>
+          <li><span class="num">1</span><div><h4>Tickets land locally</h4><p>Created in the UI, emailed in, or synced from ConnectWise — every ticket is written to your PostgreSQL first.</p></div></li>
           <li><span class="num">2</span><div><h4>Probes report devices</h4><p>A scanner on the customer LAN heartbeats and pushes device records, upserted into your <span class="mono">devices</span> table.</p></div></li>
           <li><span class="num">3</span><div><h4>Link &amp; act</h4><p>Attach devices to a ticket and run RMM scripts against them — run-now or scheduled — without leaving the ticket.</p></div></li>
           <li><span class="num">4</span><div><h4>Everything is audited</h4><p>Each mutation appends a before/after snapshot, giving you complete, attributable history.</p></div></li>

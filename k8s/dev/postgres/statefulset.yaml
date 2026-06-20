@@ -17,49 +17,38 @@ spec:
         app: db
     spec:
       containers:
-        - name: mariadb
-          image: mariadb:lts
+        - name: postgres
+          image: postgres:16-alpine
           ports:
-            - containerPort: 3306
+            - containerPort: 5432
           env:
-            - name: MARIADB_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: materialticket-secrets
-                  key: MARIADB_ROOT_PASSWORD
-            - name: MARIADB_DATABASE
+            - name: POSTGRES_DB
               value: materialticket
-            - name: MARIADB_USER
+            - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
                   name: materialticket-secrets
-                  key: MARIADB_USER
-            - name: MARIADB_PASSWORD
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: materialticket-secrets
-                  key: MARIADB_PASSWORD
+                  key: POSTGRES_PASSWORD
+            # Postgres writes into a subdir so the PVC root (with lost+found) is fine.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           volumeMounts:
             - name: data
-              mountPath: /var/lib/mysql
-            - name: initdb
-              mountPath: /docker-entrypoint-initdb.d
-              readOnly: true
+              mountPath: /var/lib/postgresql/data
           readinessProbe:
             exec:
-              command:
-                - sh
-                - -c
-                - "mariadb -u${MARIADB_USER} -p${MARIADB_PASSWORD} ${MARIADB_DATABASE} -e 'SELECT 1'"
-            initialDelaySeconds: 20
+              command: ["sh", "-c", "pg_isready -U ${POSTGRES_USER} -d materialticket"]
+            initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
             exec:
-              command:
-                - sh
-                - -c
-                - "mariadb -u${MARIADB_USER} -p${MARIADB_PASSWORD} ${MARIADB_DATABASE} -e 'SELECT 1'"
+              command: ["sh", "-c", "pg_isready -U ${POSTGRES_USER} -d materialticket"]
             initialDelaySeconds: 30
             periodSeconds: 20
             failureThreshold: 3
@@ -69,10 +58,6 @@ spec:
               memory: 256Mi
             limits:
               memory: 512Mi
-      volumes:
-        - name: initdb
-          configMap:
-            name: db-init-sql
   volumeClaimTemplates:
     - metadata:
         name: data

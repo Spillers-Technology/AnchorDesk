@@ -14,6 +14,17 @@ export function setAuthToken(token: string | null) {
   authToken = token;
 }
 
+/** Thrown on non-2xx so callers can branch on status (e.g. 401 → show login). */
+export class ApiError extends Error {
+  status: number;
+  body: string;
+  constructor(status: number, body: string, message: string) {
+    super(message);
+    this.status = status;
+    this.body = body;
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -24,15 +35,147 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers['Authorization'] = `Bearer ${authToken}`;
   }
 
-  const res = await fetch(`/api${path}`, { ...init, headers });
+  // Session auth rides on a cookie; include credentials so it's sent through the proxy.
+  const res = await fetch(`/api${path}`, { ...init, headers, credentials: 'same-origin' });
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API ${init.method ?? 'GET'} ${path} → ${res.status}: ${body}`);
+    throw new ApiError(res.status, body, `API ${init.method ?? 'GET'} ${path} → ${res.status}: ${body}`);
   }
 
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  displayName: string | null;
+  email: string | null;
+  role: "admin" | "technician" | "readonly";
+  authProvider: string;
+}
+
+export interface LoginOptions {
+  local: boolean;
+  oidc: boolean;
+  saml: boolean;
+}
+
+/** Which login methods to show on the login screen (public endpoint). */
+export function getAuthConfig() {
+  return request<LoginOptions>("/auth/config");
+}
+
+export interface LoginResult {
+  user?: AuthUser;
+  mfaRequired?: boolean;
+  enrollmentRequired?: boolean;
+}
+
+export function login(username: string, password: string) {
+  return request<LoginResult>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export function verifyMfa(code: string) {
+  return request<{ user: AuthUser }>("/auth/mfa/verify", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export function setupMfa() {
+  return request<{ otpauthUrl: string; qr: string; secret: string }>("/auth/mfa/setup", { method: "POST" });
+}
+
+export function enableMfa(code: string) {
+  return request<{ ok: boolean; recoveryCodes: string[]; user: AuthUser }>("/auth/mfa/enable", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export function disableMfa() {
+  return request<{ ok: boolean }>("/auth/mfa", { method: "DELETE" });
+}
+
+export function logout() {
+  return request<{ ok: boolean }>("/auth/logout", { method: "POST" });
+}
+
+export function getMe() {
+  return request<{ user: AuthUser }>("/auth/me");
+}
+
+export function changeOwnPassword(currentPassword: string, newPassword: string) {
+  return request<{ ok: boolean }>("/auth/password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+// ─── Admin: users ──────────────────────────────────────────────────────────────
+
+export interface ManagedUser extends AuthUser {
+  isActive: boolean;
+  hasPassword: boolean;
+  mfaEnabled: boolean;
+  lastSeenAt: string | null;
+  createdAt: string;
+}
+
+export function listUsers() {
+  return request<ManagedUser[]>("/users");
+}
+
+export function createUser(data: {
+  username: string;
+  password: string;
+  displayName?: string;
+  email?: string;
+  role?: string;
+}) {
+  return request<ManagedUser>("/users", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function updateUser(
+  id: number,
+  data: { displayName?: string; email?: string; role?: string; isActive?: boolean }
+) {
+  return request<ManagedUser>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+
+export function setUserPassword(id: number, password: string) {
+  return request<{ ok: boolean }>(`/users/${id}/password`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}
+
+export function deleteUser(id: number) {
+  return request<void>(`/users/${id}`, { method: "DELETE" });
+}
+
+// ─── Admin: auth settings ────────────────────────────────────────────────────────
+
+export interface AuthSettings {
+  localEnabled: boolean;
+  oidc: { enabled: boolean; issuerUrl: string | null; clientId: string | null; redirectUri: string; hasClientSecret: boolean };
+  saml: { enabled: boolean; entryPoint: string | null; issuer: string | null; callbackUrl: string; hasIdpCert: boolean };
+  mfa: { required: boolean; issuer: string };
+}
+
+export function getAuthSettings() {
+  return request<AuthSettings>("/auth/settings");
+}
+
+export function updateAuthSettings(data: Record<string, unknown>) {
+  return request<AuthSettings>("/auth/settings", { method: "PATCH", body: JSON.stringify(data) });
 }
 
 // ─── Tickets ────────────────────────────────────────────────────────────────

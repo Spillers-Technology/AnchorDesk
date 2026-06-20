@@ -1,28 +1,28 @@
 services:
-  mariadb:
-    image: mariadb:latest
-    container_name: mariadb
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
     restart: always
     env_file:
-      - .env                             # Load environment variables from the .env file
+      - .env                                 # POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
     volumes:
-      - ./data:/var/lib/mysql            # Persistent storage for the database files
-      - ./initdb:/docker-entrypoint-initdb.d:ro # Mount the directory with your SQL scripts
+      - ./data:/var/lib/postgresql/data      # Persistent storage for the database files
+      - ./initdb:/docker-entrypoint-initdb.d:ro # SQL scripts run once on first init
     ports:
-      - "3306:3306"
+      - "5432:5432"
 
   adminer:
     image: adminer:latest
     container_name: adminer
     restart: always
     depends_on:
-      - mariadb
+      - postgres
     ports:
-      - "2222:8080"                      # Expose Adminer on port 8080
+      - "2222:8080"                          # Expose Adminer on port 2222 → 8080
     environment:
-      ADMINER_DEFAULT_SERVER: mariadb    # Set the default server to the name of the MariaDB container
+      ADMINER_DEFAULT_SERVER: postgres       # Default server = the Postgres container name
 
-# Explanation:
-# 1. The `adminer` service is added with `depends_on` set to `mariadb`, ensuring that Adminer waits for MariaDB to start.
-# 2. Adminer is accessible at `http://localhost:8080` in your browser.
-# 3. The `ADMINER_DEFAULT_SERVER` environment variable sets the default server to `mariadb` (the service name of the MariaDB container).
+# Notes:
+# 1. Adminer waits for Postgres via `depends_on` and is reachable at http://localhost:2222.
+# 2. Set POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB in this directory's .env.
+# 3. This is a standalone DB-only stack; the app's primary compose is the repo-root docker-compose.yml.

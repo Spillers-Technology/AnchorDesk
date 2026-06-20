@@ -2,7 +2,7 @@
 
 ## Overview
 
-materialticket is a local-first ticketing system. The MariaDB database is the source of truth. External platforms (ConnectWise, IMAP, etc.) are sync adapters that feed into the local store — they are not the core.
+materialticket is a local-first ticketing system. The PostgreSQL database is the source of truth. External platforms (ConnectWise, IMAP, etc.) are sync adapters that feed into the local store — they are not the core.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -15,7 +15,7 @@ materialticket is a local-first ticketing system. The MariaDB database is the so
 │                                         │ Prisma ORM         │
 │                                         ▼                    │
 │                              ┌─────────────────────┐        │
-│                              │  MariaDB :3306       │        │
+│                              │  PostgreSQL :5432    │        │
 │                              │  (source of truth)   │        │
 │                              └──────────┬──────────┘        │
 │                                         │                    │
@@ -87,18 +87,19 @@ HTTP request
     │
     ▼
 Fastify onRequest hook
-    │ auth.ts — validates OIDC bearer token
-    │ sets request.oidcClaims + request.actorSub
-    │ upserts user row (fire-and-forget)
+    │ auth.ts — resolves session cookie OR OIDC bearer token
+    │ sets request.user (with role) + request.actorSub
+    │ enforces baseline RBAC (readonly cannot mutate)
     ▼
 Route handler (routes/tickets.ts)
+    │ optional requireRole('admin') preHandler
     │ validates input, extracts params
     ▼
 Repository (repositories/ticketRepository.ts)
     │ Prisma query
     │ auditRepository.record() — before/after snapshot
     ▼
-MariaDB
+PostgreSQL
     │
     ▼
 JSON response
@@ -106,16 +107,26 @@ JSON response
 
 ---
 
-## Authentication
+## Authentication & authorization
 
-Authentication is fully delegated to an OIDC-compliant identity provider. No passwords are stored in materialticket's database.
+As of 1.1.0, three auth methods run side by side; an admin enables any combination
+from **Admin → Authentication** (env vars seed the initial config on first boot).
 
-Supported providers (same code, different `OIDC_ISSUER_URL`):
-- **Azure AD** — `https://login.microsoftonline.com/<tenant>/v2.0`
-- **Authentik** — `https://authentik.host/application/o/<slug>/`
-- Any other OIDC-compliant IdP
+- **Local accounts** — bcrypt password hashes, server-side sessions (opaque cookie
+  token; only its SHA-256 hash is stored, so sessions are revocable). **TOTP MFA is
+  on by default**: local users enroll an authenticator (QR) before first access and
+  get one-time recovery codes.
+- **OIDC** — interactive authorization-code login (PKCE + state + nonce) via
+  `openid-client`, plus bearer-token validation for API clients. Works with Azure AD
+  (`https://login.microsoftonline.com/<tenant>/v2.0`), Authentik
+  (`https://authentik.host/application/o/<slug>/`), Okta, or any OIDC IdP.
+- **SAML 2.0** — `@node-saml/node-saml` SP: AuthnRequest redirect, signed-assertion
+  validation at the ACS endpoint, and SP metadata at `/auth/saml/metadata`.
 
-The backend uses `openid-client` to validate bearer tokens via introspection or the userinfo endpoint. On first auth, a row is inserted into `users` and updated on each subsequent request (`last_seen_at`).
+All three culminate in a local session. **RBAC** is enforced on every request:
+`readonly` can only read, `technician` can mutate tickets/devices, and admin-only
+surfaces (users, auth settings, probes, sync) require the `admin` role. Set
+`OIDC_DISABLED=true` to bypass auth entirely in local dev.
 
 ---
 
@@ -139,10 +150,10 @@ api/client.ts — all fetch() calls go through here
 
 | Phase | Feature | Status |
 |---|---|---|
-| Phase 3 | Sync service (background job, scheduled runs) | Planned |
-| Phase 3 | CWManageView wired to sync endpoints | Planned |
+| 1.1.0 | Local accounts + OIDC + SAML login, sessions, RBAC | **Done** |
+| 1.1.0 | TOTP MFA (on by default) + recovery codes | **Done** |
+| 1.1.0 | PostgreSQL migration + full-text ticket search | **Done** |
+| 1.1.0 | Network view (NetViz radial map over devices) | **Done** |
 | Phase 4 | IMAP provider (email-to-ticket) | Planned |
-| Phase 5 | ScriptRunner interface + MeshCentral/TacticalRMM | Planned |
-| - | CreateTicketDialog (UI) | Planned |
-| - | TicketHistory component (UI) | Planned |
-| - | Full OIDC login flow on frontend | Planned |
+| Phase 5 | ScriptRunner interface + MeshCentral/TacticalRMM | In progress |
+| Roadmap | Postgres LISTEN/NOTIFY for live probe status | Planned |

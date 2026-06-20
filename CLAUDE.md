@@ -6,7 +6,9 @@ Developer reference for working with this codebase. Keep this document updated a
 
 ## What this is
 
-materialticket is a **local-first ticketing system** built on Material UI design principles. The local MariaDB database is the source of truth; external systems (ConnectWise, IMAP, RMM tools) are sync adapters — not the core.
+materialticket is a **local-first ticketing system** built on Material UI design principles. The local PostgreSQL database is the source of truth; external systems (ConnectWise, IMAP, RMM tools) are sync adapters — not the core.
+
+> **As of 1.1.0:** the database is **PostgreSQL** (was MariaDB) — chosen for `jsonb`, full-text search, and partial indexes. Auth is first-class: **local accounts + OIDC + SAML** with **server-side sessions**, **TOTP MFA (on by default)**, and **RBAC** (admin/technician/readonly). A **Network** view renders probe-discovered devices as a radial map.
 
 Key design goals:
 - Excellent standalone ticketing experience first
@@ -23,20 +25,26 @@ web-client (React + MUI)
      │  /api/* proxied by Vite dev server → backend:8060
      ▼
 backend (Fastify + TypeScript)
-     │  Prisma ORM
+     │  Prisma ORM  ·  auth (local/OIDC/SAML + sessions + RBAC)
      ▼
-MariaDB :3306  ← source of truth
+PostgreSQL :5432  ← source of truth
      │
-  sync providers (Phase 3+)
+  sync providers
      ├── ConnectWiseProvider  (reads/writes CW Manage)
-     ├── ImapProvider         (planned)
-     └── TacticalRmmProvider  (planned)
+     ├── NetVizProvider       (probe → device ingest)
+     ├── TacticalRmmProvider  (device sync + script runner)
+     └── ImapProvider         (planned)
 ```
 
 GoF patterns in use:
-- **Strategy** — `TicketProvider` and `ScriptRunner` interfaces (see `src/providers/`, `src/runners/`)
+- **Strategy** — `TicketProvider`, `DeviceProvider`, and `ScriptRunner` interfaces (see `src/providers/`, `src/runners/`)
 - **Repository** — `src/repositories/` wraps all Prisma queries; routes never touch Prisma directly
 - **Observer (append-only log)** — every mutation goes through `auditRepository.record()` before responding
+
+### Auth flow (1.1.0)
+- `middleware/auth.ts` runs on every request. It resolves a **session cookie** (browser login) or an **OIDC bearer token** (API clients) to a `request.user` carrying a role, then enforces baseline RBAC (`readonly` can't mutate). `requireRole('admin')` gates admin surfaces. Public paths: `/ping`, `/probe/*`, and the `/auth/*` login endpoints.
+- Login flows live in `routes/auth.ts` → services in `services/auth/` (`password`, `sessions`, `oidcService`, `samlService`, `totp`, `authConfig`, `bootstrap`).
+- Auth config is seeded from env on first boot into the `auth_settings` row, then editable from **Admin → Authentication** (DB wins). Secrets are write-only over the API.
 
 ---
 
@@ -87,7 +95,9 @@ Frontend runs at http://localhost:5173 — all `/api/*` requests proxy to backen
 docker compose up --build
 ```
 
-Services: frontend :5173, backend :8060, MariaDB :3306, Adminer :8081.
+Services: frontend :5173, backend :8060, PostgreSQL :5432, Adminer :8081.
+
+> **Logging in:** with `OIDC_DISABLED=true` every request runs as a dev admin (no login screen). For a real login, set `AUTH_SESSION_SECRET` + `BOOTSTRAP_ADMIN_PASSWORD` — the first boot creates a local admin; MFA enrollment is then required on first sign-in (set `MFA_REQUIRED=false` to skip).
 
 ---
 
@@ -97,12 +107,16 @@ See [backend/.env.example](backend/.env.example) for the full list.
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | Yes | `mysql://user:pass@host:3306/materialticket` |
-| `OIDC_ISSUER_URL` | Yes (unless OIDC_DISABLED) | OIDC discovery URL |
-| `OIDC_CLIENT_ID` | Yes (unless OIDC_DISABLED) | Client ID registered with IdP |
-| `OIDC_CLIENT_SECRET` | Optional | Required if IdP uses confidential client |
-| `OIDC_DISABLED` | Dev only | Set `true` to skip auth entirely |
-| `CWM_*` | Optional | Only needed if ConnectWise sync is enabled |
+| `DATABASE_URL` | Yes | `postgresql://user:pass@host:5432/materialticket` |
+| `APP_BASE_URL` | Prod | Public URL; builds OIDC/SAML callback URLs |
+| `AUTH_SESSION_SECRET` | Prod | Signs session cookies (`openssl rand -hex 32`) |
+| `BOOTSTRAP_ADMIN_PASSWORD` | First boot | Creates first local admin when users table is empty |
+| `AUTH_LOCAL_ENABLED` | Optional | `false` = SSO-only |
+| `MFA_REQUIRED` | Optional | TOTP MFA for local accounts — **on by default** |
+| `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | Optional | OIDC SSO (env seed; editable in Admin) |
+| `SAML_ENTRY_POINT` / `SAML_ISSUER` / `SAML_IDP_CERT` | Optional | SAML 2.0 SSO |
+| `OIDC_DISABLED` | Dev only | Set `true` to skip auth entirely (every request = dev admin) |
+| `CWM_*` / `TRMM_*` / `SMTP_*` | Optional | ConnectWise / Tactical RMM / mail |
 
 ### OIDC provider examples
 
@@ -120,11 +134,26 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 
 ## API endpoints
 
-### Local tickets (MariaDB — source of truth)
+### Auth (1.1.0)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/auth/config` | Public — which login methods are enabled |
+| POST | `/auth/login` | Local login → session cookie (or `mfaRequired`/`enrollmentRequired`) |
+| POST | `/auth/mfa/verify` `/setup` `/enable` | TOTP verify / enroll (QR) / confirm |
+| DELETE | `/auth/mfa` | Disable own MFA |
+| GET | `/auth/oidc/login` · `/auth/oidc/callback` | OIDC SSO handshake |
+| GET | `/auth/saml/login` · POST `/auth/saml/callback` · GET `/auth/saml/metadata` | SAML SSO |
+| GET | `/auth/me` · POST `/auth/logout` · POST `/auth/password` | Current user / logout / change own password |
+| * | `/users`, `/users/:id`, `/users/:id/password` | Admin user CRUD (admin role) |
+| GET/PATCH | `/auth/settings` | Admin: view/edit auth config (admin role) |
+
+### Local tickets (PostgreSQL — source of truth)
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/tickets` | List tickets (filters: status, assignee, company, page, pageSize) |
+| GET | `/tickets/search?q=` | **Postgres full-text search** (ranked) |
 | GET | `/tickets/:id` | Get one ticket with notes |
 | POST | `/tickets` | Create ticket |
 | PATCH | `/tickets/:id` | Update ticket fields |
@@ -158,13 +187,20 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | `backend/src/repositories/ticketRepository.ts` | All ticket DB operations + audit recording |
 | `backend/src/repositories/noteRepository.ts` | All note DB operations + audit recording |
 | `backend/src/repositories/auditRepository.ts` | Audit log write + query |
-| `backend/src/middleware/auth.ts` | OIDC bearer token validation (works with any IdP) |
+| `backend/src/repositories/userRepository.ts` | User CRUD + SSO upsert + TOTP helpers (secrets never serialized) |
+| `backend/src/middleware/auth.ts` | Unified session + bearer auth, RBAC (`requireRole`) |
+| `backend/src/services/auth/` | `password`, `sessions`, `oidcService`, `samlService`, `totp`, `authConfig`, `bootstrap` |
+| `backend/src/routes/auth.ts` | Login flows (local/OIDC/SAML), MFA, logout, self-service |
+| `backend/src/routes/users.ts` | Admin user management + `/auth/settings` |
+| `backend/src/db/pgExtras.ts` | Postgres full-text + partial indexes (ensured on boot) |
 | `backend/src/providers/TicketProvider.ts` | **Strategy interface** for external sync sources |
-| `backend/src/providers/ConnectWiseProvider.ts` | CW implementation of TicketProvider |
-| `backend/src/routes/tickets.ts` | CRUD routes for local tickets |
-| `backend/src/routes/cw.ts` | CW passthrough routes (legacy/convenience) |
+| `backend/src/providers/NetVizProvider.ts` | netviz device-ingest normalizer (**owns the wire contract**) |
+| `backend/src/routes/tickets.ts` | CRUD + full-text search for local tickets |
 | `web-client/src/api/client.ts` | Frontend API client — all fetch calls go here |
-| `web-client/src/App.tsx` | Main React component, state management |
+| `web-client/src/auth/` | `AuthContext`, `LoginView`, `AccountMenu` |
+| `web-client/src/components/NetworkView.tsx` | NetViz radial network map over Device data |
+| `web-client/src/components/AdminView.tsx` | Admin: Users, Authentication, Sync, Probes, Devices, Mail |
+| `web-client/src/App.tsx` | Main React component, auth gating, state management |
 | `docs/architecture.md` | Architecture diagram and pattern rationale |
 | `docs/schema.md` | Database schema documentation |
 | `docs/providers.md` | How to add a new TicketProvider |
@@ -193,7 +229,7 @@ cd backend && npm test
 cd web-client && npm test
 ```
 
-Note: The old root-level `index.test.ts` was removed — it tested deleted CW-only routes. New tests should target the local-DB routes in `backend/src/routes/tickets.ts`.
+Backend tests use **ts-jest** (`backend/jest.config.js`). The security-critical auth primitives are covered in `backend/src/services/auth/__tests__/` (password hashing, TOTP, recovery codes) plus the NetViz normalizer and the auth serializers/guards — all DB-free unit tests. New DB-touching tests should target the repositories/routes.
 
 ---
 

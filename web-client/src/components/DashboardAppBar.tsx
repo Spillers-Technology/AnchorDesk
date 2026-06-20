@@ -8,12 +8,13 @@ import {
   Slider,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
+import AccountMenu from "../auth/AccountMenu";
 
 interface DashboardAppBarProps {
   drawerOpen: boolean;
   toggleDrawer: () => void;
   currentView: string;
-  viewMode: "cards" | "table" | "kanban" | "sync" | "admin";
+  viewMode: "cards" | "table" | "kanban" | "sync" | "admin" | "network";
   cardSize: number;
   handleCardSizeChange: (event: any, newValue: number | number[]) => void;
 }
@@ -36,6 +37,8 @@ const DashboardAppBar: React.FC<DashboardAppBarProps> = ({
         return "Sync Management";
       case "admin":
         return "Admin";
+      case "network":
+        return "Network";
       case "kanban":
         return "Kanban Board";
       default:
@@ -84,6 +87,7 @@ const DashboardAppBar: React.FC<DashboardAppBarProps> = ({
             />
           </Box>
         )}
+        <AccountMenu />
       </Toolbar>
     </AppBar>
   );

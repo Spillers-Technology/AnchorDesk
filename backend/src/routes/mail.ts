@@ -43,7 +43,7 @@ export async function mailRoutes(server: FastifyInstance) {
         html: body.html,
       });
 
-      const author = req.oidcClaims?.name ?? req.actorSub;
+      const author = req.user?.displayName ?? req.actorSub;
       await noteRepo.create(
         ticketId,
         {

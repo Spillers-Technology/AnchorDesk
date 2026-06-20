@@ -63,6 +63,38 @@ export async function getById(id: number) {
   });
 }
 
+/**
+ * Full-text ticket search (Postgres). Uses websearch_to_tsquery so users can
+ * type natural queries ("printer offline -resolved") and ranks by relevance.
+ * Backed by the GIN index in pgExtras (idx_tickets_fts).
+ */
+export async function search(q: string, limit = 50) {
+  const term = q.trim();
+  if (!term) return [];
+  const rows = await prisma.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+    SELECT id
+    FROM tickets
+    WHERE status <> 'Deleted'
+      AND to_tsvector('english',
+            coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' ||
+            coalesce(description,'') || ' ' || coalesce(company_name,''))
+          @@ websearch_to_tsquery('english', ${term})
+    ORDER BY ts_rank(
+      to_tsvector('english',
+        coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' ||
+        coalesce(description,'') || ' ' || coalesce(company_name,'')),
+      websearch_to_tsquery('english', ${term})
+    ) DESC
+    LIMIT ${limit}
+  `);
+  const ids = rows.map((r) => r.id);
+  if (ids.length === 0) return [];
+  // Re-hydrate full records, preserving rank order.
+  const tickets = await prisma.ticket.findMany({ where: { id: { in: ids } }, include: { assigneeUser: true } });
+  const byId = new Map(tickets.map((t) => [t.id, t]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+
 export async function create(input: CreateTicketInput, actorSub: string) {
   const ticket = await prisma.ticket.create({
     data: {

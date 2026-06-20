@@ -1,12 +1,15 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../db/prisma';
 import { runSync, runAllSync } from '../services/syncService';
+import { requireRole } from '../middleware/auth';
 
 interface ProviderIdParam { providerId: string }
 
 export async function syncRoutes(server: FastifyInstance) {
+  const adminOnly = { preHandler: requireRole('admin') };
+
   // Trigger a sync run — all enabled providers, or a specific one
-  server.post('/sync/run', async (req: FastifyRequest, reply: FastifyReply) => {
+  server.post('/sync/run', adminOnly, async (req: FastifyRequest, reply: FastifyReply) => {
     const query = req.query as Record<string, string>;
     const providerName = query.provider;
 
@@ -46,7 +49,7 @@ export async function syncRoutes(server: FastifyInstance) {
   });
 
   // Enable/disable a provider
-  server.patch('/sync/providers/:providerId', async (req: FastifyRequest<{ Params: ProviderIdParam }>, reply: FastifyReply) => {
+  server.patch<{ Params: ProviderIdParam }>('/sync/providers/:providerId', adminOnly, async (req, reply) => {
     const body = req.body as { enabled?: boolean };
     const provider = await prisma.syncProvider.update({
       where: { id: parseInt(req.params.providerId) },

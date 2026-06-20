@@ -18,12 +18,15 @@ import TicketCard from "./components/TicketCard";
 import FilterDialog from "./components/FilterDialog";
 import CWManageView from "./components/CWManageView";
 import AdminView from "./components/AdminView";
+import NetworkView from "./components/NetworkView";
 import TicketDialog from "./components/TicketDialog";
 import TicketTable from "./components/TicketTable";
 import KanbanBoard from "./components/KanbanBoard";
 import CreateTicketDialog from "./components/CreateTicketDialog";
 import { Ticket, Company, Note } from "./interfaces";
 import * as api from "./api/client";
+import { useAuth } from "./auth/AuthContext";
+import LoginView from "./auth/LoginView";
 import AddIcon from "@mui/icons-material/Add";
 
 const defaultTheme = createTheme({
@@ -82,12 +85,13 @@ function App() {
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [ticketNotes, setTicketNotes] = useState<Note[]>([]);
-  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban" | "sync" | "admin">("cards");
+  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban" | "sync" | "admin" | "network">("cards");
   const [cardSize, setCardSize] = useState(5);
   const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
-  const currentUser = { id: 1, name: "Current User" };
+  const { user, loading: authLoading, isAdmin, setUser } = useAuth();
+  const currentUser = { id: user?.id ?? 0, name: user?.displayName ?? user?.username ?? "User" };
 
   const fetchTickets = useCallback(async () => {
     setLoading(true);
@@ -159,8 +163,34 @@ function App() {
   };
 
   useEffect(() => {
-    fetchTickets();
-  }, [fetchTickets]);
+    if (user) fetchTickets();
+  }, [fetchTickets, user]);
+
+  if (authLoading) {
+    return (
+      <ThemeProvider theme={defaultTheme}>
+        <CssBaseline />
+        <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <CircularProgress />
+        </Box>
+      </ThemeProvider>
+    );
+  }
+
+  if (!user) {
+    return (
+      <ThemeProvider theme={defaultTheme}>
+        <CssBaseline />
+        <LoginView
+          onAuthenticated={(u) => {
+            setUser(u);
+            // Drop any ?authError=... left by an SSO redirect.
+            window.history.replaceState({}, "", window.location.pathname);
+          }}
+        />
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider theme={defaultTheme}>
@@ -178,6 +208,7 @@ function App() {
           drawerOpen={drawerOpen}
           toggleDrawer={() => setDrawerOpen(!drawerOpen)}
           setViewMode={setViewMode}
+          isAdmin={isAdmin}
         />
 
         <Box component="main" sx={{ flexGrow: 1, p: 3, backgroundColor: "background.default" }}>
@@ -209,6 +240,8 @@ function App() {
 
           {viewMode === "admin" ? (
             <AdminView />
+          ) : viewMode === "network" ? (
+            <NetworkView />
           ) : viewMode === "sync" ? (
             <CWManageView onTicketsChanged={fetchTickets} />
           ) : (

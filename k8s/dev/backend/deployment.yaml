@@ -18,14 +18,14 @@ spec:
       imagePullSecrets:
         - name: ghcr-pull-secret
       initContainers:
-        # Wait for MariaDB to accept connections before starting the app.
+        # Wait for Postgres to accept connections before starting the app.
         - name: wait-for-db
           image: busybox:1.36
           command:
             - sh
             - -c
             - |
-              until nc -z db 3306; do
+              until nc -z db 5432; do
                 echo "waiting for db..."; sleep 3
               done
               echo "db is ready"
@@ -77,6 +77,43 @@ spec:
                 secretKeyRef:
                   name: materialticket-secrets
                   key: OIDC_CLIENT_SECRET
+                  optional: true
+            # Auth (1.1.0): session signing, public base URL, bootstrap admin, SAML.
+            - name: APP_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: materialticket-secrets
+                  key: APP_BASE_URL
+                  optional: true
+            - name: AUTH_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: materialticket-secrets
+                  key: AUTH_SESSION_SECRET
+                  optional: true
+            - name: BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: materialticket-secrets
+                  key: BOOTSTRAP_ADMIN_USERNAME
+                  optional: true
+            - name: BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: materialticket-secrets
+                  key: BOOTSTRAP_ADMIN_PASSWORD
+                  optional: true
+            - name: SAML_ENTRY_POINT
+              valueFrom:
+                secretKeyRef:
+                  name: materialticket-secrets
+                  key: SAML_ENTRY_POINT
+                  optional: true
+            - name: SAML_IDP_CERT
+              valueFrom:
+                secretKeyRef:
+                  name: materialticket-secrets
+                  key: SAML_IDP_CERT
                   optional: true
           readinessProbe:
             httpGet:

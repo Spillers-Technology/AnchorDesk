@@ -11,16 +11,18 @@ import ListAltIcon from "@mui/icons-material/ListAlt";
 import ViewKanbanIcon from "@mui/icons-material/ViewKanban";
 import SyncIcon from "@mui/icons-material/Sync";
 import SettingsIcon from "@mui/icons-material/Settings";
+import HubIcon from "@mui/icons-material/Hub";
 
-type ViewMode = "cards" | "table" | "kanban" | "sync" | "admin";
+type ViewMode = "cards" | "table" | "kanban" | "sync" | "admin" | "network";
 
 interface DashboardDrawerProps {
   drawerOpen: boolean;
   toggleDrawer: () => void;
   setViewMode: (viewMode: ViewMode) => void;
+  isAdmin?: boolean;
 }
 
-export default function DashboardDrawer({ drawerOpen, toggleDrawer, setViewMode }: DashboardDrawerProps) {
+export default function DashboardDrawer({ drawerOpen, toggleDrawer, setViewMode, isAdmin }: DashboardDrawerProps) {
   const nav = (mode: ViewMode) => () => {
     setViewMode(mode);
     toggleDrawer();
@@ -44,6 +46,11 @@ export default function DashboardDrawer({ drawerOpen, toggleDrawer, setViewMode 
           <ListItemText primary="Kanban Board" />
         </ListItem>
 
+        <ListItem button onClick={nav("network")}>
+          <ListItemIcon><HubIcon /></ListItemIcon>
+          <ListItemText primary="Network" />
+        </ListItem>
+
         <Divider sx={{ my: 1 }} />
 
         <ListItem button onClick={nav("sync")}>
@@ -51,10 +58,12 @@ export default function DashboardDrawer({ drawerOpen, toggleDrawer, setViewMode 
           <ListItemText primary="Sync Management" />
         </ListItem>
 
-        <ListItem button onClick={nav("admin")}>
-          <ListItemIcon><SettingsIcon /></ListItemIcon>
-          <ListItemText primary="Admin" />
-        </ListItem>
+        {isAdmin && (
+          <ListItem button onClick={nav("admin")}>
+            <ListItemIcon><SettingsIcon /></ListItemIcon>
+            <ListItemText primary="Admin" />
+          </ListItem>
+        )}
       </List>
     </Drawer>
   );

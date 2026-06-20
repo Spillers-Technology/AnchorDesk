@@ -49,9 +49,9 @@ secrets: ## Create k8s Secret from k8s/dev/secrets.env (copy from secrets.exampl
 
 deploy: ## Apply all k8s manifests (namespace + dev/)
 	kubectl apply -f k8s/namespace.yaml
-	kubectl apply -f k8s/dev/mariadb/configmap-initdb.yaml
-	kubectl apply -f k8s/dev/mariadb/service.yaml
-	kubectl apply -f k8s/dev/mariadb/statefulset.yaml
+	kubectl apply -f k8s/dev/postgres/configmap-initdb.yaml
+	kubectl apply -f k8s/dev/postgres/service.yaml
+	kubectl apply -f k8s/dev/postgres/statefulset.yaml
 	kubectl apply -f k8s/dev/backend/service.yaml
 	kubectl apply -f k8s/dev/backend/deployment.yaml
 	kubectl apply -f k8s/dev/web-client/service.yaml
@@ -81,7 +81,7 @@ logs: ## Tail backend logs
 logs-web: ## Tail web-client logs
 	kubectl logs -n $(NS) -l app=web-client -f --tail=80
 
-logs-db: ## Tail MariaDB logs
+logs-db: ## Tail Postgres logs
 	kubectl logs -n $(NS) -l app=db -f --tail=80
 
 # ─── Exec shortcuts ───────────────────────────────────────────────────────────
@@ -89,9 +89,9 @@ logs-db: ## Tail MariaDB logs
 shell-backend: ## Open a shell in the running backend pod
 	kubectl exec -it -n $(NS) deploy/backend -- /bin/bash
 
-shell-db: ## Open a MariaDB shell
+shell-db: ## Open a psql shell
 	kubectl exec -it -n $(NS) db-0 -- \
-	  sh -c 'mariadb -u$$MARIADB_USER -p$$MARIADB_PASSWORD $$MARIADB_DATABASE'
+	  sh -c 'psql -U $$POSTGRES_USER -d materialticket'
 
 db-push: ## Run prisma db push inside the backend pod (apply schema changes)
 	kubectl exec -n $(NS) deploy/backend -- npx prisma db push

@@ -8,18 +8,22 @@ services:
     depends_on:
       - backend
   db:
-    image: mariadb
+    image: postgres:16-alpine
     restart: always
     environment:
       # Secrets come from the gitignored .env — never hardcode them here.
-      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD in .env}
-      MARIADB_DATABASE: ${DB_NAME:-materialticket}
-      MARIADB_USER: ${DB_USER:-mtapp}
-      MARIADB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: ${DB_NAME:-materialticket}
+      POSTGRES_USER: ${DB_USER:-mtapp}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     ports:
-      - 3306:3306
+      - 5432:5432
     volumes:
-      - mariadb:/var/lib/mysql:Z
+      - pgdata:/var/lib/postgresql/data:Z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-mtapp} -d ${DB_NAME:-materialticket}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
   adminer:
     image: adminer
     restart: always
@@ -31,16 +35,17 @@ services:
     ports:
       - 8060:8060
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     # backend/.env (volume-mounted) supplies OIDC/TRMM/SMTP; DATABASE_URL is
     # overridden here to reach the db service (not localhost) inside the network.
     environment:
-      DATABASE_URL: mysql://${DB_USER:-mtapp}:${DB_PASSWORD}@db:3306/${DB_NAME:-materialticket}
+      DATABASE_URL: postgresql://${DB_USER:-mtapp}:${DB_PASSWORD}@db:5432/${DB_NAME:-materialticket}
     volumes:
       - ./backend:/backend # Mount your project's src folder
       - /backend/node_modules
 volumes:
-  mariadb:
+  pgdata:
 networks:
   default:
       name: "intune-depot-app"

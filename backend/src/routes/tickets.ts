@@ -20,6 +20,14 @@ export async function ticketRoutes(server: FastifyInstance) {
     return reply.send(tickets);
   });
 
+  // Full-text search (Postgres). Static route — registered before /tickets/:id.
+  server.get('/tickets/search', async (req: FastifyRequest, reply: FastifyReply) => {
+    const query = req.query as Record<string, string>;
+    const q = query.q ?? '';
+    const limit = query.limit ? Math.min(parseInt(query.limit), 200) : 50;
+    return reply.send(await ticketRepo.search(q, limit));
+  });
+
   // Get a single ticket with notes
   server.get('/tickets/:id', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
     const ticket = await ticketRepo.getById(parseInt(req.params.id));
@@ -73,7 +81,7 @@ export async function ticketRoutes(server: FastifyInstance) {
 
     const note = await noteRepo.create(
       parseInt(req.params.id),
-      { ...body, author: body.author ?? req.oidcClaims?.name ?? req.actorSub },
+      { ...body, author: body.author ?? req.user?.displayName ?? req.actorSub },
       req.actorSub
     );
     return reply.status(201).send(note);
