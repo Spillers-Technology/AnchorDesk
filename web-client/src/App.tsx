@@ -68,6 +68,7 @@ function mapDbTicket(t: Record<string, unknown>): Ticket & { localId: number } {
     responseDueAt: (t.responseDueAt as string | null) ?? null,
     resolutionDueAt: (t.resolutionDueAt as string | null) ?? null,
     firstRespondedAt: (t.firstRespondedAt as string | null) ?? null,
+    labels: (t.labels as Ticket["labels"]) ?? [],
   };
 }
 

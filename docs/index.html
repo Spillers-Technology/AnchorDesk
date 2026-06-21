@@ -226,7 +226,7 @@
     <div class="wrap">
       <div class="hero-grid">
         <div>
-          <span class="pill">● v1.6.0 — HTML email threads, companies &amp; contacts, time tracking</span>
+          <span class="pill">● v1.8.0 — multi-identity email, labels, attachments, live updates &amp; SLA</span>
           <h1>Ticketing that knows<br><span class="accent">the machines</span> behind the ticket.</h1>
           <p class="lead">A self-hosted helpdesk where <b>your database is the source of truth</b> — with threaded email intake, linked devices, RMM actions, and actor-attributed history.</p>
           <div class="cta">
@@ -297,8 +297,18 @@
         </div>
         <div class="card reveal">
           <div class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="3"/><path d="M5 12a7 7 0 0 1 7-7M19 12a7 7 0 0 1-7 7" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
-          <h3>Email-to-ticket</h3>
-          <p>Poll multiple IMAP mailboxes, open tickets from new mail, thread replies into existing tickets, and compose sanitized HTML replies that thread back — all on the ticket timeline.</p>
+          <h3>Multi-identity email</h3>
+          <p>Poll multiple IMAP mailboxes (auto-tagged with labels), thread replies onto the ticket, and reply as a shared box or personal alias with <b>Cc/Bcc</b>, contact autocomplete, signatures, templates, and inline images.</p>
+        </div>
+        <div class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 5v5l4 2-.8 1.7L11 13V7z"/></svg></div>
+          <h3>Live updates &amp; SLA</h3>
+          <p>A WebSocket channel keeps lists, the board, and open tickets current in real time, with a notification bell. Per-priority/company <b>SLA</b> timers show live countdown chips and raise at-risk and breach alerts.</p>
+        </div>
+        <div class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 6v11a4.5 4.5 0 0 1-9 0V5a3 3 0 0 1 6 0v11a1.5 1.5 0 0 1-3 0V6H9v10a3 3 0 0 0 6 0V5a4.5 4.5 0 0 0-9 0v12a6 6 0 0 0 12 0V6z"/></svg></div>
+          <h3>Attachments, export &amp; fuzzy search</h3>
+          <p>Drag-drop files (local disk or any S3-compatible store like MinIO/R2/B2), download a printable ticket with inline activity, and find anything with typo-tolerant Postgres search across the whole conversation.</p>
         </div>
         <div class="card reveal">
           <div class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v16H4z" opacity=".25"/><path d="M7 8h10v2H7zm0 4h10v2H7zm0 4h6v2H7z"/></svg></div>

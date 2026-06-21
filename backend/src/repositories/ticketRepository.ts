@@ -11,6 +11,8 @@ export interface TicketListOptions {
   source?: TicketSource;
   /** Free-text filter across title/summary/company (case-insensitive contains). */
   q?: string;
+  /** Filter to tickets carrying a given label id. */
+  labelId?: number;
   /** Exclude soft-deleted tickets (status = 'Deleted'). Default true. */
   includeDeleted?: boolean;
   page?: number;
@@ -25,6 +27,7 @@ function buildWhere(filters: Omit<TicketListOptions, 'page' | 'pageSize'>): Pris
   if (filters.assignee) where.assignee = { contains: filters.assignee };
   if (filters.companyName) where.companyName = { contains: filters.companyName };
   if (filters.source) where.source = filters.source;
+  if (filters.labelId) where.labels = { some: { labelId: filters.labelId } };
   if (filters.includeDeleted === false) where.status = { not: 'Deleted' };
   if (filters.q && filters.q.trim()) {
     const q = filters.q.trim();
@@ -83,7 +86,7 @@ export async function list(opts: TicketListOptions = {}) {
     orderBy: { createdAt: 'desc' },
     skip: (page - 1) * pageSize,
     take: pageSize,
-    include: { assigneeUser: true },
+    include: { assigneeUser: true, labels: { include: { label: true } } },
   });
 }
 
@@ -112,6 +115,7 @@ export async function getById(id: number) {
       notes: { orderBy: { createdAt: 'desc' } },
       attachments: { orderBy: { createdAt: 'asc' } },
       slaPolicy: true,
+      labels: { include: { label: true } },
     },
   });
 }
@@ -126,33 +130,56 @@ export function listForCompany(companyId: number) {
 }
 
 /**
- * Full-text ticket search (Postgres). Uses websearch_to_tsquery so users can
- * type natural queries ("printer offline -resolved") and ranks by relevance.
- * Backed by the GIN index in pgExtras (idx_tickets_fts).
+ * Fuzzy ticket search (Postgres). Combines three signals so typos, partial
+ * words, priority terms, and conversation content all match:
+ *  - `websearch_to_tsquery` full-text rank over ticket text (idx_tickets_fts)
+ *  - `pg_trgm` similarity over the concatenated ticket text incl. priority +
+ *    ticket number (idx_tickets_trgm) — typo-tolerant
+ *  - trigram similarity over note bodies (idx_notes_content_trgm) — reaches into
+ *    the timeline/email conversation
+ * Rank = the greatest of the three. A low trigram floor keeps near-misses.
  */
 export async function search(q: string, limit = 50) {
   const term = q.trim();
   if (!term) return [];
+  const like = `%${term.toLowerCase()}%`;
   const rows = await prisma.$queryRaw<Array<{ id: number }>>(Prisma.sql`
-    SELECT id
-    FROM tickets
-    WHERE status <> 'Deleted'
-      AND to_tsvector('english',
-            coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' ||
-            coalesce(description,'') || ' ' || coalesce(company_name,''))
-          @@ websearch_to_tsquery('english', ${term})
-    ORDER BY ts_rank(
-      to_tsvector('english',
-        coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' ||
-        coalesce(description,'') || ' ' || coalesce(company_name,'')),
-      websearch_to_tsquery('english', ${term})
-    ) DESC
+    WITH ticket_txt AS (
+      SELECT id,
+        to_tsvector('english',
+          coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' ||
+          coalesce(description,'') || ' ' || coalesce(company_name,'')) AS tsv,
+        lower(coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' ||
+          coalesce(description,'') || ' ' || coalesce(company_name,'') || ' ' ||
+          coalesce(priority,'') || ' ' || coalesce(ticket_number,'')) AS txt
+      FROM tickets WHERE status <> 'Deleted'
+    ),
+    note_sim AS (
+      SELECT ticket_id AS id, max(similarity(lower(content), ${term})) AS nsim
+      FROM notes GROUP BY ticket_id
+    )
+    SELECT t.id,
+      GREATEST(
+        ts_rank(t.tsv, websearch_to_tsquery('english', ${term})),
+        similarity(t.txt, ${term}),
+        coalesce(n.nsim, 0)
+      ) AS rank
+    FROM ticket_txt t
+    LEFT JOIN note_sim n ON n.id = t.id
+    WHERE t.tsv @@ websearch_to_tsquery('english', ${term})
+       OR t.txt % ${term}
+       OR t.txt LIKE ${like}
+       OR coalesce(n.nsim, 0) > 0.2
+    ORDER BY rank DESC
     LIMIT ${limit}
   `);
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return [];
   // Re-hydrate full records, preserving rank order.
-  const tickets = await prisma.ticket.findMany({ where: { id: { in: ids } }, include: { assigneeUser: true } });
+  const tickets = await prisma.ticket.findMany({
+    where: { id: { in: ids } },
+    include: { assigneeUser: true, labels: { include: { label: true } } },
+  });
   const byId = new Map(tickets.map((t) => [t.id, t]));
   return ids.map((id) => byId.get(id)).filter(Boolean);
 }

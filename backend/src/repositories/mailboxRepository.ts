@@ -40,6 +40,8 @@ export interface CreateMailboxInput {
   password?: string;
   folder?: string;
   companyName?: string;
+  labelId?: number | null;
+  identityId?: number | null;
   enabled?: boolean;
 }
 
@@ -54,6 +56,8 @@ export async function create(input: CreateMailboxInput, actor: string): Promise<
       passwordEnc: input.password ? encrypt(input.password) : null,
       folder: input.folder ?? 'INBOX',
       companyName: input.companyName ?? null,
+      labelId: input.labelId ?? null,
+      identityId: input.identityId ?? null,
       enabled: input.enabled ?? true,
     },
   });
@@ -63,7 +67,7 @@ export async function create(input: CreateMailboxInput, actor: string): Promise<
 
 export async function update(id: number, input: Partial<CreateMailboxInput>, actor: string): Promise<Mailbox> {
   const data: Record<string, unknown> = {};
-  for (const k of ['name', 'host', 'port', 'secure', 'username', 'folder', 'companyName', 'enabled'] as const) {
+  for (const k of ['name', 'host', 'port', 'secure', 'username', 'folder', 'companyName', 'labelId', 'identityId', 'enabled'] as const) {
     if (input[k] !== undefined) data[k] = input[k];
   }
   // Empty password = keep existing.

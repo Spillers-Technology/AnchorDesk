@@ -16,6 +16,15 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 > - **Attachments** — a pluggable storage seam (`AttachmentStorage` Strategy: `LocalDiskStorage` + `S3Storage` for any S3-compatible store — AWS, MinIO, R2, B2) holds bytes; Postgres holds `Attachment` metadata. Configured via env **or** Admin → Integrations `storage` row (DB wins). Inbound IMAP attachments are persisted; the email composer can attach files. Upload is `@fastify/multipart`; download streams from the row's recorded backend.
 > - **Live layer (WebSockets)** — an in-process `eventBus` (Observer, alongside the audit log) publishes `ticket.*` / `note.added` / `sla.atRisk`; `wsHub` fans them over `@fastify/websocket` at `/ws` (session-authed on the upgrade). The web client live-updates lists/Kanban/open ticket and shows a notification bell.
 > - **Notifications + SLA** — `notificationService` turns events into per-user `Notification` rows (pushed live). `SlaPolicy` sets response/resolution targets matched by priority/company (precedence: company+priority > company > priority > default); tickets carry `responseDueAt` / `resolutionDueAt` / `firstRespondedAt`, and `slaScheduler` emits at-risk/breach events. Reactive SLA chips render on list/card/board/ticket.
+>
+> **As of 1.8.0 ("Comms & Craft"):** email becomes multi-identity and the ticket becomes a polished, exportable record.
+> - **Email** — Cc/**Bcc**; **send-from identities** (`MailIdentity`: shared boxes like help@/support@ + per-user aliases) set the From header while the SMTP envelope/auth stay the relay (SPF/DKIM intact); per-user **signatures** (`User.signatureHtml`) + reusable **templates** (`MailTemplate`); composer has contact **autocomplete** for To/Cc/Bcc.
+> - **Labels** (`Label` + `TicketLabel`) — managed tags; **mailboxes auto-apply a label** (`Mailbox.labelId`) so catchall vs help@ vs personal inboxes land tagged differently; `GET /tickets?labelId=` filters.
+> - **Inline images** — inbound `cid:` images are stored as attachments and rewritten to `/api/attachments/:id/download`; the sanitizer allows stored/relative image URLs + `loading`; the timeline renders HTML for internal notes too (script logs, images) with `max-width`/lazy so layout never breaks.
+> - **Script logs** — a finished `ScriptJob` with a `ticketId` appends its output to the timeline as a note (streams in live).
+> - **Ticket export** — `GET /tickets/:id/export` returns a self-contained printable HTML doc (activity + images inlined as data URIs) for Print → PDF.
+> - **Fuzzy search** — `pg_trgm` trigram similarity combined with FTS, across ticket text + priority + ticket number + note bodies (`ticketRepository.search`, indexes in `pgExtras`).
+> - **Modal polish** — ticket-field edits show a live saving → saved/failed indicator.
 
 Key design goals:
 - Excellent standalone ticketing experience first

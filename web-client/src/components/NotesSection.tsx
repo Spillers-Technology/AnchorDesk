@@ -134,12 +134,7 @@ const NotesSection: React.FC<NotesSectionProps> = ({
                         </IconButton>
                       </>
                     ) : (
-                      <Typography
-                        variant="body2"
-                        sx={{ whiteSpace: "pre-wrap", color: "text.primary" }}
-                      >
-                        {note.text}
-                      </Typography>
+                      <NoteBody note={note} />
                     )}
                   </Box>
                   {canEditNote(note) && editingNotes[note.id] === undefined && (
@@ -161,11 +156,33 @@ const NotesSection: React.FC<NotesSectionProps> = ({
   );
 };
 
+// Shared style for rendered HTML bodies: images never overflow and load lazily,
+// so a big inline image doesn't break the timeline layout while it loads.
+const HTML_BODY_SX = {
+  "& img": { maxWidth: "100%", height: "auto", borderRadius: 1 },
+  "& a": { color: "primary.main" },
+  "& pre": { whiteSpace: "pre-wrap", overflowX: "auto", bgcolor: "grey.100", p: 1, borderRadius: 1 },
+} as const;
+
+/** Render an internal note body: sanitized HTML (script logs, inline images)
+ *  when present, else plain text. */
+function NoteBody({ note }: { note: Note }) {
+  if (note.html) {
+    const safe = DOMPurify.sanitize(note.html, { ADD_ATTR: ["loading"] });
+    return <Box sx={{ ...HTML_BODY_SX, color: "text.primary" }} dangerouslySetInnerHTML={{ __html: safe }} />;
+  }
+  return (
+    <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", color: "text.primary" }}>
+      {note.text}
+    </Typography>
+  );
+}
+
 /** A single email rendered as a conversation bubble. Inbound mail aligns left
  *  (neutral), outbound aligns right (accent), so a thread reads like a chat. */
 function EmailBubble({ note, onReply }: { note: Note; onReply?: (note: Note) => void }) {
   const outbound = note.direction === "outbound";
-  const safeHtml = note.html ? DOMPurify.sanitize(note.html) : null;
+  const safeHtml = note.html ? DOMPurify.sanitize(note.html, { ADD_ATTR: ["loading"] }) : null;
 
   return (
     <ListItem sx={{ display: "flex", justifyContent: outbound ? "flex-end" : "flex-start", px: 0 }}>
@@ -205,7 +222,7 @@ function EmailBubble({ note, onReply }: { note: Note; onReply?: (note: Note) => 
             {note.subject}
           </Typography>
         )}
-        <Box sx={{ mt: 1, "& img": { maxWidth: "100%" }, "& a": { color: "primary.main" }, color: "text.primary" }}>
+        <Box sx={{ mt: 1, ...HTML_BODY_SX, color: "text.primary" }}>
           {safeHtml ? (
             <div dangerouslySetInnerHTML={{ __html: safeHtml }} />
           ) : (

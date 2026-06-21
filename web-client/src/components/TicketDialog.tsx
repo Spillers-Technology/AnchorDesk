@@ -22,8 +22,13 @@ import {
   Divider,
   ToggleButton,
   ToggleButtonGroup,
+  Checkbox,
+  FormControlLabel,
+  CircularProgress,
 } from "@mui/material";
 import { Close } from "@mui/icons-material";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import EditIcon from "@mui/icons-material/Edit";
 import ComputerIcon from "@mui/icons-material/Computer";
 import TerminalIcon from "@mui/icons-material/Terminal";
@@ -32,6 +37,7 @@ import PersonIcon from "@mui/icons-material/Person";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import SyncIcon from "@mui/icons-material/Sync";
 import EmailIcon from "@mui/icons-material/Email";
+import DownloadIcon from "@mui/icons-material/Download";
 import { Ticket, Note } from "../interfaces";
 import EditableField from "./EditableField";
 import NotesSection from "./NotesSection";
@@ -83,11 +89,26 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   const [timeMinutes, setTimeMinutes] = useState(0);
   const [timeEntries, setTimeEntries] = useState<any[]>([]);
   const [attachments, setAttachments] = useState<api.Attachment[]>([]);
+  const [allLabels, setAllLabels] = useState<api.Label[]>([]);
 
   const reloadAttachments = useCallback(() => {
     if (ticket.localId == null) return;
     api.listAttachments(ticket.localId).then(setAttachments).catch(() => setAttachments([]));
   }, [ticket.localId]);
+
+  const reloadFull = useCallback(() => {
+    if (ticket.localId == null) return;
+    api.getTicket(ticket.localId).then((t) => setFull(t as any)).catch(() => {});
+  }, [ticket.localId]);
+
+  const addLabel = async (labelId: number) => {
+    if (ticket.localId == null) return;
+    await api.tagTicket(ticket.localId, labelId).then(reloadFull).catch(() => {});
+  };
+  const removeLabel = async (labelId: number) => {
+    if (ticket.localId == null) return;
+    await api.untagTicket(ticket.localId, labelId).then(reloadFull).catch(() => {});
+  };
 
   const reloadDevices = useCallback(() => {
     if (ticket.localId == null) return;
@@ -126,6 +147,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     reloadDevices();
     reloadTime();
     reloadAttachments();
+    api.listLabels().then(setAllLabels).catch(() => setAllLabels([]));
     api.listTicketScriptJobs(id).then((j) => setJobs(j as any[])).catch(() => setJobs([]));
     api.getMailStatus().then((m) => setMailConfigured(m.configured)).catch(() => setMailConfigured(false));
     api.listAssignees().then(setAssignees).catch(() => setAssignees([]));
@@ -195,13 +217,20 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     catch (err) { console.error("unlink device failed", err); }
   };
 
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
   const persist = useCallback(async (data: Record<string, unknown>) => {
     if (ticket.localId == null) return;
+    setSaveState("saving");
     try {
       await api.updateTicket(ticket.localId, data);
       onUpdated?.(Object.keys(data)[0]);
+      setSaveState("saved");
+      // Fade the "Saved" confirmation back to idle so edits stay unobtrusive.
+      setTimeout(() => setSaveState((s) => (s === "saved" ? "idle" : s)), 1500);
     } catch (err) {
       console.error("Failed to save ticket edit:", err);
+      setSaveState("error");
     }
   }, [ticket.localId, onUpdated]);
 
@@ -234,8 +263,26 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
             </Stack>
             <Typography variant="h5" noWrap sx={{ fontWeight: 700 }}>{title || "(untitled)"}</Typography>
             <Typography variant="body2" sx={{ opacity: 0.85 }}>{companyName || "No company"}</Typography>
+            {(full?.labels ?? []).length > 0 && (
+              <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} flexWrap="wrap" useFlexGap>
+                {(full?.labels ?? []).map((tl: any) => (
+                  <Chip key={tl.label.id} size="small" label={tl.label.name}
+                    sx={{ bgcolor: tl.label.color, color: "#fff", height: 20 }} />
+                ))}
+              </Stack>
+            )}
           </Box>
-          <IconButton onClick={onClose} sx={{ color: "#fff" }}><Close /></IconButton>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <SaveStatus state={saveState} />
+            {ticket.localId != null && (
+              <Tooltip title="Download ticket (printable)">
+                <IconButton sx={{ color: "#fff" }} onClick={() => window.open(api.ticketExportUrl(ticket.localId!), "_blank")}>
+                  <DownloadIcon />
+                </IconButton>
+              </Tooltip>
+            )}
+            <IconButton onClick={onClose} sx={{ color: "#fff" }}><Close /></IconButton>
+          </Stack>
         </Stack>
       </Box>
 
@@ -326,6 +373,24 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                       ))}
                     </Select>
                   </Stack>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Labels</Typography>
+                    <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 0.5, mb: 1 }}>
+                      {(full?.labels ?? []).map((tl: any) => (
+                        <Chip key={tl.label.id} size="small" label={tl.label.name}
+                          sx={{ bgcolor: tl.label.color, color: "#fff" }}
+                          onDelete={() => removeLabel(tl.label.id)} />
+                      ))}
+                      {(full?.labels ?? []).length === 0 && <Typography variant="caption" color="text.secondary">None</Typography>}
+                    </Stack>
+                    <Select size="small" fullWidth displayEmpty value=""
+                      onChange={(e) => e.target.value !== "" && addLabel(Number(e.target.value))}>
+                      <MenuItem value="" disabled>Add label…</MenuItem>
+                      {allLabels
+                        .filter((l) => !(full?.labels ?? []).some((tl: any) => tl.label.id === l.id))
+                        .map((l) => <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>)}
+                    </Select>
+                  </Box>
                   <MetaRow icon={<BusinessIcon fontSize="small" />} label="Source" value={source} />
                   <MetaRow icon={<CalendarTodayIcon fontSize="small" />} label="Created" value={created} />
                 </Stack>
@@ -444,6 +509,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
           ticketId={ticket.localId}
           to={compose.to ?? ""}
           subject={compose.subject ?? `Re: ${title}`}
+          contacts={contacts}
           onClose={() => setCompose(null)}
           onSent={() => { onNotesChanged?.(); reloadAttachments(); }}
         />
@@ -687,6 +753,16 @@ function AttachmentsCard({
   );
 }
 
+/** Unobtrusive save-state indicator for the ticket header: shows while a field
+ *  edit is in flight, confirms briefly, or flags a failure. */
+function SaveStatus({ state }: { state: "idle" | "saving" | "saved" | "error" }) {
+  if (state === "idle") return null;
+  const common = { color: "#fff", display: "flex", alignItems: "center", gap: 0.5, fontSize: 13 } as const;
+  if (state === "saving") return <Box sx={common}><CircularProgress size={14} sx={{ color: "#fff" }} /> Saving…</Box>;
+  if (state === "saved") return <Box sx={common}><CheckCircleIcon sx={{ fontSize: 16 }} /> Saved</Box>;
+  return <Box sx={{ ...common, color: "#ffd5d5" }}><ErrorOutlineIcon sx={{ fontSize: 16 }} /> Save failed</Box>;
+}
+
 function MetaRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <Stack direction="row" spacing={1} alignItems="center">
@@ -697,49 +773,83 @@ function MetaRow({ icon, label, value }: { icon: React.ReactNode; label: string;
   );
 }
 
+/** Multi-recipient field: contact emails autocomplete + free-typed addresses. */
+function RecipientField({ label, value, onChange, options }: {
+  label: string; value: string[]; onChange: (v: string[]) => void; options: string[];
+}) {
+  return (
+    <Autocomplete
+      multiple freeSolo size="small" options={options} value={value}
+      onChange={(_e, v) => onChange(v as string[])}
+      renderInput={(params) => <TextField {...params} label={label} placeholder="name@example.com" />}
+    />
+  );
+}
+
 function EmailDialog({
   ticketId,
   to: initialTo,
   subject,
+  contacts,
   onClose,
   onSent,
 }: {
   ticketId: number;
   to: string;
   subject: string;
+  contacts: api.Contact[];
   onClose: () => void;
   onSent?: () => void;
 }) {
-  const [to, setTo] = useState(initialTo);
-  const [cc, setCc] = useState("");
-  const [showCc, setShowCc] = useState(false);
+  const [to, setTo] = useState<string[]>(initialTo ? [initialTo] : []);
+  const [cc, setCc] = useState<string[]>([]);
+  const [bcc, setBcc] = useState<string[]>([]);
+  const [showCcBcc, setShowCcBcc] = useState(false);
   const [subj, setSubj] = useState(subject);
   const [html, setHtml] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [identities, setIdentities] = useState<api.MailIdentity[]>([]);
+  const [fromId, setFromId] = useState<number | "">("");
+  const [templates, setTemplates] = useState<api.MailTemplate[]>([]);
+  const [hasSignature, setHasSignature] = useState(false);
+  const [includeSig, setIncludeSig] = useState(true);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [sending, setSending] = useState(false);
 
+  const contactEmails = contacts.map((c) => c.email).filter(Boolean) as string[];
+
+  useEffect(() => {
+    api.listMyMailIdentities().then((ids) => { setIdentities(ids); if (ids[0]) setFromId(ids[0].id); }).catch(() => {});
+    api.listMailTemplates().then(setTemplates).catch(() => {});
+    api.getMySignature().then((s) => setHasSignature(!!s.signatureHtml)).catch(() => {});
+  }, []);
+
   // TipTap reports an empty doc as "<p></p>" — treat that as no body.
   const isEmpty = (h: string) => h.replace(/<p>\s*<\/p>/g, "").replace(/<[^>]+>/g, "").trim() === "";
+
+  const insertTemplate = (t: api.MailTemplate) => {
+    if (t.subject) setSubj(t.subject);
+    setHtml((prev) => (prev && !isEmpty(prev) ? prev + t.bodyHtml : t.bodyHtml));
+  };
 
   const send = async () => {
     setSending(true);
     setMsg(null);
     try {
-      // Upload any selected files to the ticket first, then attach them by id —
-      // this also records them on the ticket's attachment list.
       let attachmentIds: number[] | undefined;
       if (files.length) {
         const uploaded = await api.uploadAttachments(ticketId, files);
         attachmentIds = uploaded.map((a) => a.id);
       }
-      const ccList = cc.split(",").map((s) => s.trim()).filter(Boolean);
       await api.sendTicketEmail(ticketId, {
-        to: to.split(",").map((s) => s.trim()).filter(Boolean),
-        cc: ccList.length ? ccList : undefined,
+        to,
+        cc: cc.length ? cc : undefined,
+        bcc: bcc.length ? bcc : undefined,
         subject: subj,
         html,
         attachmentIds,
+        fromIdentityId: fromId === "" ? undefined : fromId,
+        includeSignature: hasSignature && includeSig,
       });
       setMsg({ ok: true, text: "Email sent and recorded on the ticket." });
       onSent?.();
@@ -757,14 +867,43 @@ function EmailDialog({
         <Typography variant="h6" gutterBottom>Send email from ticket</Typography>
         <Stack spacing={2} sx={{ mt: 1 }}>
           {msg && <Alert severity={msg.ok ? "success" : "error"}>{msg.text}</Alert>}
+
+          {identities.length > 0 && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">From</Typography>
+              <Select fullWidth size="small" value={fromId} onChange={(e) => setFromId(e.target.value === "" ? "" : Number(e.target.value))}>
+                {identities.map((i) => (
+                  <MenuItem key={i.id} value={i.id}>
+                    {i.displayName ? `${i.displayName} <${i.address}>` : i.address}{i.shared ? " · shared" : ""}
+                  </MenuItem>
+                ))}
+              </Select>
+            </Box>
+          )}
+
+          <RecipientField label="To" value={to} onChange={setTo} options={contactEmails} />
+          {showCcBcc ? (
+            <>
+              <RecipientField label="Cc" value={cc} onChange={setCc} options={contactEmails} />
+              <RecipientField label="Bcc" value={bcc} onChange={setBcc} options={contactEmails} />
+            </>
+          ) : (
+            <Button size="small" sx={{ alignSelf: "flex-start" }} onClick={() => setShowCcBcc(true)}>Add Cc / Bcc</Button>
+          )}
+
           <Stack direction="row" spacing={1} alignItems="center">
-            <TextField label="To" value={to} onChange={(e) => setTo(e.target.value)} fullWidth size="small"
-              helperText="Comma-separate multiple recipients" />
-            {!showCc && <Button size="small" onClick={() => setShowCc(true)}>Cc</Button>}
+            <TextField label="Subject" value={subj} onChange={(e) => setSubj(e.target.value)} fullWidth size="small" />
+            {templates.length > 0 && (
+              <Select size="small" displayEmpty value="" sx={{ minWidth: 140 }}
+                onChange={(e) => { const t = templates.find((x) => x.id === Number(e.target.value)); if (t) insertTemplate(t); }}>
+                <MenuItem value="" disabled>Insert template</MenuItem>
+                {templates.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+              </Select>
+            )}
           </Stack>
-          {showCc && <TextField label="Cc" value={cc} onChange={(e) => setCc(e.target.value)} fullWidth size="small" />}
-          <TextField label="Subject" value={subj} onChange={(e) => setSubj(e.target.value)} fullWidth size="small" />
+
           <RichTextEditor value={html} onChange={setHtml} />
+
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
             <Button component="label" size="small" variant="outlined">
               Attach files
@@ -774,12 +913,19 @@ function EmailDialog({
             {files.map((f, i) => (
               <Chip key={i} size="small" label={f.name} onDelete={() => setFiles((prev) => prev.filter((_, j) => j !== i))} />
             ))}
+            <Box sx={{ flexGrow: 1 }} />
+            {hasSignature && (
+              <FormControlLabel
+                control={<Checkbox size="small" checked={includeSig} onChange={(e) => setIncludeSig(e.target.checked)} />}
+                label="Signature"
+              />
+            )}
           </Stack>
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
-        <Button variant="contained" disabled={!to.trim() || !subj.trim() || isEmpty(html) || sending} onClick={send}>
+        <Button variant="contained" disabled={to.length === 0 || !subj.trim() || isEmpty(html) || sending} onClick={send}>
           {sending ? "Sending…" : "Send"}
         </Button>
       </DialogActions>

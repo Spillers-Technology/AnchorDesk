@@ -31,6 +31,10 @@ const TicketCard: React.FC<TicketCardProps> = ({ ticket, onClick, shortenedSumma
               firstRespondedAt={ticket.firstRespondedAt}
               status={ticket.status}
             />
+            {(ticket.labels ?? []).map((tl) => (
+              <Chip key={tl.label.id} size="small" label={tl.label.name}
+                sx={{ bgcolor: tl.label.color, color: "#fff", height: 22 }} />
+            ))}
           </Stack>
 
           <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.3 }} gutterBottom>

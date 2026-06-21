@@ -303,6 +303,7 @@ export interface TicketFilters {
   assignee?: string;
   company?: string;
   q?: string;
+  labelId?: number;
   page?: number;
   pageSize?: number;
 }
@@ -562,12 +563,101 @@ export function getMailStatus() {
 
 export function sendTicketEmail(
   ticketId: number,
-  data: { to: string | string[]; subject: string; text?: string; html?: string; cc?: string[]; attachmentIds?: number[] }
+  data: {
+    to: string | string[]; subject: string; text?: string; html?: string;
+    cc?: string[]; bcc?: string[]; attachmentIds?: number[];
+    fromIdentityId?: number; includeSignature?: boolean;
+  }
 ) {
   return request<{ ok: boolean; messageId: string }>(`/tickets/${ticketId}/email`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
+}
+
+// ─── Mail identities, templates, signature ──────────────────────────────────────
+
+export interface MailIdentity {
+  id: number;
+  address: string;
+  displayName: string | null;
+  shared: boolean;
+  userId: number | null;
+  enabled: boolean;
+}
+
+/** Identities the current user may send as (shared + own aliases). */
+export function listMyMailIdentities() {
+  return request<MailIdentity[]>("/mail/identities");
+}
+export function listAllMailIdentities() {
+  return request<MailIdentity[]>("/mail/identities/all");
+}
+export function createMailIdentity(data: Partial<MailIdentity>) {
+  return request<MailIdentity>("/mail/identities", { method: "POST", body: JSON.stringify(data) });
+}
+export function updateMailIdentity(id: number, data: Partial<MailIdentity>) {
+  return request<MailIdentity>(`/mail/identities/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+export function deleteMailIdentity(id: number) {
+  return request<void>(`/mail/identities/${id}`, { method: "DELETE" });
+}
+
+export interface MailTemplate {
+  id: number;
+  name: string;
+  subject: string | null;
+  bodyHtml: string;
+}
+export function listMailTemplates() {
+  return request<MailTemplate[]>("/mail/templates");
+}
+export function createMailTemplate(data: Partial<MailTemplate>) {
+  return request<MailTemplate>("/mail/templates", { method: "POST", body: JSON.stringify(data) });
+}
+export function updateMailTemplate(id: number, data: Partial<MailTemplate>) {
+  return request<MailTemplate>(`/mail/templates/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+export function deleteMailTemplate(id: number) {
+  return request<void>(`/mail/templates/${id}`, { method: "DELETE" });
+}
+
+export function getMySignature() {
+  return request<{ signatureHtml: string }>("/auth/signature");
+}
+export function setMySignature(signatureHtml: string) {
+  return request<{ signatureHtml: string }>("/auth/signature", { method: "PUT", body: JSON.stringify({ signatureHtml }) });
+}
+
+// ─── Labels ──────────────────────────────────────────────────────────────────
+
+export interface Label {
+  id: number;
+  name: string;
+  color: string;
+}
+export function listLabels() {
+  return request<Label[]>("/labels");
+}
+export function createLabel(data: Partial<Label>) {
+  return request<Label>("/labels", { method: "POST", body: JSON.stringify(data) });
+}
+export function updateLabel(id: number, data: Partial<Label>) {
+  return request<Label>(`/labels/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+export function deleteLabel(id: number) {
+  return request<void>(`/labels/${id}`, { method: "DELETE" });
+}
+export function tagTicket(ticketId: number, labelId: number) {
+  return request<{ ok: boolean }>(`/tickets/${ticketId}/labels`, { method: "POST", body: JSON.stringify({ labelId }) });
+}
+export function untagTicket(ticketId: number, labelId: number) {
+  return request<void>(`/tickets/${ticketId}/labels/${labelId}`, { method: "DELETE" });
+}
+
+/** URL for the printable ticket export (cookie-authed; open in a new tab). */
+export function ticketExportUrl(ticketId: number): string {
+  return `/api/tickets/${ticketId}/export`;
 }
 
 // ─── Attachments ───────────────────────────────────────────────────────────────

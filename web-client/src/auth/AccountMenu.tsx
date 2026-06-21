@@ -17,18 +17,22 @@ import {
   Stack,
   Alert,
 } from "@mui/material";
+import { useEffect } from "react";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import LogoutIcon from "@mui/icons-material/Logout";
 import LockIcon from "@mui/icons-material/Lock";
 import SecurityIcon from "@mui/icons-material/Security";
+import DrawIcon from "@mui/icons-material/Draw";
 import { useAuth } from "./AuthContext";
 import * as api from "../api/client";
+import RichTextEditor from "../components/RichTextEditor";
 
 export default function AccountMenu() {
   const { user, logout } = useAuth();
   const [anchor, setAnchor] = useState<null | HTMLElement>(null);
   const [pwOpen, setPwOpen] = useState(false);
   const [mfaOpen, setMfaOpen] = useState(false);
+  const [sigOpen, setSigOpen] = useState(false);
 
   if (!user) return null;
   const close = () => setAnchor(null);
@@ -56,6 +60,10 @@ export default function AccountMenu() {
             Manage MFA
           </MenuItem>
         )}
+        <MenuItem onClick={() => { setSigOpen(true); close(); }}>
+          <ListItemIcon><DrawIcon fontSize="small" /></ListItemIcon>
+          Email signature
+        </MenuItem>
         <MenuItem onClick={() => { close(); logout(); }}>
           <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
           Sign out
@@ -64,6 +72,7 @@ export default function AccountMenu() {
 
       {pwOpen && <ChangePasswordDialog onClose={() => setPwOpen(false)} />}
       {mfaOpen && <ManageMfaDialog onClose={() => setMfaOpen(false)} />}
+      {sigOpen && <SignatureDialog onClose={() => setSigOpen(false)} />}
     </>
   );
 }
@@ -162,6 +171,43 @@ function ManageMfaDialog({ onClose }: { onClose: () => void }) {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function SignatureDialog({ onClose }: { onClose: () => void }) {
+  const [html, setHtml] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    api.getMySignature().then((s) => { setHtml(s.signatureHtml || ""); setLoaded(true); }).catch(() => setLoaded(true));
+  }, []);
+
+  const save = async () => {
+    setMsg(null);
+    try {
+      await api.setMySignature(html);
+      setMsg({ ok: true, text: "Signature saved." });
+    } catch (e) { setMsg({ ok: false, text: errText(e) }); }
+  };
+
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>Email signature</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          {msg && <Alert severity={msg.ok ? "success" : "error"}>{msg.text}</Alert>}
+          <Typography variant="caption" color="text.secondary">
+            Appended to outbound ticket emails when "Signature" is checked in the composer.
+          </Typography>
+          {loaded && <RichTextEditor value={html} onChange={setHtml} />}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+        <Button variant="contained" onClick={save}>Save</Button>
       </DialogActions>
     </Dialog>
   );

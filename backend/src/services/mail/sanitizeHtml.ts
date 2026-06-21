@@ -7,8 +7,10 @@
  * sanitizes again on render (defense in depth).
  *
  * Policy: allow common formatting + links + images, strip scripts/styles/event
- * handlers, and force links to open safely. `cid:` images (inline attachments)
- * are dropped for now — attachments are a later release.
+ * handlers, and force links to open safely. Inline images reference stored
+ * attachments by relative URL (/api/attachments/:id/download) — inbound `cid:`
+ * images are rewritten to those URLs before sanitizing (see imapService), so the
+ * stored HTML never carries `cid:` or untrusted `data:` payloads.
  */
 import sanitizeHtmlLib from 'sanitize-html';
 
@@ -24,7 +26,7 @@ const OPTIONS: sanitizeHtmlLib.IOptions = {
   allowedTags: ALLOWED_TAGS,
   allowedAttributes: {
     a: ['href', 'name', 'target', 'rel'],
-    img: ['src', 'alt', 'width', 'height'],
+    img: ['src', 'alt', 'width', 'height', 'loading'],
     '*': ['style'],
   },
   // Only http(s) and mailto links; drop javascript:/data: URIs. Images may be

@@ -18,6 +18,7 @@ import * as mailboxRepo from '../repositories/mailboxRepository';
 import * as ticketRepo from '../repositories/ticketRepository';
 import * as noteRepo from '../repositories/noteRepository';
 import * as attachmentRepo from '../repositories/attachmentRepository';
+import * as labelRepo from '../repositories/labelRepository';
 import { currentStorage, buildKey } from './storage';
 import { sanitizeEmailHtml } from './mail/sanitizeHtml';
 
@@ -48,26 +49,12 @@ async function ingest(parsed: ParsedMail, mb: Mailbox, uid: number): Promise<'cr
   const messageId = parsed.messageId || `<imap-${mb.id}-${uid}@local>`;
   const fromText = parsed.from?.text || 'unknown sender';
   const body = bodyOf(parsed);
-  const html = parsed.html ? sanitizeEmailHtml(parsed.html) : undefined;
   const subject = parsed.subject || '(no subject)';
   const toText = parsed.to ? (Array.isArray(parsed.to) ? parsed.to.map((a) => a.text).join(', ') : parsed.to.text) : undefined;
 
-  // Email correspondence is recorded as an `email` note so the UI renders it as a
-  // conversation (with from/to/subject + sanitized HTML), distinct from internal notes.
-  const emailNote = {
-    noteType: 'email' as const,
-    direction: 'inbound' as const,
-    content: body,
-    htmlContent: html,
-    author: fromText,
-    emailFrom: fromText,
-    emailTo: toText,
-    subject,
-    externalId: messageId,
-    inReplyTo: parsed.inReplyTo,
-  };
-
-  // Is this a reply to a thread we already know?
+  // Resolve the thread (reply to a known ticket) or open a new one. We need the
+  // ticketId BEFORE storing attachments so inline images can be keyed to it and
+  // their cid: references rewritten in the HTML.
   const refs = refsOf(parsed);
   let ticketId: number | null = null;
   if (refs.length) {
@@ -82,51 +69,77 @@ async function ingest(parsed: ParsedMail, mb: Mailbox, uid: number): Promise<'cr
     }
   }
 
+  let outcome: 'created' | 'appended';
   if (ticketId) {
-    const note = await noteRepo.create(ticketId, emailNote, 'imap');
-    await saveInboundAttachments(ticketId, note.id, parsed);
-    return 'appended';
+    outcome = 'appended';
+  } else {
+    const ticket = await ticketRepo.create(
+      {
+        title: subject.slice(0, 255),
+        summary: body.slice(0, 200),
+        description: body,
+        companyName: mb.companyName ?? undefined,
+        source: 'imap',
+        externalId: messageId,
+        externalProvider: 'imap',
+      },
+      'imap'
+    );
+    ticketId = ticket.id;
+    // Tag the new ticket with this mailbox's label (catchall vs help@ vs personal).
+    if (mb.labelId) await labelRepo.applyToTicket(ticket.id, mb.labelId).catch(() => {});
+    outcome = 'created';
   }
 
-  const ticket = await ticketRepo.create(
+  // Store attachments (incl. inline images), then rewrite cid: refs in the HTML
+  // to the stored attachment URLs so inline images render from our store.
+  const stored = await storeInboundAttachments(ticketId, parsed);
+  const html = parsed.html ? sanitizeEmailHtml(rewriteCidRefs(parsed.html, stored)) : undefined;
+
+  // Email correspondence is recorded as an `email` note so the UI renders it as a
+  // conversation (with from/to/subject + sanitized HTML), distinct from internal notes.
+  const note = await noteRepo.create(
+    ticketId,
     {
-      title: subject.slice(0, 255),
-      summary: body.slice(0, 200),
-      description: body,
-      companyName: mb.companyName ?? undefined,
-      source: 'imap',
+      noteType: 'email',
+      direction: 'inbound',
+      content: body,
+      htmlContent: html,
+      author: fromText,
+      emailFrom: fromText,
+      emailTo: toText,
+      subject,
       externalId: messageId,
-      externalProvider: 'imap',
+      inReplyTo: parsed.inReplyTo,
     },
     'imap'
   );
-  const note = await noteRepo.create(ticket.id, emailNote, 'imap');
-  await saveInboundAttachments(ticket.id, note.id, parsed);
-  return 'created';
+  if (stored.length) await attachmentRepo.attachToNote(stored.map((s) => s.id), note.id);
+  return outcome;
 }
 
+interface StoredAttachment { id: number; cid?: string }
+
 /**
- * Persist a parsed email's attachments into the configured storage backend and
- * link each to the ticket + the email note. Inline images (cid: parts) are
- * skipped — they belong to the HTML body, not the file list. Failures are logged
- * per-file so one bad attachment doesn't abort ticket ingest.
+ * Persist a parsed email's attachments (regular files AND inline cid: images)
+ * into the configured storage backend, linked to the ticket. Returns the new
+ * attachment ids plus each inline part's content-id so the HTML can be rewritten.
+ * Failures are swallowed per-file so one bad part doesn't abort ticket ingest.
  */
-async function saveInboundAttachments(ticketId: number, noteId: number, parsed: ParsedMail): Promise<void> {
-  const files = (parsed.attachments ?? []).filter(
-    (a) => a.content && (a.contentDisposition === 'attachment' || !a.related),
-  );
-  if (!files.length) return;
+async function storeInboundAttachments(ticketId: number, parsed: ParsedMail): Promise<StoredAttachment[]> {
+  const files = (parsed.attachments ?? []).filter((a) => a.content);
+  if (!files.length) return [];
   const storage = await currentStorage();
+  const out: StoredAttachment[] = [];
   for (const file of files) {
     const filename = file.filename || `attachment-${file.checksum?.slice(0, 8) || 'file'}`;
     try {
       const key = buildKey(ticketId, filename);
       const contentType = file.contentType || 'application/octet-stream';
       await storage.put(key, file.content, contentType);
-      await attachmentRepo.create(
+      const row = await attachmentRepo.create(
         {
           ticketId,
-          noteId,
           filename,
           contentType,
           size: file.size ?? file.content.length,
@@ -136,10 +149,25 @@ async function saveInboundAttachments(ticketId: number, noteId: number, parsed: 
         },
         'imap',
       );
+      out.push({ id: row.id, cid: file.cid });
     } catch {
       /* skip a single failed attachment; the ticket/note already exist */
     }
   }
+  return out;
+}
+
+/** Replace `cid:<content-id>` image sources with their stored attachment URLs. */
+function rewriteCidRefs(html: string, stored: StoredAttachment[]): string {
+  let out = html;
+  for (const s of stored) {
+    if (!s.cid) continue;
+    const url = `/api/attachments/${s.id}/download`;
+    // Match cid:CID inside src="" / src='' regardless of surrounding quotes.
+    const pattern = new RegExp(`cid:${s.cid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+    out = out.replace(pattern, url);
+  }
+  return out;
 }
 
 /** Poll one mailbox for new mail. Connection errors are captured, not thrown. */

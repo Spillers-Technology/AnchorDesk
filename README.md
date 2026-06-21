@@ -22,8 +22,14 @@
 
 What sets it apart from a plain helpdesk: each ticket can become an operations cockpit. Link the **devices** involved, inspect their source and status, run Tactical RMM scripts, send email, and keep the resulting activity on the ticket. Core changes are recorded in an **append-only audit log** with actor and before/after data.
 
-## What ships in v1.7.0
+## What ships in v1.8.0
 
+- **✉️ Multi-identity email** — send as shared boxes (help@, support@) or a personal alias on your SMTP domain, with **Cc/Bcc**, contact **autocomplete**, per-tech **signatures**, and reusable **boilerplate templates**. The From header uses the chosen identity while the SMTP envelope stays your relay so SPF/DKIM still pass.
+- **🏷️ Labels & mailbox tagging** — managed, colored labels on tickets; each IMAP mailbox can auto-apply a label so catchall vs help@ vs a personal inbox arrive tagged differently.
+- **🖼️ Inline images** — images in emails and internal notes render inline (lazy-loaded, never overflowing the timeline); inbound inline images are captured as attachments.
+- **🧾 Script logs on the ticket** — RMM script runs append their output to the ticket timeline (live).
+- **⬇️ Download ticket** — export a ticket to a self-contained printable HTML document (activity + inline attachments) for Print → PDF.
+- **🔎 Fuzzy search** — typo-tolerant Postgres `pg_trgm` search combined with full-text, reaching across priority, ticket number, and the conversation/timeline.
 - **📎 Attachments** — drag-and-drop files onto a ticket or attach them to an outgoing email; inbound email attachments are captured automatically. Bytes live on local disk or any **S3-compatible** store (AWS S3, MinIO, Cloudflare R2, Backblaze B2), selectable by env var or in **Admin → Integrations**.
 - **🔔 Live updates & notifications** — a WebSocket channel pushes ticket, note, and SLA changes in real time: lists, the Kanban board, and the open ticket update without a refresh, and a notification bell alerts you to assignments, customer replies, and SLA risk.
 - **⏰ SLA tracking** — per-priority / per-company response & resolution targets with live countdown chips (green → amber → red) on lists, cards, the board, and the ticket; breaches and at-risk tickets raise notifications.
@@ -111,8 +117,8 @@ Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxie
 
 For the complete Compose stack, run `docker compose up --build`. Tagged release images are published as:
 
-- `ghcr.io/spilloid/anchordesk-backend:1.7.0`
-- `ghcr.io/spilloid/anchordesk-web-client:1.7.0`
+- `ghcr.io/spilloid/anchordesk-backend:1.8.0`
+- `ghcr.io/spilloid/anchordesk-web-client:1.8.0`
 
 ## Configuration
 

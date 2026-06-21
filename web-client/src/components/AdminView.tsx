@@ -41,11 +41,12 @@ import RouterIcon from "@mui/icons-material/Router";
 import DevicesIcon from "@mui/icons-material/Devices";
 import HistoryIcon from "@mui/icons-material/History";
 import TimerIcon from "@mui/icons-material/Timer";
+import LabelIcon from "@mui/icons-material/Label";
 import * as api from "../api/client";
 import { TICKET_PRIORITIES } from "../ticketVocab";
 
 type AdminSection =
-  | "overview" | "users" | "auth" | "integrations" | "sla" | "mailboxes"
+  | "overview" | "users" | "auth" | "integrations" | "sla" | "mailboxes" | "mail" | "labels"
   | "providers" | "probes" | "devices" | "audit";
 
 const NAV: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
@@ -55,6 +56,8 @@ const NAV: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
   { id: "integrations", label: "Integrations", icon: <CableIcon /> },
   { id: "sla", label: "SLA Policies", icon: <TimerIcon /> },
   { id: "mailboxes", label: "Mailboxes", icon: <EmailIcon /> },
+  { id: "mail", label: "Mail Identities", icon: <EmailIcon /> },
+  { id: "labels", label: "Labels", icon: <LabelIcon /> },
   { id: "providers", label: "Sync Providers", icon: <SyncIcon /> },
   { id: "probes", label: "Probes", icon: <RouterIcon /> },
   { id: "devices", label: "Devices", icon: <DevicesIcon /> },
@@ -87,6 +90,8 @@ export default function AdminView() {
         {section === "integrations" && <IntegrationsPanel />}
         {section === "sla" && <SlaPanel />}
         {section === "mailboxes" && <MailboxesPanel />}
+        {section === "mail" && <MailIdentitiesPanel />}
+        {section === "labels" && <LabelsPanel />}
         {section === "providers" && <ProvidersPanel />}
         {section === "probes" && <ProbesPanel />}
         {section === "devices" && <DevicesPanel />}
@@ -702,8 +707,16 @@ function IntegrationCard({ title, configured, fields, onSave }: { title: string;
 
 function MailboxesPanel() {
   const { data, loading, error, reload } = useAsync(() => api.listMailboxes());
-  const [form, setForm] = useState({ name: "", host: "", port: 993, secure: true, username: "", password: "", folder: "INBOX", companyName: "" });
+  const [labels, setLabels] = useState<api.Label[]>([]);
+  const [identities, setIdentities] = useState<api.MailIdentity[]>([]);
+  const [form, setForm] = useState({ name: "", host: "", port: 993, secure: true, username: "", password: "", folder: "INBOX", companyName: "", labelId: "" as number | "", identityId: "" as number | "" });
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    api.listLabels().then(setLabels).catch(() => setLabels([]));
+    api.listAllMailIdentities().then(setIdentities).catch(() => setIdentities([]));
+  }, []);
+  const labelName = (id: unknown) => labels.find((l) => l.id === id)?.name ?? "—";
 
   const act = async (fn: () => Promise<unknown>, okText?: string) => {
     setMsg(null);
@@ -711,8 +724,12 @@ function MailboxesPanel() {
     catch (e) { setMsg({ ok: false, text: errText(e) }); }
   };
   const create = () => act(async () => {
-    await api.createMailbox(form);
-    setForm({ name: "", host: "", port: 993, secure: true, username: "", password: "", folder: "INBOX", companyName: "" });
+    await api.createMailbox({
+      ...form,
+      labelId: form.labelId === "" ? null : form.labelId,
+      identityId: form.identityId === "" ? null : form.identityId,
+    });
+    setForm({ name: "", host: "", port: 993, secure: true, username: "", password: "", folder: "INBOX", companyName: "", labelId: "", identityId: "" });
   }, "Mailbox added");
   const poll = (id: number) => act(async () => {
     const r = await api.pollMailbox(id);
@@ -737,6 +754,14 @@ function MailboxesPanel() {
           <TextField size="small" label="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
           <TextField size="small" label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           <TextField size="small" label="Company" value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} />
+          <Select size="small" displayEmpty value={form.labelId} onChange={(e) => setForm({ ...form, labelId: e.target.value === "" ? "" : Number(e.target.value) })} sx={{ minWidth: 130 }}>
+            <MenuItem value="">No label</MenuItem>
+            {labels.map((l) => <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>)}
+          </Select>
+          <Select size="small" displayEmpty value={form.identityId} onChange={(e) => setForm({ ...form, identityId: e.target.value === "" ? "" : Number(e.target.value) })} sx={{ minWidth: 150 }}>
+            <MenuItem value="">Default From</MenuItem>
+            {identities.map((i) => <MenuItem key={i.id} value={i.id}>{i.address}</MenuItem>)}
+          </Select>
           <Button variant="contained" disabled={!form.name || !form.host || !form.username} onClick={create}>Add</Button>
         </Stack>
       </Paper>
@@ -746,7 +771,7 @@ function MailboxesPanel() {
           <TableHead>
             <TableRow>
               <TableCell>Name</TableCell><TableCell>Host</TableCell><TableCell>User</TableCell>
-              <TableCell>Company</TableCell><TableCell>Enabled</TableCell><TableCell>Last poll</TableCell><TableCell align="right">Actions</TableCell>
+              <TableCell>Company</TableCell><TableCell>Label</TableCell><TableCell>Enabled</TableCell><TableCell>Last poll</TableCell><TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -756,6 +781,7 @@ function MailboxesPanel() {
                 <TableCell>{m.host}:{m.port}</TableCell>
                 <TableCell>{m.username}</TableCell>
                 <TableCell>{m.companyName ?? "—"}</TableCell>
+                <TableCell>{(m as { labelId?: number }).labelId ? labelName((m as { labelId?: number }).labelId) : "—"}</TableCell>
                 <TableCell><Switch checked={m.enabled} onChange={(e) => act(() => api.updateMailbox(m.id, { enabled: e.target.checked }))} /></TableCell>
                 <TableCell>
                   {m.lastError ? <Chip size="small" color="error" label="error" title={m.lastError} /> : m.lastPolledAt ? new Date(m.lastPolledAt).toLocaleString() : "never"}
@@ -766,7 +792,7 @@ function MailboxesPanel() {
                 </TableCell>
               </TableRow>
             ))}
-            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={7}>No mailboxes configured.</TableCell></TableRow>}
+            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={8}>No mailboxes configured.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Paper>
@@ -855,6 +881,121 @@ function SlaPanel() {
               </TableRow>
             ))}
             {(data ?? []).length === 0 && <TableRow><TableCell colSpan={7}>No SLA policies — tickets won't have deadlines until you add one.</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </Paper>
+    </Stack>
+  );
+}
+
+function LabelsPanel() {
+  const { data, loading, error, reload } = useAsync(() => api.listLabels());
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("#6750A4");
+
+  if (loading) return <CircularProgress />;
+  if (error) return <Alert severity="error">{error}</Alert>;
+
+  const create = async () => { if (name) { await api.createLabel({ name, color }); setName(""); reload(); } };
+
+  return (
+    <Stack spacing={2}>
+      <Typography variant="h5">Labels</Typography>
+      <Alert severity="info">Managed tags. Assign on a ticket or auto-apply via a mailbox (catchall vs help@ vs personal).</Alert>
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <TextField size="small" label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 40, height: 36, border: "none", background: "none" }} />
+          <Button variant="contained" disabled={!name} onClick={create}>Add</Button>
+        </Stack>
+      </Paper>
+      <Paper variant="outlined">
+        <Table size="small">
+          <TableHead><TableRow><TableCell>Label</TableCell><TableCell>Color</TableCell><TableCell align="right"></TableCell></TableRow></TableHead>
+          <TableBody>
+            {(data ?? []).map((l) => (
+              <TableRow key={l.id}>
+                <TableCell><Chip size="small" label={l.name} sx={{ bgcolor: l.color, color: "#fff" }} /></TableCell>
+                <TableCell>{l.color}</TableCell>
+                <TableCell align="right"><IconButton size="small" onClick={async () => { await api.deleteLabel(l.id); reload(); }}><DeleteIcon fontSize="small" /></IconButton></TableCell>
+              </TableRow>
+            ))}
+            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={3}>No labels yet.</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </Paper>
+    </Stack>
+  );
+}
+
+function MailIdentitiesPanel() {
+  const identities = useAsync(() => api.listAllMailIdentities());
+  const templates = useAsync(() => api.listMailTemplates());
+  const [iAddr, setIAddr] = useState("");
+  const [iName, setIName] = useState("");
+  const [tName, setTName] = useState("");
+  const [tSubject, setTSubject] = useState("");
+  const [tBody, setTBody] = useState("");
+
+  const addIdentity = async () => { if (iAddr) { await api.createMailIdentity({ address: iAddr, displayName: iName || undefined, shared: true }); setIAddr(""); setIName(""); identities.reload(); } };
+  const addTemplate = async () => { if (tName && tBody) { await api.createMailTemplate({ name: tName, subject: tSubject || undefined, bodyHtml: tBody }); setTName(""); setTSubject(""); setTBody(""); templates.reload(); } };
+
+  return (
+    <Stack spacing={2}>
+      <Typography variant="h5">Mail Identities & Templates</Typography>
+      <Alert severity="info">
+        Send-from identities are the addresses techs may send as — shared boxes (help@, support@) and personal aliases on your SMTP domain. The message From header uses the chosen identity; the SMTP envelope stays your relay account so SPF/DKIM still pass.
+      </Alert>
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Add shared identity</Typography>
+        <Stack direction="row" spacing={1}>
+          <TextField size="small" label="Address" placeholder="help@yourdomain" value={iAddr} onChange={(e) => setIAddr(e.target.value)} />
+          <TextField size="small" label="Display name" value={iName} onChange={(e) => setIName(e.target.value)} />
+          <Button variant="contained" disabled={!iAddr} onClick={addIdentity}>Add</Button>
+        </Stack>
+      </Paper>
+      <Paper variant="outlined">
+        <Table size="small">
+          <TableHead><TableRow><TableCell>Address</TableCell><TableCell>Name</TableCell><TableCell>Type</TableCell><TableCell>Enabled</TableCell><TableCell align="right"></TableCell></TableRow></TableHead>
+          <TableBody>
+            {(identities.data ?? []).map((i) => (
+              <TableRow key={i.id}>
+                <TableCell>{i.address}</TableCell>
+                <TableCell>{i.displayName ?? "—"}</TableCell>
+                <TableCell><Chip size="small" label={i.shared ? "shared" : "personal"} /></TableCell>
+                <TableCell><Switch checked={i.enabled} onChange={async (e) => { await api.updateMailIdentity(i.id, { enabled: e.target.checked }); identities.reload(); }} /></TableCell>
+                <TableCell align="right"><IconButton size="small" onClick={async () => { await api.deleteMailIdentity(i.id); identities.reload(); }}><DeleteIcon fontSize="small" /></IconButton></TableCell>
+              </TableRow>
+            ))}
+            {(identities.data ?? []).length === 0 && <TableRow><TableCell colSpan={5}>No identities — the configured SMTP From is used.</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Add boilerplate template</Typography>
+        <Stack spacing={1}>
+          <Stack direction="row" spacing={1}>
+            <TextField size="small" label="Name" value={tName} onChange={(e) => setTName(e.target.value)} />
+            <TextField size="small" label="Subject (optional)" value={tSubject} onChange={(e) => setTSubject(e.target.value)} sx={{ flexGrow: 1 }} />
+          </Stack>
+          <TextField size="small" label="Body (HTML)" value={tBody} onChange={(e) => setTBody(e.target.value)} multiline minRows={3} />
+          <Box><Button variant="contained" disabled={!tName || !tBody} onClick={addTemplate}>Add template</Button></Box>
+        </Stack>
+      </Paper>
+      <Paper variant="outlined">
+        <Table size="small">
+          <TableHead><TableRow><TableCell>Template</TableCell><TableCell>Subject</TableCell><TableCell align="right"></TableCell></TableRow></TableHead>
+          <TableBody>
+            {(templates.data ?? []).map((t) => (
+              <TableRow key={t.id}>
+                <TableCell>{t.name}</TableCell>
+                <TableCell>{t.subject ?? "—"}</TableCell>
+                <TableCell align="right"><IconButton size="small" onClick={async () => { await api.deleteMailTemplate(t.id); templates.reload(); }}><DeleteIcon fontSize="small" /></IconButton></TableCell>
+              </TableRow>
+            ))}
+            {(templates.data ?? []).length === 0 && <TableRow><TableCell colSpan={3}>No templates yet.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Paper>

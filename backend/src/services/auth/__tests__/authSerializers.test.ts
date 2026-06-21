@@ -21,6 +21,7 @@ const baseUser: User = {
   totpSecret: 'BASE32SECRET',
   totpEnabled: true,
   totpRecovery: ['hash1', 'hash2'],
+  signatureHtml: null,
   lastSeenAt: null,
   passwordChangedAt: null,
   createdAt: new Date(),

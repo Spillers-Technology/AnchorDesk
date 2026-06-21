@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
 import { getSmtp } from '../services/settingsService';
 import * as ticketMail from '../services/mail/ticketMail';
+import * as userRepo from '../repositories/userRepository';
 
 interface IdParam { id: string }
 
@@ -26,7 +27,11 @@ export async function mailRoutes(server: FastifyInstance) {
     }
 
     const ticketId = parseInt(req.params.id);
-    const body = req.body as { to?: string | string[]; subject?: string; text?: string; html?: string; cc?: string[]; attachmentIds?: number[] };
+    const body = req.body as {
+      to?: string | string[]; subject?: string; text?: string; html?: string;
+      cc?: string[]; bcc?: string[]; attachmentIds?: number[];
+      fromIdentityId?: number; includeSignature?: boolean;
+    };
     if (!body?.to || !body?.subject) {
       return reply.status(400).send({ error: 'to and subject are required' });
     }
@@ -36,14 +41,21 @@ export async function mailRoutes(server: FastifyInstance) {
 
     try {
       const author = req.user?.displayName ?? req.actorSub;
+      // Pull the sender's saved signature only when they asked to include it.
+      const signatureHtml = body.includeSignature
+        ? (await userRepo.findById(req.user.id))?.signatureHtml ?? undefined
+        : undefined;
       const { messageId } = await ticketMail.sendTicketEmail(ticketId, {
         to: body.to,
         cc: body.cc,
+        bcc: body.bcc,
         subject: body.subject,
         text: body.text,
         html: body.html,
         author,
         attachmentIds: body.attachmentIds,
+        fromIdentityId: body.fromIdentityId,
+        signatureHtml,
       });
       return reply.send({ ok: true, messageId });
     } catch (err) {

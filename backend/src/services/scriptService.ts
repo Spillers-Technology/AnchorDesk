@@ -6,9 +6,32 @@
  * Scheduled runs are left 'queued' for scriptScheduler to pick up when due.
  */
 
+import { ScriptJob } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import { createScriptRunner } from '../runners';
 import * as scriptJobRepo from '../repositories/scriptJobRepository';
+import * as noteRepo from '../repositories/noteRepository';
+
+/**
+ * Record a finished script job on its ticket's timeline so the run + output live
+ * with the ticket (and stream in live via the note.added event). Output is kept
+ * as HTML <pre> for readable rendering and capped so a noisy script can't bloat
+ * the note. No-op for jobs not tied to a ticket.
+ */
+async function appendJobLog(job: ScriptJob): Promise<void> {
+  if (!job.ticketId) return;
+  const ok = job.status === 'success';
+  const name = job.scriptName || job.scriptRef;
+  const out = (job.output ?? '').slice(0, 20_000);
+  const header = `Script "${name}" ${ok ? 'succeeded' : 'failed'}${job.exitCode != null ? ` (exit ${job.exitCode})` : ''}`;
+  const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const html = `<p><strong>${escape(header)}</strong></p>${out ? `<pre>${escape(out)}</pre>` : ''}`;
+  await noteRepo.create(
+    job.ticketId,
+    { content: `${header}\n\n${out}`, htmlContent: html, author: 'RMM', noteType: 'note' },
+    'rmm',
+  ).catch(() => {});
+}
 
 export interface RunScriptRequest {
   deviceId: number;
@@ -69,13 +92,17 @@ export async function execute(jobId: number) {
       script: job.scriptRef,
       args: (job.args as string[] | null) ?? undefined,
     });
-    return scriptJobRepo.markFinished(
+    const finished = await scriptJobRepo.markFinished(
       jobId,
       result.status === 'error' ? 'error' : 'success',
       result.output ?? '',
       result.exitCode
     );
+    await appendJobLog(finished);
+    return finished;
   } catch (err) {
-    return scriptJobRepo.markFinished(jobId, 'error', (err as Error).message, 1);
+    const finished = await scriptJobRepo.markFinished(jobId, 'error', (err as Error).message, 1);
+    await appendJobLog(finished);
+    return finished;
   }
 }

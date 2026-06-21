@@ -8,11 +8,13 @@ import { ticketRoutes } from './routes/tickets';
 import { attachmentRoutes } from './routes/attachments';
 import { notificationRoutes } from './routes/notifications';
 import { slaRoutes } from './routes/sla';
+import { labelRoutes } from './routes/labels';
 import { wsRoutes } from './routes/ws';
 import { deviceRoutes } from './routes/devices';
 import { probeRoutes } from './routes/probes';
 import { scriptRoutes } from './routes/scripts';
 import { mailRoutes } from './routes/mail';
+import { mailConfigRoutes } from './routes/mailConfig';
 import { cwRoutes } from './routes/cw';
 import { syncRoutes } from './routes/sync';
 import { pingRoutes } from './routes/ping';
@@ -97,6 +99,8 @@ async function start() {
   server.register(notificationRoutes);
   // SLA policies (admin CRUD) — drives ticket response/resolution deadlines
   server.register(slaRoutes);
+  // Labels (managed tags) + ticket tag/untag
+  server.register(labelRoutes);
   // Devices (local-first asset records + ticket linking)
   server.register(deviceRoutes);
   // Probes (netviz scanner registration + inbound device ingest)
@@ -105,6 +109,8 @@ async function start() {
   server.register(scriptRoutes);
   // Outbound mail (SMTP relay) — send from a ticket, mail status for admin
   server.register(mailRoutes);
+  // Mail config: send-from identities + boilerplate templates
+  server.register(mailConfigRoutes);
   // ConnectWise passthrough routes (auto-disabled when CWM_* env vars are absent)
   server.register(cwRoutes);
   // Sync management (trigger runs, view providers, view log)

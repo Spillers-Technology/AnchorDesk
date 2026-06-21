@@ -15,6 +15,10 @@ export interface OutboundMail {
   text?: string;
   html?: string;
   cc?: string[];
+  bcc?: string[];
+  /** Overrides the configured default From (a chosen send-from identity). The
+   *  SMTP envelope sender + auth still use the relay account for SPF/DKIM. */
+  from?: { address: string; name?: string };
   replyTo?: string;
   /** RFC 5322 threading headers. Set these so the recipient's reply threads back
    *  onto the same ticket (their In-Reply-To points at our messageId). */

@@ -18,6 +18,7 @@ export interface CreateNoteInput {
   emailFrom?: string;
   emailTo?: string;
   emailCc?: string;
+  emailBcc?: string;
   subject?: string;
   inReplyTo?: string;
 }
@@ -60,6 +61,7 @@ export async function create(ticketId: number, input: CreateNoteInput, actorSub:
       emailFrom: input.emailFrom,
       emailTo: input.emailTo,
       emailCc: input.emailCc,
+      emailBcc: input.emailBcc,
       subject: input.subject,
       inReplyTo: input.inReplyTo,
     },

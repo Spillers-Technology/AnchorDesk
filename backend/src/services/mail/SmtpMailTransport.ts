@@ -38,9 +38,14 @@ export class SmtpMailTransport implements MailTransport {
   async send(mail: OutboundMail): Promise<{ messageId: string }> {
     const smtp = await getSmtp();
     const info = await (await this.transporter()).sendMail({
-      from: smtp.from,
+      // Header From = chosen identity if provided, else the configured default.
+      // The SMTP envelope sender (`envelope.from`) stays the relay account so
+      // SPF/DKIM alignment is preserved regardless of the header identity.
+      from: mail.from ? { address: mail.from.address, name: mail.from.name } : smtp.from,
+      envelope: mail.from ? { from: smtp.from, to: ([] as string[]).concat(mail.to, mail.cc ?? [], mail.bcc ?? []) } : undefined,
       to: mail.to,
       cc: mail.cc,
+      bcc: mail.bcc,
       replyTo: mail.replyTo,
       subject: mail.subject,
       text: mail.text,

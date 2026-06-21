@@ -172,6 +172,11 @@ export function countActiveAdmins(): Promise<number> {
   return prisma.user.count({ where: { role: 'admin', isActive: true } });
 }
 
+/** Update a user's own email signature (sanitized HTML, set by the caller). */
+export function setSignature(id: number, signatureHtml: string | null): Promise<User> {
+  return prisma.user.update({ where: { id }, data: { signatureHtml } });
+}
+
 /** Active users who can own a ticket (admins + technicians). For the assignee picker. */
 export function listAssignable(): Promise<User[]> {
   return prisma.user.findMany({

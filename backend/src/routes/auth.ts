@@ -16,6 +16,7 @@ import * as oidcService from '../services/auth/oidcService';
 import * as samlService from '../services/auth/samlService';
 import * as totp from '../services/auth/totp';
 import { resolveSession } from '../services/auth/sessions';
+import { sanitizeEmailHtml } from '../services/mail/sanitizeHtml';
 
 const OIDC_TX_COOKIE = 'mt_oidc_tx';
 const MFA_COOKIE = 'mt_mfa';
@@ -181,6 +182,19 @@ export async function authRoutes(server: FastifyInstance) {
   // Current authenticated user (requires auth — not public).
   server.get('/auth/me', async (req: FastifyRequest, reply: FastifyReply) => {
     return reply.send({ user: req.user });
+  });
+
+  // Own email signature (sanitized HTML). Read for the composer/account editor.
+  server.get('/auth/signature', async (req: FastifyRequest, reply: FastifyReply) => {
+    const user = await userRepo.findById(req.user.id);
+    return reply.send({ signatureHtml: user?.signatureHtml ?? '' });
+  });
+
+  server.put('/auth/signature', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { signatureHtml } = (req.body ?? {}) as { signatureHtml?: string };
+    const clean = signatureHtml ? sanitizeEmailHtml(signatureHtml) : null;
+    await userRepo.setSignature(req.user.id, clean);
+    return reply.send({ signatureHtml: clean ?? '' });
   });
 
   // Change own password (local accounts only).

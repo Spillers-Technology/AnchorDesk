@@ -55,4 +55,6 @@ export interface Ticket {
   responseDueAt?: string | null;
   resolutionDueAt?: string | null;
   firstRespondedAt?: string | null;
+  // Labels (1.8.0) — managed tags, e.g. which mailbox a ticket arrived on.
+  labels?: { label: { id: number; name: string; color: string } }[];
 }

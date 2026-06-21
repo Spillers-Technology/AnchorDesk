@@ -14,9 +14,19 @@ import { prisma } from './prisma';
 export const TICKET_TSV =
   "to_tsvector('english', coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' || coalesce(description,'') || ' ' || coalesce(company_name,''))";
 
+// Concatenated, lower-cased ticket text used by trigram (typo-tolerant) search.
+// Includes priority so "high"/"urgent" queries match. Must match the query.
+export const TICKET_TRGM =
+  "lower(coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' || coalesce(description,'') || ' ' || coalesce(company_name,'') || ' ' || coalesce(priority,'') || ' ' || coalesce(ticket_number,''))";
+
 const STATEMENTS = [
   // Full-text search across ticket text + company.
   `CREATE INDEX IF NOT EXISTS idx_tickets_fts ON tickets USING GIN (${TICKET_TSV})`,
+  // Trigram fuzzy search (pg_trgm) — typo-tolerant matching over ticket text.
+  `CREATE EXTENSION IF NOT EXISTS pg_trgm`,
+  `CREATE INDEX IF NOT EXISTS idx_tickets_trgm ON tickets USING GIN (${TICKET_TRGM} gin_trgm_ops)`,
+  // Trigram over note bodies so search reaches into the conversation/timeline.
+  `CREATE INDEX IF NOT EXISTS idx_notes_content_trgm ON notes USING GIN (lower(content) gin_trgm_ops)`,
   // Common list filter: open tickets by company, excluding soft-deleted ones.
   `CREATE INDEX IF NOT EXISTS idx_tickets_active ON tickets (company_name, status, created_at DESC) WHERE status <> 'Deleted'`,
   // Device map / Network view groups by company; partial-skip orphans.

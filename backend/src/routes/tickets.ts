@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as ticketRepo from '../repositories/ticketRepository';
 import * as noteRepo from '../repositories/noteRepository';
 import * as audit from '../repositories/auditRepository';
+import { renderTicketHtml } from '../services/ticketExport';
 
 interface IdParam { id: string }
 interface NoteIdParam { id: string; noteId: string }
@@ -18,6 +19,7 @@ export async function ticketRoutes(server: FastifyInstance) {
       assignee: query.assignee,
       companyName: query.company,
       q: query.q,
+      labelId: query.labelId ? parseInt(query.labelId) : undefined,
       includeDeleted: query.includeDeleted === 'true',
       page: query.page ? parseInt(query.page) : 1,
       pageSize,
@@ -65,6 +67,14 @@ export async function ticketRoutes(server: FastifyInstance) {
     const ticket = await ticketRepo.remove(parseInt(req.params.id), req.actorSub);
     if (!ticket) return reply.status(404).send({ error: 'Ticket not found' });
     return reply.status(204).send();
+  });
+
+  // Printable, self-contained HTML export of the ticket (activity + inline
+  // attachments). Served inline so the browser can render + "Print → Save as PDF".
+  server.get('/tickets/:id/export', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
+    const html = await renderTicketHtml(parseInt(req.params.id));
+    if (!html) return reply.status(404).send({ error: 'Ticket not found' });
+    return reply.type('text/html').send(html);
   });
 
   // Ticket revision history
