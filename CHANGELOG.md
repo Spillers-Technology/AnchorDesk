@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.11.0 — 2026-06-24 — Shipshape
+
+A navigation/UX cleanup of the ticket workspace.
+
+### Added
+
+- **Admin → Interface** settings section with a **Legacy table view** toggle, backed by a new `ui` settings row. Read by any authenticated user (`GET /ui-settings`), written by admins (`PATCH /ui-settings`).
+
+### Changed
+
+- **Kanban is the default view**, and the view switcher leads with Board → Cards.
+- **Kanban columns flex to fit the page width** (240px floor; horizontal scroll only when too many statuses to fit) instead of fixed-width columns that always overflowed.
+- **Sync is one surface.** The top-level Sync view is the single home for providers, runs, and activity log. Config actions (add/remove/enable a provider) are gated to admins inline; everyone can view and trigger runs. The duplicate **Admin → "Sync Providers"** tab (a strict subset) was removed.
+- **Table view is now opt-in "legacy"** — hidden from the switcher unless an admin enables it under Admin → Interface. Board and Cards are the primary views.
+
+See [RELEASE_NOTES_v1.11.0.md](RELEASE_NOTES_v1.11.0.md) for the full release notes.
+
 ## 1.10.0 — 2026-06-23 — Keys & Trails
 
 ### Added
