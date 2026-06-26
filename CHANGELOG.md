@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.11.1 — 2026-06-24 — Switchboard (patch)
+
+### Added
+
+- **`internal` note type.** The `NoteType` enum gains `internal` for system/agent-generated internal notes — specifically the AVR phone-agent posting an end-of-call summary via `POST /api/tickets/:id/notes` with `noteType: "internal"`. Previously such a note 500'd on the enum. Internal notes render like standard notes for now.
+
+### Notes
+
+- Pairs with the AVR phone-agent integration, which authenticates as a technician-role service account using a personal access token (1.10.0). The `api` ticket source it uses was already valid.
+
+See [RELEASE_NOTES_v1.11.1.md](RELEASE_NOTES_v1.11.1.md) for the full release notes.
+
 ## 1.11.0 — 2026-06-24 — Shipshape
 
 A navigation/UX cleanup of the ticket workspace.

@@ -574,6 +574,9 @@ enum NoteType {
   note
   time_entry
   email
+  // System/agent-generated internal note (e.g. an AVR phone-agent call summary
+  // posted via the REST API). Renders like a standard internal note today.
+  internal
 }
 
 enum AuditAction {
