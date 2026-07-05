@@ -177,6 +177,8 @@ AnchorDesk supports two MCP auth paths:
 - **Personal access token:** use an MCP client that can send custom headers and point it at `/mcp/sse` with `Authorization: Bearer <token>`.
 - **OAuth/OIDC:** configure OIDC in **Admin → Authentication**, then create or reuse an OAuth client in that IdP for ChatGPT. Add the callback URL shown by ChatGPT, use authorization-code + PKCE, and request `openid profile email`. ChatGPT discovers AnchorDesk's resource metadata from `/.well-known/oauth-protected-resource`, completes the OAuth flow with the IdP, and calls `/mcp/sse` with the issued bearer token.
 
+See [docs/mcp-auth.md](docs/mcp-auth.md) for a step-by-step ChatGPT setup guide and troubleshooting notes.
+
 ## Probes & devices
 
 A probe is a scanner deployed on a customer LAN that pushes discovered devices into AnchorDesk. The reference probe is [netviz](https://github.com/Spillers-Technology/netviz). An admin registers a probe from **Admin → Probes** (or `POST /probes`) and receives its API key once. A probe can be linked to a **company**, which then flows onto every device it discovers. The probe heartbeats and posts device records, which are upserted locally, displayed in the **Network** view, and available to link to tickets.
@@ -186,6 +188,7 @@ The wire contract lives in [backend/src/providers/NetVizProvider.ts](backend/src
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — patterns, request lifecycle, and auth
+- [docs/mcp-auth.md](docs/mcp-auth.md) — MCP personal-token and OAuth/OIDC setup
 - [docs/schema.md](docs/schema.md) — database schema
 - [docs/providers.md](docs/providers.md) — adding a sync provider
 - [CLAUDE.md](CLAUDE.md) — developer reference
