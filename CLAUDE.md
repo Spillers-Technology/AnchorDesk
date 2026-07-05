@@ -59,6 +59,8 @@ PostgreSQL :5432  ← source of truth
      ├── ConnectWiseProvider  (reads/writes CW Manage)
      ├── NetVizProvider       (probe → device ingest)
      ├── TacticalRmmProvider  (device sync + script runner)
+     ├── NinjaOneProvider     (device sync + script runner — OAuth2 client-credentials)
+     ├── DattoRmmProvider     (device sync + quick-job runner — OAuth2 password grant)
      └── ImapProvider         (planned)
 ```
 
@@ -66,6 +68,23 @@ GoF patterns in use:
 - **Strategy** — `TicketProvider`, `DeviceProvider`, and `ScriptRunner` interfaces (see `src/providers/`, `src/runners/`)
 - **Repository** — `src/repositories/` wraps all Prisma queries; routes never touch Prisma directly
 - **Observer (append-only log)** — every mutation goes through `auditRepository.record()` before responding
+- **Registry** — `src/rmm/registry.ts` maps a device-source key (`tactical_rmm` / `ninjaone` / `datto_rmm`) to an `RmmAdapter` bundling its config-check + `DeviceProvider` + script catalogue + live snapshot
+
+### Multi-RMM (Tactical / NinjaOne / Datto)
+Devices + scripts flow through two Strategy families keyed by device source:
+`DeviceProvider` (sync) and `ScriptRunner` (scripts), with `rmm/registry.ts` as the
+single lookup the routes use instead of hard-coding a platform. `/rmm/status`
+reports every RMM's `configured`/`hasScriptCatalog`; `/scripts?provider=` and
+`POST /devices/sync?provider=` select the RMM (both default to Tactical for
+back-compat); `/devices/:id/live` reads `device.source`. NinjaOne and Datto both
+authenticate with cached OAuth2 tokens (`ninjaService` client-credentials,
+`dattoService` password grant against the fixed `public-client`). Datto script runs
+are asynchronous **quick jobs** (queue a component UID, poll the job) and Datto
+exposes no component catalogue over the API, so the run dialog collects the UID by
+hand. Config for all three is seeded from env and editable in **Admin →
+Integrations** (`ninjaone` / `datto` settings rows; DB wins). Adding another RMM =
+a service client + a `DeviceProvider` + a `ScriptRunner` + one `RmmAdapter` in the
+registry + the two enum values.
 
 ### Auth flow (1.1.0)
 - `middleware/auth.ts` runs on every request. It resolves a **session cookie** (browser login), a **personal access token** (`Authorization: Bearer adk_…`, resolved locally — see below), or an **OIDC bearer token** (API clients) to a `request.user` carrying a role, then enforces baseline RBAC (`readonly` can't mutate). `requireRole('admin')` gates admin surfaces. Public paths: `/ping`, `/probe/*`, and the `/auth/*` login endpoints.

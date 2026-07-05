@@ -21,16 +21,21 @@ interface RunScriptDialogProps {
   onClose: () => void;
   deviceId: number;
   deviceName: string;
+  /** RMM the device belongs to — selects the script catalog. */
+  deviceSource?: string;
   ticketId?: number;
 }
 
-type Script = { id: number; name: string; shell?: string };
+type Script = { id: string; name: string; shell?: string };
 
-/** Run or schedule a script against a single device. Lean: pick script, optional
- *  args + schedule, fire, show the output (synchronous for run-now). */
-export default function RunScriptDialog({ open, onClose, deviceId, deviceName, ticketId }: RunScriptDialogProps) {
+/** Run or schedule a script against a single device. Lean: pick script (or, for
+ *  RMMs with no catalog like Datto, paste a component UID), optional args +
+ *  schedule, fire, show the result. */
+export default function RunScriptDialog({ open, onClose, deviceId, deviceName, deviceSource, ticketId }: RunScriptDialogProps) {
   const [scripts, setScripts] = useState<Script[]>([]);
+  const [loadingScripts, setLoadingScripts] = useState(false);
   const [script, setScript] = useState<string>("");
+  const [manualRef, setManualRef] = useState("");
   const [args, setArgs] = useState("");
   const [scheduledFor, setScheduledFor] = useState("");
   const [running, setRunning] = useState(false);
@@ -41,18 +46,29 @@ export default function RunScriptDialog({ open, onClose, deviceId, deviceName, t
     if (!open) return;
     setResult(null);
     setError(null);
-    api.listScripts().then(setScripts).catch((e) => setError((e as Error).message));
-  }, [open]);
+    setScript("");
+    setManualRef("");
+    setLoadingScripts(true);
+    api.listScripts(deviceSource)
+      .then(setScripts)
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setLoadingScripts(false));
+  }, [open, deviceSource]);
+
+  // No catalog (Datto, or an RMM with no scripts yet) → collect a ref by hand.
+  const useManualRef = !loadingScripts && scripts.length === 0;
+  const isDatto = deviceSource === "datto_rmm";
+  const scriptRef = useManualRef ? manualRef.trim() : script;
 
   const run = async () => {
-    if (!script) return;
+    if (!scriptRef) return;
     setRunning(true);
     setError(null);
     setResult(null);
     try {
       const job = await api.runDeviceScript(deviceId, {
-        script,
-        scriptName: scripts.find((s) => String(s.id) === script)?.name,
+        script: scriptRef,
+        scriptName: scripts.find((s) => s.id === scriptRef)?.name,
         args: args.trim() ? args.split(/\s+/) : undefined,
         ticketId,
         scheduledFor: scheduledFor || undefined,
@@ -72,21 +88,40 @@ export default function RunScriptDialog({ open, onClose, deviceId, deviceName, t
         <Stack spacing={2} sx={{ mt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
 
-          <TextField
-            select
-            label="Script"
-            value={script}
-            onChange={(e) => setScript(e.target.value)}
-            fullWidth
-            size="small"
-          >
-            {scripts.length === 0 && <MenuItem value="" disabled>No scripts available (RMM not configured?)</MenuItem>}
-            {scripts.map((s) => (
-              <MenuItem key={s.id} value={String(s.id)}>
-                {s.name} {s.shell ? `(${s.shell})` : ""}
-              </MenuItem>
-            ))}
-          </TextField>
+          {loadingScripts ? (
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <CircularProgress size={16} />
+              <Typography variant="body2" color="text.secondary">Loading scripts…</Typography>
+            </Stack>
+          ) : useManualRef ? (
+            <TextField
+              label={isDatto ? "Component UID" : "Script reference"}
+              value={manualRef}
+              onChange={(e) => setManualRef(e.target.value)}
+              fullWidth
+              size="small"
+              helperText={
+                isDatto
+                  ? "Datto exposes no script catalog over the API — paste the component's UID from its page in Datto RMM."
+                  : "No scripts found for this RMM — enter the script's id/reference."
+              }
+            />
+          ) : (
+            <TextField
+              select
+              label="Script"
+              value={script}
+              onChange={(e) => setScript(e.target.value)}
+              fullWidth
+              size="small"
+            >
+              {scripts.map((s) => (
+                <MenuItem key={s.id} value={s.id}>
+                  {s.name} {s.shell ? `(${s.shell})` : ""}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
 
           <TextField
             label="Arguments (space-separated)"
@@ -136,7 +171,7 @@ export default function RunScriptDialog({ open, onClose, deviceId, deviceName, t
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
-        <Button variant="contained" onClick={run} disabled={!script || running} startIcon={running ? <CircularProgress size={16} /> : undefined}>
+        <Button variant="contained" onClick={run} disabled={!scriptRef || running} startIcon={running ? <CircularProgress size={16} /> : undefined}>
           {scheduledFor ? "Schedule" : "Run now"}
         </Button>
       </DialogActions>
