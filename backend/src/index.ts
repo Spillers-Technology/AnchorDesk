@@ -20,6 +20,7 @@ import { cwRoutes } from './routes/cw';
 import { syncRoutes } from './routes/sync';
 import { pingRoutes } from './routes/ping';
 import { mcpRoutes } from './routes/mcp';
+import { oauthRoutes } from './routes/oauth';
 import { authRoutes } from './routes/auth';
 import { apiTokenRoutes } from './routes/apiTokens';
 import { userRoutes } from './routes/users';
@@ -30,6 +31,7 @@ import { companyRoutes } from './routes/companies';
 import { registerAuthHook } from './middleware/auth';
 import { bootstrapAuth } from './services/auth/bootstrap';
 import { pruneExpiredSessions } from './services/auth/sessions';
+import { pruneExpiredCodes } from './services/auth/oauthProvider';
 import { seedSettings } from './services/settingsService';
 import { ensurePgExtras } from './db/pgExtras';
 import { startScriptScheduler } from './services/scriptScheduler';
@@ -84,6 +86,8 @@ async function start() {
 
   // Auth: login flows, session, self-service (public + authed endpoints).
   server.register(authRoutes);
+  // OAuth 2.0 authorization server for MCP clients (DCR + authorize + token).
+  server.register(oauthRoutes);
   // Personal access tokens (self-service) — used by MCP / programmatic clients.
   server.register(apiTokenRoutes);
   // Admin: user management + auth settings (admin role required).
@@ -162,9 +166,10 @@ async function start() {
   // Evaluate SLA timers; emit at-risk / breach events to the live layer.
   startSlaScheduler(server.log);
 
-  // Sweep expired sessions hourly.
+  // Sweep expired sessions + spent OAuth auth codes hourly.
   setInterval(() => {
     pruneExpiredSessions().catch((err) => server.log.warn({ err }, 'Session prune failed'));
+    pruneExpiredCodes().catch((err) => server.log.warn({ err }, 'OAuth code prune failed'));
   }, 60 * 60 * 1000).unref();
 }
 

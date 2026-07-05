@@ -12,6 +12,7 @@ import {
   mcpProtectedResourceMetadataUrl,
   mcpWwwAuthenticateHeader,
 } from '../mcpOAuth';
+import { buildAuthServerMetadata } from '../oauthProvider';
 
 const baseUser: User = {
   id: 1,
@@ -112,12 +113,12 @@ describe('auth public-path guard', () => {
 });
 
 describe('MCP OAuth metadata', () => {
-  it('advertises the MCP resource and configured OIDC authorization server', () => {
-    expect(buildMcpProtectedResourceMetadata(baseSettings)).toEqual({
+  it('advertises AnchorDesk itself as the authorization server', () => {
+    expect(buildMcpProtectedResourceMetadata()).toEqual({
       resource: 'http://localhost:5173/mcp/sse',
-      authorization_servers: ['https://idp.example.com'],
+      authorization_servers: ['http://localhost:5173'],
       bearer_methods_supported: ['header'],
-      scopes_supported: ['openid', 'profile', 'email'],
+      scopes_supported: ['mcp'],
       resource_name: 'AnchorDesk MCP',
     });
   });
@@ -129,7 +130,31 @@ describe('MCP OAuth metadata', () => {
     );
   });
 
-  it('refuses to advertise OAuth metadata without OIDC enabled', () => {
-    expect(() => buildMcpProtectedResourceMetadata({ ...baseSettings, oidcEnabled: false })).toThrow(/OIDC/);
+  it('exposes RFC 8414 authorization-server metadata pointing at our own endpoints', () => {
+    expect(buildAuthServerMetadata()).toEqual({
+      issuer: 'http://localhost:5173',
+      authorization_endpoint: 'http://localhost:5173/oauth/authorize',
+      token_endpoint: 'http://localhost:5173/oauth/token',
+      registration_endpoint: 'http://localhost:5173/oauth/register',
+      response_types_supported: ['code'],
+      grant_types_supported: ['authorization_code'],
+      code_challenge_methods_supported: ['S256'],
+      token_endpoint_auth_methods_supported: ['none'],
+      scopes_supported: ['mcp'],
+    });
+  });
+});
+
+describe('OAuth authorization-server public paths', () => {
+  it('exempts the discovery + handshake endpoints from the auth hook', () => {
+    expect(isPublic('/.well-known/oauth-authorization-server')).toBe(true);
+    expect(isPublic('/oauth/register')).toBe(true);
+    expect(isPublic('/oauth/authorize?client_id=x')).toBe(true);
+    expect(isPublic('/oauth/token')).toBe(true);
+  });
+
+  it('does not expose anything else under /oauth as public', () => {
+    expect(isPublic('/oauth/clients')).toBe(false);
+    expect(isPublic('/oauth')).toBe(false);
   });
 });

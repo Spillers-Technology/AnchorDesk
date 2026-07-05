@@ -30,6 +30,11 @@ export default defineConfig({
       // Probe self-service + MCP keep their paths (backend serves them at root).
       '/probe': { target: backendOrigin, changeOrigin: true },
       '/mcp': { target: backendOrigin, changeOrigin: true },
+      // MCP OAuth: discovery metadata + the authorization-server endpoints. These
+      // live at the origin root (the issuer is the app's base URL), so the backend
+      // serves them un-prefixed too.
+      '/.well-known': { target: backendOrigin, changeOrigin: true },
+      '/oauth': { target: backendOrigin, changeOrigin: true },
       // WebSocket live-update channel — the /api prefix is stripped to /ws.
       '/api/ws': {
         target: backendWs,

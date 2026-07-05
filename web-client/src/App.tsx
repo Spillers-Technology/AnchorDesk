@@ -137,6 +137,19 @@ function App() {
   const { user, loading: authLoading, isAdmin, setUser } = useAuth();
   const currentUser = { id: user?.id ?? 0, name: user?.displayName ?? user?.username ?? "User" };
 
+  // MCP OAuth consent bounce: /oauth/authorize redirects an unauthenticated user
+  // here with ?oauth_return=<the authorize request>. Captured once at mount (so a
+  // later history.replaceState can't drop it) and only honored for same-origin
+  // /oauth/ paths, so it can't be abused as an open redirect. Once the user is
+  // authenticated we send the browser back to finish the authorization.
+  const [oauthReturn] = useState(() => {
+    const rt = new URLSearchParams(window.location.search).get("oauth_return");
+    return rt && rt.startsWith("/oauth/") ? rt : null;
+  });
+  useEffect(() => {
+    if (user && oauthReturn) window.location.replace(oauthReturn);
+  }, [user, oauthReturn]);
+
   const fetchTickets = useCallback(async () => {
     setLoading(true);
     setError(null);

@@ -1,10 +1,8 @@
-import { AuthSetting } from '@prisma/client';
 import { config } from '../../config/config';
+import { MCP_SCOPE } from './oauthProvider';
 
 const MCP_RESOURCE_PATH = '/mcp/sse';
 const PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
-
-type McpOAuthSettings = Pick<AuthSetting, 'oidcEnabled' | 'oidcIssuerUrl'>;
 
 export interface McpProtectedResourceMetadata {
   resource: string;
@@ -30,16 +28,19 @@ export function mcpWwwAuthenticateHeader(): string {
   return `Bearer realm="anchordesk-mcp", resource_metadata="${mcpProtectedResourceMetadataUrl()}"`;
 }
 
-export function buildMcpProtectedResourceMetadata(settings: McpOAuthSettings): McpProtectedResourceMetadata {
-  if (!settings.oidcEnabled || !settings.oidcIssuerUrl) {
-    throw new Error('OIDC must be enabled before MCP OAuth metadata can be advertised');
-  }
-
+/**
+ * Advertise AnchorDesk itself as the authorization server (see oauthProvider.ts),
+ * rather than delegating to the OIDC issuer. Self-hosting the AS is what lets MCP
+ * clients like ChatGPT complete OAuth via Dynamic Client Registration — which few
+ * external IdPs allow — and it keeps the resource + authorization servers on one
+ * origin, which is what these clients expect.
+ */
+export function buildMcpProtectedResourceMetadata(): McpProtectedResourceMetadata {
   return {
     resource: mcpResourceUrl(),
-    authorization_servers: [settings.oidcIssuerUrl.replace(/\/$/, '')],
+    authorization_servers: [config.appBaseUrl],
     bearer_methods_supported: ['header'],
-    scopes_supported: ['openid', 'profile', 'email'],
+    scopes_supported: [MCP_SCOPE],
     resource_name: 'AnchorDesk MCP',
   };
 }

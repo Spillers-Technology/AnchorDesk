@@ -72,6 +72,46 @@ model ApiToken {
   @@map("api_tokens")
 }
 
+// An OAuth 2.0 client, created by Dynamic Client Registration (RFC 7591). MCP
+// clients such as ChatGPT have no pre-shared credentials, so they register
+// themselves here on first connect and get back an opaque clientId. These are
+// public clients (PKCE, no secret) — the redirect URIs are the only trust anchor,
+// so they're matched exactly at authorize/token time.
+model OAuthClient {
+  id           Int      @id @default(autoincrement())
+  clientId     String   @unique @map("client_id") @db.VarChar(64)
+  clientName   String?  @map("client_name") @db.VarChar(255)
+  redirectUris Json     @map("redirect_uris") // string[]
+  grantTypes   Json     @map("grant_types") // string[]
+  scope        String?  @db.VarChar(500)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("oauth_clients")
+}
+
+// A single-use OAuth authorization code (authorization-code + PKCE flow). Issued
+// when a signed-in user approves a client at /oauth/authorize and redeemed once
+// at /oauth/token for an access token (a minted personal access token). We store
+// only the SHA-256 hash of the code, like Session/ApiToken, and bind it to the
+// PKCE challenge, the redirect URI, and the approving user. Short-lived (minutes)
+// and pruned after expiry.
+model OAuthAuthCode {
+  id            Int       @id @default(autoincrement())
+  codeHash      String    @unique @map("code_hash") @db.VarChar(64)
+  clientId      String    @map("client_id") @db.VarChar(64)
+  userId        Int       @map("user_id")
+  redirectUri   String    @map("redirect_uri") @db.VarChar(2000)
+  codeChallenge String    @map("code_challenge") @db.VarChar(255)
+  scope         String?   @db.VarChar(500)
+  resource      String?   @db.VarChar(2000)
+  expiresAt     DateTime  @map("expires_at")
+  usedAt        DateTime? @map("used_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([expiresAt])
+  @@map("oauth_auth_codes")
+}
+
 // Server-side session. The browser cookie carries an opaque random token; we
 // store only its SHA-256 hash, so a DB read never yields a usable session.
 // Enables instant revocation (delete the row) which JWTs can't do.

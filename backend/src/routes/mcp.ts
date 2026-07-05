@@ -8,7 +8,6 @@ import * as audit from '../repositories/auditRepository';
 import * as ticketMail from '../services/mail/ticketMail';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
 import { actorFor } from '../middleware/auth';
-import { getAuthSettings } from '../services/auth/authConfig';
 import { buildMcpProtectedResourceMetadata } from '../services/auth/mcpOAuth';
 
 /**
@@ -184,12 +183,7 @@ export async function mcpRoutes(app: FastifyInstance) {
   const transports = new Map<string, SSEServerTransport>();
 
   async function sendProtectedResourceMetadata(_req: FastifyRequest, reply: FastifyReply) {
-    const settings = await getAuthSettings();
-    try {
-      return reply.send(buildMcpProtectedResourceMetadata(settings));
-    } catch (err) {
-      return reply.status(503).send({ error: (err as Error).message });
-    }
+    return reply.send(buildMcpProtectedResourceMetadata());
   }
 
   app.get('/.well-known/oauth-protected-resource', sendProtectedResourceMetadata);
