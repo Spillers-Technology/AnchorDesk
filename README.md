@@ -120,7 +120,7 @@ cd backend && npm start                       # :8060
 cd web-client && npm install && npm run dev   # :5173
 ```
 
-Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxied to the backend.
+Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxied to the backend. If you run the Vite dev server inside a container, set `BACKEND_ORIGIN=http://backend:8060`.
 
 For the complete Compose stack, run `docker compose up --build`. Tagged release images are published as:
 

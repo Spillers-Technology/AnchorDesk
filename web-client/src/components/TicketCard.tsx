@@ -1,5 +1,5 @@
 import React from "react";
-import { Card, CardContent, Typography, Box, Chip, Stack } from "@mui/material";
+import { Card, CardContent, Typography, Box, Chip, Stack, Checkbox, Tooltip } from "@mui/material";
 import BusinessIcon from "@mui/icons-material/Business";
 import PersonIcon from "@mui/icons-material/Person";
 import { Ticket } from "../interfaces";
@@ -11,17 +11,61 @@ interface TicketCardProps {
   ticket: Ticket;
   onClick: () => void;
   shortenedSummary: string;
+  selectionEnabled?: boolean;
+  selected?: boolean;
+  onToggleSelected?: () => void;
 }
 
-const TicketCard: React.FC<TicketCardProps> = ({ ticket, onClick, shortenedSummary }) => {
+const TicketCard: React.FC<TicketCardProps> = ({
+  ticket,
+  onClick,
+  shortenedSummary,
+  selectionEnabled = false,
+  selected = false,
+  onToggleSelected,
+}) => {
   const date = ticket.dateEntered ? new Date(ticket.dateEntered).toLocaleDateString() : "";
   const company = ticket.company?.CompanyName;
 
   return (
     <Card
       onClick={onClick}
-      sx={{ height: "100%", display: "flex", flexDirection: "column", cursor: "pointer", transition: "box-shadow .15s, border-color .15s", "&:hover": { boxShadow: 3, borderColor: "primary.main" } }}
+      variant={selected ? "outlined" : undefined}
+      sx={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        cursor: "pointer",
+        position: "relative",
+        borderColor: selected ? "primary.main" : undefined,
+        boxShadow: selected ? 3 : undefined,
+        transition: "box-shadow .15s, border-color .15s",
+        "&:hover": { boxShadow: 3, borderColor: "primary.main" },
+      }}
     >
+      {selectionEnabled && (
+        <Tooltip title={selected ? "Deselect ticket" : "Select ticket"}>
+          <Checkbox
+            checked={selected}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleSelected?.();
+            }}
+            inputProps={{ "aria-label": selected ? "Deselect ticket" : "Select ticket" }}
+            sx={{
+              position: "absolute",
+              top: 6,
+              right: 6,
+              zIndex: 2,
+              bgcolor: "background.paper",
+              boxShadow: 1,
+              borderRadius: 1,
+              p: 0.25,
+              "&:hover": { bgcolor: "background.paper" },
+            }}
+          />
+        </Tooltip>
+      )}
       <CardContent sx={{ flexGrow: 1, width: "100%" }}>
           <Stack direction="row" spacing={1} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
             <Chip size="small" label={ticket.status} color={statusColor(ticket.status)} />

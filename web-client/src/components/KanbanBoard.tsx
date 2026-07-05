@@ -14,6 +14,9 @@ interface KanbanBoardProps {
   onTicketClick: (ticket: Ticket) => void;
   /** Close a ticket — invoked after its fall-off animation finishes. */
   onTicketClose: (ticketId: number) => void;
+  selectionEnabled?: boolean;
+  selectedIds?: Set<number>;
+  onToggleTicketSelected?: (ticketId: number) => void;
 }
 
 // The card tips up, then drops off the bottom of the board on close.
@@ -28,6 +31,9 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
   onStatusChange,
   onTicketClick,
   onTicketClose,
+  selectionEnabled = false,
+  selectedIds = new Set<number>(),
+  onToggleTicketSelected,
 }) => {
   // Ids mid-animation. They stay opacity:0 (animation fills forwards) until the
   // parent drops them from the list, so there's no flash-back before unmount.
@@ -115,6 +121,9 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                               ticket={ticket}
                               onClick={() => onTicketClick(ticket)}
                               shortenedSummary={ticket.ticketSummary}
+                              selectionEnabled={selectionEnabled && id != null}
+                              selected={id != null && selectedIds.has(id)}
+                              onToggleSelected={id != null ? () => onToggleTicketSelected?.(id) : undefined}
                             />
                             {id != null && !dragSnapshot.isDragging && (
                               <Tooltip title="Close ticket">

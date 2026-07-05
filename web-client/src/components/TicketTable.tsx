@@ -13,6 +13,9 @@ interface TicketTableProps {
   pageSize: number;
   onPageChange: (page: number) => void;
   onRowClick: (ticket: Ticket) => void;
+  selectionEnabled?: boolean;
+  selectedIds?: number[];
+  onSelectionChange?: (ids: number[]) => void;
 }
 
 const formatDate = (dateString: string | undefined) => {
@@ -64,7 +67,17 @@ const columns: GridColDef[] = [
  * of rows in the DOM; paging is driven by the parent (which re-fetches), so this
  * scales to large ticket counts without rendering everything at once.
  */
-const TicketTable: React.FC<TicketTableProps> = ({ tickets, rowCount, page, pageSize, onPageChange, onRowClick }) => {
+const TicketTable: React.FC<TicketTableProps> = ({
+  tickets,
+  rowCount,
+  page,
+  pageSize,
+  onPageChange,
+  onRowClick,
+  selectionEnabled = false,
+  selectedIds = [],
+  onSelectionChange,
+}) => {
   const rows = tickets.map((ticket) => ({
     id: (ticket as Ticket & { localId?: number }).localId ?? ticket.ticketnumber,
     ticketnumber: ticket.ticketnumber,
@@ -87,6 +100,10 @@ const TicketTable: React.FC<TicketTableProps> = ({ tickets, rowCount, page, page
         pageSizeOptions={[pageSize]}
         onPaginationModelChange={(model) => onPageChange(model.page)}
         disableColumnMenu
+        checkboxSelection={selectionEnabled}
+        disableRowSelectionOnClick
+        rowSelectionModel={selectedIds}
+        onRowSelectionModelChange={(model) => onSelectionChange?.(model.map(Number))}
         onRowClick={(params) => onRowClick(params.row.ticket)}
         sx={{ "& .MuiDataGrid-row": { cursor: "pointer" } }}
       />

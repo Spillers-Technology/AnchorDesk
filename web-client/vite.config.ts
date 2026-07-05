@@ -6,11 +6,10 @@ import { readFileSync } from 'fs'
 // running (answers "did the deploy land?" at a glance — see AccountMenu).
 const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
-// Backend origin the dev proxy forwards to. Defaults to the Docker compose
-// service name (`backend`) so the in-container dev server works out of the box;
-// set BACKEND_ORIGIN=http://localhost:8060 when running the dev server on the
-// host (where `backend` won't resolve).
-const backendOrigin = process.env.BACKEND_ORIGIN || 'http://backend:8060'
+// Backend origin the dev proxy forwards to. Host-local dev is the common path
+// for `npm run dev`, so default to localhost. Containerized dev can override
+// this with BACKEND_ORIGIN=http://backend:8060.
+const backendOrigin = process.env.BACKEND_ORIGIN || 'http://localhost:8060'
 const backendWs = backendOrigin.replace(/^http/, 'ws')
 
 // https://vitejs.dev/config/

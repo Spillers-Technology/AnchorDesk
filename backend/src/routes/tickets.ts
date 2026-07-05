@@ -4,6 +4,7 @@ import * as noteRepo from '../repositories/noteRepository';
 import * as audit from '../repositories/auditRepository';
 import * as twoWaySync from '../services/twoWaySync';
 import { renderTicketHtml } from '../services/ticketExport';
+import { sanitizeEmailHtml, htmlToText } from '../services/mail/sanitizeHtml';
 import { parseId } from '../util/ids';
 
 interface IdParam { id: string }
@@ -142,11 +143,13 @@ export async function ticketRoutes(server: FastifyInstance) {
     const id = parseId(req.params.id);
     if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
     const body = req.body as noteRepo.CreateNoteInput;
-    if (!body?.content) return reply.status(400).send({ error: 'content is required' });
+    const htmlContent = body?.htmlContent ? sanitizeEmailHtml(body.htmlContent) : undefined;
+    const content = body?.content?.trim() || (htmlContent ? htmlToText(htmlContent) : '');
+    if (!content) return reply.status(400).send({ error: 'content is required' });
 
     const note = await noteRepo.create(
       id,
-      { ...body, author: body.author ?? req.user?.displayName ?? req.actorSub },
+      { ...body, content, htmlContent, author: body.author ?? req.user?.displayName ?? req.actorSub },
       req.actorSub
     );
 
@@ -166,9 +169,15 @@ export async function ticketRoutes(server: FastifyInstance) {
     const noteId = parseId(req.params.noteId);
     if (ticketId === null) return reply.status(400).send({ error: 'invalid ticket id' });
     if (noteId === null) return reply.status(400).send({ error: 'invalid note id' });
+    const body = req.body as noteRepo.UpdateNoteInput;
+    const data: noteRepo.UpdateNoteInput = { ...body };
+    if (typeof body.htmlContent === 'string') {
+      data.htmlContent = sanitizeEmailHtml(body.htmlContent);
+      data.content = body.content?.trim() || htmlToText(data.htmlContent);
+    }
     const note = await noteRepo.update(
       noteId,
-      req.body as noteRepo.UpdateNoteInput,
+      data,
       req.actorSub
     );
     if (!note) return reply.status(404).send({ error: 'Note not found' });

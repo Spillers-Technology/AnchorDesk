@@ -6,6 +6,7 @@
  */
 import { prisma } from '../db/prisma';
 import { readToBuffer } from './storage';
+import { sanitizeEmailHtml } from './mail/sanitizeHtml';
 
 function esc(s: unknown): string {
   return String(s ?? '')
@@ -19,6 +20,11 @@ function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function renderMaybeHtml(value: string | null): string {
+  if (!value) return '';
+  return /<\/?[a-z][\s\S]*>/i.test(value) ? sanitizeEmailHtml(value) : `<p>${esc(value)}</p>`;
 }
 
 export async function renderTicketHtml(ticketId: number): Promise<string | null> {
@@ -108,7 +114,7 @@ export async function renderTicketHtml(ticketId: number): Promise<string | null>
     <div>Assignee</div><div>${esc(ticket.assignee ?? 'Unassigned')}</div>
     <div>Created</div><div>${new Date(ticket.createdAt).toLocaleString()}</div>
   </div>
-  ${ticket.description ? `<h3>Description</h3><div>${esc(ticket.description)}</div>` : ''}
+  ${ticket.description ? `<h3>Description</h3><div class="body">${renderMaybeHtml(ticket.description)}</div>` : ''}
   <h3>Activity</h3>
   ${timeline || '<p>No activity.</p>'}
   ${ticket.attachments.length ? `<h3>Attachments</h3><ul>${attachmentList}</ul>` : ''}

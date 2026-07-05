@@ -19,6 +19,13 @@ import {
   Paper,
   Pagination,
   Badge,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Stack,
+  MenuItem,
+  LinearProgress,
 } from "@mui/material";
 import { theme as defaultTheme } from "./theme";
 import DashboardAppBar from "./components/DashboardAppBar";
@@ -39,22 +46,28 @@ import * as api from "./api/client";
 import { subscribeRealtime } from "./api/realtime";
 import { useAuth } from "./auth/AuthContext";
 import LoginView from "./auth/LoginView";
+import { htmlToPreviewText } from "./html";
 import AddIcon from "@mui/icons-material/Add";
 import ViewModuleIcon from "@mui/icons-material/ViewModule";
 import TableRowsIcon from "@mui/icons-material/TableRows";
 import ViewKanbanIcon from "@mui/icons-material/ViewKanban";
 import SearchIcon from "@mui/icons-material/Search";
 import FilterListIcon from "@mui/icons-material/FilterList";
+import SelectAllIcon from "@mui/icons-material/SelectAll";
+import ClearIcon from "@mui/icons-material/Clear";
+import EditNoteIcon from "@mui/icons-material/EditNote";
+import { TICKET_PRIORITIES, TICKET_STATUSES } from "./ticketVocab";
 
 // Map local-DB ticket record to the component-facing Ticket interface.
 // The component interface uses CW-era field names; this adapter lets us keep
 // all existing components unchanged while the data layer migrates.
 function mapDbTicket(t: Record<string, unknown>): Ticket & { localId: number } {
+  const summarySource = String(t.summary ?? t.description ?? "");
   return {
     localId: t.id as number,
     ticketnumber: String(t.ticketNumber ?? t.id),
     ticketTitle: String(t.title ?? ""),
-    ticketSummary: String(t.summary ?? t.description ?? ""),
+    ticketSummary: htmlToPreviewText(summarySource) || summarySource,
     status: String(t.status ?? "New"),
     priority: String(t.priority ?? ""),
     assignee: String(t.assignee ?? ""),
@@ -111,6 +124,12 @@ export interface TicketFilterCriteria {
   includeClosed?: boolean;
 }
 
+interface BulkTicketUpdate {
+  status?: string;
+  priority?: string;
+  assigneeId?: number | null;
+}
+
 function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [tickets, setTickets] = useState<(Ticket & { localId: number })[]>([]);
@@ -129,13 +148,23 @@ function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [networkCompany, setNetworkCompany] = useState<string | undefined>(undefined);
+  const [bulkSelectionMode, setBulkSelectionMode] = useState(false);
+  const [selectedTicketIds, setSelectedTicketIds] = useState<Set<number>>(new Set());
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [assignees, setAssignees] = useState<api.Assignee[]>([]);
   // Legacy DataGrid table view is opt-in via an admin setting; off by default.
   const [legacyTableView, setLegacyTableView] = useState(false);
 
   const pageSize = PAGE_SIZE[viewMode] ?? 50;
 
-  const { user, loading: authLoading, isAdmin, setUser } = useAuth();
-  const currentUser = { id: user?.id ?? 0, name: user?.displayName ?? user?.username ?? "User" };
+  const { user, loading: authLoading, isAdmin, canWrite, setUser } = useAuth();
+  const currentUser = {
+    id: user?.id ?? 0,
+    name: user?.displayName ?? user?.username ?? "User",
+    role: user?.role,
+    canWrite,
+  };
 
   // MCP OAuth consent bounce: /oauth/authorize redirects an unauthenticated user
   // here with ?oauth_return=<the authorize request>. Captured once at mount (so a
@@ -245,10 +274,97 @@ function App() {
     summary.length > 100 ? `${summary.slice(0, 100)}...` : summary;
 
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  const visibleTicketIds = tickets.map((t) => t.localId);
+  const selectedIdsArray = Array.from(selectedTicketIds);
+  const selectedTicketCount = selectedIdsArray.length;
+  const selectionEnabled = canWrite && bulkSelectionMode;
+
+  const toggleTicketSelection = (ticketId: number) => {
+    setSelectedTicketIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(ticketId)) next.delete(ticketId);
+      else next.add(ticketId);
+      return next;
+    });
+  };
+
+  const selectVisibleTickets = () => {
+    setBulkSelectionMode(true);
+    setSelectedTicketIds(new Set(visibleTicketIds));
+  };
+
+  const clearBulkSelection = () => {
+    setSelectedTicketIds(new Set());
+    setBulkSelectionMode(false);
+    setBulkDialogOpen(false);
+  };
+
+  const applyBulkUpdate = async (update: BulkTicketUpdate) => {
+    const ids = selectedIdsArray.filter((id) => visibleTicketIds.includes(id));
+    if (!ids.length) return;
+
+    const payload: Record<string, unknown> = {};
+    if (update.status) payload.status = update.status;
+    if (update.priority) payload.priority = update.priority;
+    if (update.assigneeId !== undefined) {
+      payload.assigneeId = update.assigneeId;
+      const assignee = assignees.find((a) => a.id === update.assigneeId);
+      payload.assignee = assignee ? assignee.displayName || assignee.username : null;
+    }
+    if (!Object.keys(payload).length) return;
+
+    setBulkBusy(true);
+    setTickets((prev) =>
+      prev.map((ticket) =>
+        ids.includes(ticket.localId)
+          ? {
+              ...ticket,
+              status: typeof payload.status === "string" ? payload.status : ticket.status,
+              priority: typeof payload.priority === "string" ? payload.priority : ticket.priority,
+              assignee:
+                update.assigneeId !== undefined
+                  ? typeof payload.assignee === "string"
+                    ? payload.assignee
+                    : ""
+                  : ticket.assignee,
+            }
+          : ticket
+      )
+    );
+
+    const results = await Promise.allSettled(ids.map((id) => api.updateTicket(id, payload)));
+    const failures = results.filter((result) => result.status === "rejected");
+    setBulkBusy(false);
+    setBulkDialogOpen(false);
+
+    if (failures.length) {
+      setToast({ message: `${ids.length - failures.length} updated, ${failures.length} failed.`, severity: "error" });
+      fetchTickets();
+      return;
+    }
+
+    setToast({ message: `${ids.length} tickets updated`, severity: "success" });
+    clearBulkSelection();
+    fetchTickets();
+  };
 
   useEffect(() => {
     if (user) fetchTickets();
   }, [fetchTickets, user]);
+
+  useEffect(() => {
+    const visible = new Set(visibleTicketIds);
+    setSelectedTicketIds((prev) => {
+      const next = new Set(Array.from(prev).filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickets]);
+
+  useEffect(() => {
+    if (!user || !canWrite) return;
+    api.listAssignees().then(setAssignees).catch(() => setAssignees([]));
+  }, [user, canWrite]);
 
   // Load interface prefs once signed in (gates the legacy table view).
   useEffect(() => {
@@ -412,6 +528,18 @@ function App() {
           ) : (
             <>
           {error && <Typography color="error">Error: {error.message}</Typography>}
+          {canWrite && tickets.length > 0 && ["cards", "table", "kanban"].includes(viewMode) && (
+            <BulkSelectionBar
+              selectionMode={bulkSelectionMode}
+              selectedCount={selectedTicketCount}
+              visibleCount={visibleTicketIds.length}
+              busy={bulkBusy}
+              onStartSelection={() => setBulkSelectionMode(true)}
+              onSelectVisible={selectVisibleTickets}
+              onClear={clearBulkSelection}
+              onOpenUpdate={() => setBulkDialogOpen(true)}
+            />
+          )}
 
           {/* Only blank to a spinner on the first load (nothing to show yet).
               Background refetches — live WebSocket updates, an optimistic close —
@@ -429,6 +557,9 @@ function App() {
               pageSize={pageSize}
               onPageChange={(p) => setPage(p + 1)}
               onRowClick={handleTicketClick}
+              selectionEnabled={selectionEnabled}
+              selectedIds={selectedIdsArray}
+              onSelectionChange={(ids) => setSelectedTicketIds(new Set(ids))}
             />
           ) : tickets.length > 0 ? (
             viewMode === "cards" ? (
@@ -440,6 +571,9 @@ function App() {
                         ticket={ticket}
                         onClick={() => handleTicketClick(ticket)}
                         shortenedSummary={shortenSummary(ticket.ticketSummary)}
+                        selectionEnabled={selectionEnabled}
+                        selected={selectedTicketIds.has(ticket.localId)}
+                        onToggleSelected={() => toggleTicketSelection(ticket.localId)}
                       />
                     </Grid>
                   ))}
@@ -470,6 +604,9 @@ function App() {
                   onStatusChange={(ticketId, newStatus) => handleStatusChange(ticketId, newStatus)}
                   onTicketClick={handleTicketClick}
                   onTicketClose={handleCloseTicket}
+                  selectionEnabled={selectionEnabled}
+                  selectedIds={selectedTicketIds}
+                  onToggleTicketSelected={toggleTicketSelection}
                 />
               </>
             )
@@ -513,6 +650,15 @@ function App() {
           }}
         />
 
+        <BulkUpdateDialog
+          open={bulkDialogOpen}
+          count={selectedTicketCount}
+          busy={bulkBusy}
+          assignees={assignees}
+          onClose={() => setBulkDialogOpen(false)}
+          onApply={applyBulkUpdate}
+        />
+
         <Snackbar
           open={!!toast}
           autoHideDuration={4000}
@@ -527,6 +673,134 @@ function App() {
         </Snackbar>
       </Box>
     </ThemeProvider>
+  );
+}
+
+function BulkSelectionBar({
+  selectionMode,
+  selectedCount,
+  visibleCount,
+  busy,
+  onStartSelection,
+  onSelectVisible,
+  onClear,
+  onOpenUpdate,
+}: {
+  selectionMode: boolean;
+  selectedCount: number;
+  visibleCount: number;
+  busy: boolean;
+  onStartSelection: () => void;
+  onSelectVisible: () => void;
+  onClear: () => void;
+  onOpenUpdate: () => void;
+}) {
+  return (
+    <Paper variant="outlined" sx={{ p: 1.25, mb: 2, position: "relative", overflow: "hidden" }}>
+      {busy && <LinearProgress sx={{ position: "absolute", top: 0, left: 0, right: 0 }} />}
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
+        <Box sx={{ flexGrow: 1 }}>
+          <Typography variant="subtitle2">Bulk update</Typography>
+          <Typography variant="caption" color="text.secondary">
+            {selectionMode ? `${selectedCount} selected on this page` : `${visibleCount} visible tickets`}
+          </Typography>
+        </Box>
+        {!selectionMode ? (
+          <Button size="small" variant="outlined" startIcon={<SelectAllIcon />} onClick={onStartSelection}>
+            Select tickets
+          </Button>
+        ) : (
+          <>
+            <Button size="small" startIcon={<SelectAllIcon />} disabled={busy || selectedCount === visibleCount} onClick={onSelectVisible}>
+              Select visible
+            </Button>
+            <Button size="small" startIcon={<ClearIcon />} disabled={busy} onClick={onClear}>
+              Clear
+            </Button>
+            <Button size="small" variant="contained" startIcon={<EditNoteIcon />} disabled={busy || selectedCount === 0} onClick={onOpenUpdate}>
+              Update fields
+            </Button>
+          </>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
+function BulkUpdateDialog({
+  open,
+  count,
+  busy,
+  assignees,
+  onClose,
+  onApply,
+}: {
+  open: boolean;
+  count: number;
+  busy: boolean;
+  assignees: api.Assignee[];
+  onClose: () => void;
+  onApply: (update: BulkTicketUpdate) => void;
+}) {
+  const [status, setStatus] = useState("");
+  const [priority, setPriority] = useState("");
+  const [assignee, setAssignee] = useState("");
+
+  useEffect(() => {
+    if (!open) {
+      setStatus("");
+      setPriority("");
+      setAssignee("");
+    }
+  }, [open]);
+
+  const hasChanges = !!status || !!priority || !!assignee;
+
+  const apply = () => {
+    const update: BulkTicketUpdate = {};
+    if (status) update.status = status;
+    if (priority) update.priority = priority;
+    if (assignee === "unassigned") update.assigneeId = null;
+    else if (assignee.startsWith("user:")) update.assigneeId = Number(assignee.slice(5));
+    onApply(update);
+  };
+
+  return (
+    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm">
+      <DialogTitle>Update {count} tickets</DialogTitle>
+      <DialogContent dividers>
+        {busy && <LinearProgress sx={{ mb: 2 }} />}
+        <Stack spacing={2} sx={{ mt: 0.5 }}>
+          <TextField select label="Status" value={status} onChange={(event) => setStatus(event.target.value)} fullWidth disabled={busy}>
+            <MenuItem value="">Leave unchanged</MenuItem>
+            {TICKET_STATUSES.map((s) => (
+              <MenuItem key={s} value={s}>{s}</MenuItem>
+            ))}
+          </TextField>
+          <TextField select label="Priority" value={priority} onChange={(event) => setPriority(event.target.value)} fullWidth disabled={busy}>
+            <MenuItem value="">Leave unchanged</MenuItem>
+            {TICKET_PRIORITIES.map((p) => (
+              <MenuItem key={p} value={p}>{p}</MenuItem>
+            ))}
+          </TextField>
+          <TextField select label="Assignee" value={assignee} onChange={(event) => setAssignee(event.target.value)} fullWidth disabled={busy}>
+            <MenuItem value="">Leave unchanged</MenuItem>
+            <MenuItem value="unassigned">Unassigned</MenuItem>
+            {assignees.map((a) => (
+              <MenuItem key={a.id} value={`user:${a.id}`}>
+                {a.displayName || a.username} · {a.role}
+              </MenuItem>
+            ))}
+          </TextField>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button variant="contained" startIcon={<EditNoteIcon />} onClick={apply} disabled={busy || !hasChanges || count === 0}>
+          {busy ? "Updating" : "Apply"}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 

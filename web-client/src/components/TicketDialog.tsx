@@ -26,7 +26,7 @@ import {
   FormControlLabel,
   CircularProgress,
 } from "@mui/material";
-import { Close } from "@mui/icons-material";
+import { Close, Save as SaveIcon, Undo as UndoIcon } from "@mui/icons-material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import EditIcon from "@mui/icons-material/Edit";
@@ -37,16 +37,18 @@ import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import SyncIcon from "@mui/icons-material/Sync";
 import EmailIcon from "@mui/icons-material/Email";
 import DownloadIcon from "@mui/icons-material/Download";
+import NoteAddIcon from "@mui/icons-material/NoteAdd";
 import { Ticket, Note } from "../interfaces";
-import EditableField from "./EditableField";
 import NotesSection from "./NotesSection";
 import RichTextEditor from "./RichTextEditor";
+import HtmlContent from "./HtmlContent";
 import RunScriptDialog from "./RunScriptDialog";
 import SlaChip from "./SlaChip";
 import SyncBadges from "./SyncBadges";
 import { SYNC_PROVIDER_LABELS } from "../syncBadges";
 import * as api from "../api/client";
 import { TICKET_STATUSES, TICKET_PRIORITIES, statusColor } from "../ticketVocab";
+import { htmlToPlainText, isRichTextEmpty, toEditorHtml } from "../html";
 
 interface TicketDialogProps {
   ticket: Ticket;
@@ -87,7 +89,6 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   const [company, setCompany] = useState<api.Company | null>(null);
   const [contacts, setContacts] = useState<api.Contact[]>([]);
   const [contactId, setContactId] = useState<number | "">("");
-  const [newContact, setNewContact] = useState("");
   const [timeMinutes, setTimeMinutes] = useState(0);
   const [timeEntries, setTimeEntries] = useState<any[]>([]);
   const [attachments, setAttachments] = useState<api.Attachment[]>([]);
@@ -238,10 +239,28 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     persist({ contactId: id === "" ? null : id });
   };
 
-  const addContactInline = async () => {
-    if (!company || !newContact.trim()) return;
-    const c = await api.createContact(company.id, { name: newContact.trim() }).catch(() => null);
-    setNewContact("");
+  const selectedContact = contacts.find((c) => c.id === contactId) ?? null;
+
+  // Unified pick-or-create for the contact field, mirroring pickCompany: a chosen
+  // Contact links it, a free-typed name matches an existing contact (case-
+  // insensitive) or creates one on the company, and null clears the selection.
+  const pickContactValue = async (value: api.Contact | string | null) => {
+    if (value == null) {
+      pickContact("");
+      return;
+    }
+    if (typeof value !== "string") {
+      pickContact(value.id);
+      return;
+    }
+    const name = value.trim();
+    if (!name || !company) return;
+    const existing = contacts.find((c) => c.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      pickContact(existing.id);
+      return;
+    }
+    const c = await api.createContact(company.id, { name }).catch(() => null);
     if (c) {
       const full = await api.getCompany(company.id).catch(() => null);
       setContacts(full?.contacts ?? [...contacts, c]);
@@ -294,23 +313,58 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
 
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
-  const persist = useCallback(async (data: Record<string, unknown>) => {
-    if (ticket.localId == null) return;
+  const persist = useCallback(async (data: Record<string, unknown>): Promise<boolean> => {
+    if (ticket.localId == null) return false;
     setSaveState("saving");
     try {
-      await api.updateTicket(ticket.localId, data);
+      const updated = await api.updateTicket(ticket.localId, data);
+      const returned = updated && typeof updated === "object" ? (updated as Record<string, unknown>) : data;
+      setFull((prev) => (prev ? { ...prev, ...returned } : prev));
       onUpdated?.(Object.keys(data)[0]);
       setSaveState("saved");
       // Fade the "Saved" confirmation back to idle so edits stay unobtrusive.
       setTimeout(() => setSaveState((s) => (s === "saved" ? "idle" : s)), 1500);
+      return true;
     } catch (err) {
       console.error("Failed to save ticket edit:", err);
       setSaveState("error");
+      return false;
     }
   }, [ticket.localId, onUpdated]);
 
-  const handleStatus = (s: string) => { setStatus(s); persist({ status: s }); };
-  const canEditNote = (note: Note) => note.authorId === currentUser.id.toString();
+  const handleStatus = async (s: string) => {
+    const previous = status;
+    setStatus(s);
+    const ok = await persist({ status: s });
+    if (!ok) setStatus(previous);
+  };
+  const handlePriority = async (p: string) => {
+    const previous = priority;
+    setPriority(p);
+    const ok = await persist({ priority: p });
+    if (!ok) setPriority(previous);
+  };
+  const canEditNote = (note: Note) => note.type === "note" && !!currentUser?.canWrite;
+
+  const createTicketNote = async (html: string) => {
+    if (ticket.localId == null) return;
+    await api.createNote(ticket.localId, {
+      content: htmlToPlainText(html) || "Note",
+      htmlContent: html,
+      noteType: "note",
+    });
+    onNotesChanged?.();
+  };
+
+  const editTicketNote = async (note: Note, html: string) => {
+    if (ticket.localId == null) return;
+    if (!canEditNote(note)) return;
+    await api.updateNote(ticket.localId, Number(note.id), {
+      content: htmlToPlainText(html) || "Note",
+      htmlContent: html,
+    });
+    onNotesChanged?.();
+  };
 
   const source = String(full?.source ?? "local");
   const externalProvider = full?.externalProvider as string | undefined;
@@ -385,19 +439,34 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
             <Card>
               <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
                 <Typography variant="subtitle2" color="text.secondary" gutterBottom>Description</Typography>
-                <EditableField label="" value={description} onSave={(v) => persist({ description: v })} />
+                <DescriptionEditor value={description} onSave={(v) => persist({ description: v })} />
               </CardContent>
             </Card>
 
             <Card sx={{ mt: 2 }}>
               <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>Activity & notes</Typography>
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={1}
+                  alignItems={{ xs: "stretch", sm: "center" }}
+                  justifyContent="space-between"
+                  sx={{ mb: 1.5 }}
+                >
+                  <Typography variant="subtitle2" color="text.secondary">Activity & notes</Typography>
+                  <EmailActionButton
+                    enabled={mailConfigured && ticket.localId != null}
+                    disabledReason={ticket.localId == null ? "Save the ticket before sending email." : "Email is not configured."}
+                    onClick={() => setCompose({})}
+                  />
+                </Stack>
+                {ticket.localId != null && <AddNoteComposer onSave={createTicketNote} />}
                 <NotesSection
                   notes={notes}
                   sortAscending={sortAscending}
                   toggleSort={() => setSortAscending((s) => !s)}
                   canEditNote={canEditNote}
                   currentUser={currentUser}
+                  onEditNote={editTicketNote}
                   onReply={mailConfigured ? (n) => setCompose({
                     to: n.emailFrom,
                     subject: /^re:/i.test(n.subject ?? "") ? n.subject : `Re: ${n.subject ?? title}`,
@@ -420,11 +489,20 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                       {TICKET_STATUSES.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
                     </TextField>
                     <TextField select label="Priority" size="small" fullWidth value={priority || "Medium"}
-                      onChange={(e) => { setPriority(e.target.value); persist({ priority: e.target.value }); }}>
+                      onChange={(e) => handlePriority(e.target.value)}>
                       {TICKET_PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
                     </TextField>
                   </Stack>
-                  <EditableField label="Title" value={title} onSave={(v) => { setTitle(v); persist({ title: v }); }} />
+                  <InlineEditableText
+                    label="Title"
+                    value={title}
+                    required
+                    onSave={async (v) => {
+                      const ok = await persist({ title: v });
+                      if (ok) setTitle(v);
+                      return ok;
+                    }}
+                  />
                   <Autocomplete
                     size="small"
                     freeSolo
@@ -436,19 +514,40 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                   />
                   {company && (
                     <>
-                      <TextField select label="Contact" size="small" fullWidth value={contactId}
-                        onChange={(e) => pickContact(e.target.value === "" ? "" : Number(e.target.value))}>
-                        <MenuItem value="">None</MenuItem>
-                        {contacts.map((c) => (
-                          <MenuItem key={c.id} value={c.id}>{c.name}{c.title ? ` · ${c.title}` : ""}</MenuItem>
-                        ))}
-                      </TextField>
-                      <Stack direction="row" spacing={1}>
-                        <TextField size="small" placeholder="New contact name" value={newContact}
-                          onChange={(e) => setNewContact(e.target.value)} sx={{ flexGrow: 1 }}
-                          onKeyDown={(e) => e.key === "Enter" && addContactInline()} />
-                        <Button size="small" variant="outlined" disabled={!newContact.trim()} onClick={addContactInline}>Add</Button>
-                      </Stack>
+                      <Autocomplete
+                        size="small"
+                        freeSolo
+                        options={contacts}
+                        value={selectedContact}
+                        getOptionLabel={(c) => (typeof c === "string" ? c : c.name)}
+                        isOptionEqualToValue={(o, v) => o.id === v.id}
+                        onChange={(_e, v) => pickContactValue(v)}
+                        renderOption={(props, c) => {
+                          const { key, ...rest } = props as { key?: React.Key };
+                          return (
+                            <li key={key ?? c.id} {...rest}>
+                              <Box>
+                                <Typography variant="body2">
+                                  {c.name}{c.isPrimary ? " · Primary" : ""}
+                                </Typography>
+                                {(c.title || c.email) && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {[c.title, c.email].filter(Boolean).join(" · ")}
+                                  </Typography>
+                                )}
+                              </Box>
+                            </li>
+                          );
+                        }}
+                        renderInput={(params) => (
+                          <TextField {...params} label="Contact" placeholder="Search or type to add…" />
+                        )}
+                      />
+                      {selectedContact && (selectedContact.email || selectedContact.phone) && (
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: -0.75, ml: 0.5 }}>
+                          {[selectedContact.email, selectedContact.phone].filter(Boolean).join(" · ")}
+                        </Typography>
+                      )}
                     </>
                   )}
                   <TextField select label="Assignee" size="small" fullWidth value={assigneeId}
@@ -473,6 +572,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                       return (
                         <TextField select label="Labels" size="small" fullWidth value=""
                           onChange={(e) => e.target.value !== "" && addLabel(Number(e.target.value))}
+                          InputLabelProps={{ shrink: true }}
                           SelectProps={{ displayEmpty: true, renderValue: () => (available.length ? "Add a label…" : "No labels available") }}>
                           {/* Hidden empty option anchors the value="" so MUI doesn't warn. */}
                           <MenuItem value="" sx={{ display: "none" }} />
@@ -593,11 +693,6 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                       <MetaRow icon={<SyncIcon fontSize="small" />} label="Synced from" value={`${externalProvider ?? source}${full?.externalId ? ` · ${full.externalId}` : ""}`} />
                     )}
                     {jobs.length > 0 && <MetaRow icon={<TerminalIcon fontSize="small" />} label="Script jobs" value={`${jobs.length} run`} />}
-                    {mailConfigured && (
-                      <Button size="small" startIcon={<EmailIcon />} onClick={() => setCompose({})} sx={{ alignSelf: "flex-start" }}>
-                        Send email
-                      </Button>
-                    )}
                   </Stack>
                 </CardContent>
               </Card>
@@ -607,9 +702,6 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
       </DialogContent>
 
       <DialogActions>
-        {mailConfigured && !hasIntegrations && (
-          <Button startIcon={<EmailIcon />} onClick={() => setCompose({})}>Email</Button>
-        )}
         <Box sx={{ flexGrow: 1 }} />
         <Button onClick={onClose}>Close</Button>
       </DialogActions>
@@ -1018,6 +1110,295 @@ function MetaRow({ icon, label, value }: { icon: React.ReactNode; label: string;
   );
 }
 
+function EmailActionButton({
+  enabled,
+  disabledReason,
+  onClick,
+}: {
+  enabled: boolean;
+  disabledReason: string;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip title={enabled ? "Send email from this ticket" : disabledReason}>
+      <span>
+        <Button
+          size="small"
+          variant={enabled ? "contained" : "outlined"}
+          startIcon={<EmailIcon />}
+          disabled={!enabled}
+          onClick={onClick}
+        >
+          Send email
+        </Button>
+      </span>
+    </Tooltip>
+  );
+}
+
+function InlineEditableText({
+  label,
+  value,
+  required = false,
+  onSave,
+}: {
+  label: string;
+  value: string;
+  required?: boolean;
+  onSave: (value: string) => Promise<boolean | void> | boolean | void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [editing, value]);
+
+  const trimmed = draft.trim();
+  const dirty = trimmed !== value;
+  const invalid = required && !trimmed;
+
+  const cancel = () => {
+    setDraft(value);
+    setError(null);
+    setEditing(false);
+  };
+
+  const save = async () => {
+    if (invalid || !dirty) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const ok = await onSave(trimmed);
+      if (ok === false) {
+        setError("Save failed.");
+        return;
+      }
+      setEditing(false);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <Stack spacing={0.75}>
+        <TextField
+          label={label}
+          size="small"
+          fullWidth
+          autoFocus
+          value={draft}
+          error={invalid || !!error}
+          helperText={error}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
+            if (event.key === "Enter") save();
+            if (event.key === "Escape") cancel();
+          }}
+        />
+        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+          <Tooltip title="Cancel edit">
+            <span>
+              <IconButton size="small" aria-label={`Cancel ${label.toLowerCase()} edit`} onClick={cancel} disabled={saving}>
+                <UndoIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Save field">
+            <span>
+              <IconButton
+                size="small"
+                color="primary"
+                aria-label={`Save ${label.toLowerCase()}`}
+                onClick={save}
+                disabled={saving || invalid || !dirty}
+              >
+                {saving ? <CircularProgress size={16} /> : <SaveIcon fontSize="small" />}
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Stack>
+      </Stack>
+    );
+  }
+
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.25 }}>
+        {label}
+      </Typography>
+      <Stack direction="row" spacing={1} alignItems="flex-start">
+        <Typography variant="body1" sx={{ flexGrow: 1, minWidth: 0, overflowWrap: "anywhere" }}>
+          {value || "—"}
+        </Typography>
+        <Tooltip title={`Edit ${label.toLowerCase()}`}>
+          <IconButton size="small" aria-label={`Edit ${label.toLowerCase()}`} onClick={() => setEditing(true)}>
+            <EditIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Stack>
+    </Box>
+  );
+}
+
+function DescriptionEditor({
+  value,
+  onSave,
+}: {
+  value: string;
+  onSave: (value: string) => boolean | void | Promise<boolean | void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(toEditorHtml(value));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editing) setDraft(toEditorHtml(value));
+  }, [editing, value]);
+
+  const current = toEditorHtml(value);
+  const dirty = draft !== current;
+
+  const startEdit = () => {
+    setDraft(toEditorHtml(value));
+    setError(null);
+    setEditing(true);
+  };
+
+  const cancel = () => {
+    setDraft(toEditorHtml(value));
+    setError(null);
+    setEditing(false);
+  };
+
+  const save = async () => {
+    if (!dirty) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const body = isRichTextEmpty(draft) ? "" : draft;
+      const ok = await onSave(body);
+      if (ok === false) {
+        setError("Save failed.");
+        return;
+      }
+      setEditing(false);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <Stack spacing={1.25}>
+        {error && <Alert severity="error">{error}</Alert>}
+        <RichTextEditor value={draft} onChange={setDraft} minHeight={190} />
+        <Stack direction="row" spacing={1} justifyContent="flex-end">
+          <Button size="small" startIcon={<UndoIcon />} onClick={cancel} disabled={saving}>
+            Cancel
+          </Button>
+          <Button size="small" variant="contained" startIcon={saving ? <CircularProgress size={14} /> : <SaveIcon />} disabled={saving || !dirty} onClick={save}>
+            {saving ? "Saving" : "Save"}
+          </Button>
+        </Stack>
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack direction="row" alignItems="flex-start" spacing={1}>
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+        <HtmlContent value={value} emptyText="No description." />
+      </Box>
+      <Tooltip title="Edit description">
+        <IconButton aria-label="Edit description" onClick={startEdit}>
+          <EditIcon />
+        </IconButton>
+      </Tooltip>
+    </Stack>
+  );
+}
+
+function AddNoteComposer({ onSave }: { onSave: (html: string) => Promise<void> }) {
+  const [expanded, setExpanded] = useState(false);
+  const [html, setHtml] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = () => {
+    setHtml("");
+    setError(null);
+    setExpanded(false);
+  };
+
+  const submit = async () => {
+    if (isRichTextEmpty(html)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(html);
+      reset();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!expanded) {
+    return (
+      <Button
+        size="small"
+        variant="outlined"
+        startIcon={<NoteAddIcon />}
+        onClick={() => setExpanded(true)}
+        sx={{ mb: 1.5 }}
+      >
+        Add note
+      </Button>
+    );
+  }
+
+  return (
+    <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 1.25, mb: 2, bgcolor: "background.paper" }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+        <Typography variant="subtitle2">New note</Typography>
+        <Tooltip title="Discard note">
+          <IconButton size="small" aria-label="Discard note" onClick={reset}>
+            <Close fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Stack>
+      <Stack spacing={1.25}>
+        {error && <Alert severity="error">{error}</Alert>}
+        <RichTextEditor value={html} onChange={setHtml} minHeight={150} />
+        <Stack direction="row" spacing={1} justifyContent="flex-end">
+          <Button size="small" startIcon={<UndoIcon />} onClick={reset}>
+            Cancel
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<NoteAddIcon />}
+            disabled={saving || isRichTextEmpty(html)}
+            onClick={submit}
+          >
+            {saving ? "Adding" : "Add note"}
+          </Button>
+        </Stack>
+      </Stack>
+    </Box>
+  );
+}
+
 /** Multi-recipient field: contact emails autocomplete + free-typed addresses. */
 function RecipientField({ label, value, onChange, options }: {
   label: string; value: string[]; onChange: (v: string[]) => void; options: string[];
@@ -1069,12 +1450,9 @@ function EmailDialog({
     api.getMySignature().then((s) => setHasSignature(!!s.signatureHtml)).catch(() => {});
   }, []);
 
-  // TipTap reports an empty doc as "<p></p>" — treat that as no body.
-  const isEmpty = (h: string) => h.replace(/<p>\s*<\/p>/g, "").replace(/<[^>]+>/g, "").trim() === "";
-
   const insertTemplate = (t: api.MailTemplate) => {
     if (t.subject) setSubj(t.subject);
-    setHtml((prev) => (prev && !isEmpty(prev) ? prev + t.bodyHtml : t.bodyHtml));
+    setHtml((prev) => (prev && !isRichTextEmpty(prev) ? prev + t.bodyHtml : t.bodyHtml));
   };
 
   const send = async () => {
@@ -1180,7 +1558,7 @@ function EmailDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
-        <Button variant="contained" disabled={to.length === 0 || !subj.trim() || isEmpty(html) || sending} onClick={send}>
+        <Button variant="contained" disabled={to.length === 0 || !subj.trim() || isRichTextEmpty(html) || sending} onClick={send}>
           {sending ? "Sending…" : "Send"}
         </Button>
       </DialogActions>
