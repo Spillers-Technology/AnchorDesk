@@ -20,16 +20,16 @@
 
 **AnchorDesk** is a self-hosted ticketing system where your **local PostgreSQL database is the source of truth**. External platforms — ConnectWise Manage, IMAP mailboxes, network probes, and RMM tools — feed the local store without becoming a hard dependency. Run it standalone, then connect the pieces of your stack you actually use.
 
-What sets it apart from a plain helpdesk: each ticket can become an operations cockpit. Link the **devices** involved, inspect their source and status, run Tactical RMM scripts, send email, and keep the resulting activity on the ticket. Core changes are recorded in an **append-only audit log** with actor and before/after data.
+What sets it apart from a plain helpdesk: each ticket can become an operations cockpit. Link the **devices** involved, inspect their source and status, run RMM scripts, send email, and keep the resulting activity on the ticket. Core changes are recorded in an **append-only audit log** with actor and before/after data.
 
-## What ships in v1.13.0
+## What ships in v1.14.0
 
-- **🗂️ A board built for live work** — **Closed is no longer a column.** Resolving a ticket plays a satisfying fall-off animation as the card drops off the board, and closed tickets are hidden from the default views (surface them anytime with the new *include closed* toggle). The Kanban now fills the page width — no horizontal scrolling.
-- **🔍 Advanced search with regex** — the filter panel is now an advanced search: match tickets with a case-insensitive **POSIX regular expression** across title, summary, description, company, ticket number, and priority — alongside the status / company / assignee / label facets. Invalid patterns are caught before they run.
-- **🪟 A denser ticket cockpit** — the ticket modal was tightened to stop wasting space: status + priority pair on one row and every field uses a consistent floating-label control, so the whole record reads at a glance.
-- **📥 Resilient email-to-ticket** — IMAP ingest is **idempotent on Message-ID**, so the same email delivered to two mailboxes (or replayed on a re-poll) can no longer spawn duplicate tickets or wedge a mailbox on a "poison" message. Connection failures now surface the real server reason instead of a bare `Command failed`.
+> ⚠️ **Alpha:** the two integrations below are built against the vendors' published APIs but **not yet tested against live tenants**. They're config-gated and off until you connect an account.
 
-**Also landed recently:** the **My Day** time day-spread (1.12), **company-scoped device linking** (1.12), built-in **personal access tokens** for MCP/agent auth (1.10), and a streamlined **navigation / IA** pass (1.11).
+- **🔌 NinjaOne & Datto RMM** — device sync **and** script execution join Tactical RMM behind a provider registry. NinjaOne runs saved automation scripts by id; Datto queues asynchronous **quick jobs** by component UID. Configure both in **Admin → Integrations**, with per-provider sync buttons and provenance badges.
+- **🔄 Two-way ticket sync (ConnectWise & Jira)** — external tickets stay visible as external, are editable here, and push status/priority/assignee + notes back out, badged by sync state. Parallel edits on **both** sides are caught and **held as a conflict** for you to resolve (keep local / keep remote) rather than silently overwritten. A new Jira Cloud provider joins the now-outbound ConnectWise sync.
+
+**Also landed recently:** the page-filling **Clear Deck** board with regex advanced search and a denser cockpit (1.13), the **My Day** time day-spread and company-scoped device linking (1.12), built-in **personal access tokens** for MCP/agent auth (1.10), and a streamlined **navigation / IA** pass (1.11).
 
 The core platform also includes:
 
@@ -126,8 +126,8 @@ Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxie
 
 For the complete Compose stack, run `docker compose up --build`. Tagged release images are published as:
 
-- `ghcr.io/spilloid/anchordesk-backend:1.13.0`
-- `ghcr.io/spilloid/anchordesk-web-client:1.13.0`
+- `ghcr.io/spillers-technology/anchordesk-backend:1.14.0`
+- `ghcr.io/spillers-technology/anchordesk-web-client:1.14.0`
 
 ## Configuration
 
