@@ -25,5 +25,7 @@ export function isPublic(url: string): boolean {
   const path = url.split('?')[0];
   if (path === '/ping') return true;
   if (path.startsWith('/probe/')) return true;
+  if (path === '/.well-known/oauth-protected-resource') return true;
+  if (path.startsWith('/.well-known/oauth-protected-resource/')) return true;
   return PUBLIC_AUTH.includes(path);
 }

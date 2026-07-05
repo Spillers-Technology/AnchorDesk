@@ -7,6 +7,11 @@ import { AuthSetting, User } from '@prisma/client';
 import { toPublic } from '../../../repositories/userRepository';
 import { toPublicSettings, toLoginOptions } from '../authConfig';
 import { isPublic } from '../../../middleware/publicPaths';
+import {
+  buildMcpProtectedResourceMetadata,
+  mcpProtectedResourceMetadataUrl,
+  mcpWwwAuthenticateHeader,
+} from '../mcpOAuth';
 
 const baseUser: User = {
   id: 1,
@@ -90,6 +95,8 @@ describe('auth public-path guard', () => {
   it('treats only the intended paths as public', () => {
     expect(isPublic('/ping')).toBe(true);
     expect(isPublic('/probe/devices')).toBe(true);
+    expect(isPublic('/.well-known/oauth-protected-resource')).toBe(true);
+    expect(isPublic('/.well-known/oauth-protected-resource/mcp/sse')).toBe(true);
     expect(isPublic('/auth/login')).toBe(true);
     expect(isPublic('/auth/oidc/callback?code=x')).toBe(true);
     expect(isPublic('/auth/mfa/verify')).toBe(true);
@@ -101,5 +108,28 @@ describe('auth public-path guard', () => {
     expect(isPublic('/auth/settings')).toBe(false);
     expect(isPublic('/auth/me')).toBe(false);
     expect(isPublic('/devices')).toBe(false);
+  });
+});
+
+describe('MCP OAuth metadata', () => {
+  it('advertises the MCP resource and configured OIDC authorization server', () => {
+    expect(buildMcpProtectedResourceMetadata(baseSettings)).toEqual({
+      resource: 'http://localhost:5173/mcp/sse',
+      authorization_servers: ['https://idp.example.com'],
+      bearer_methods_supported: ['header'],
+      scopes_supported: ['openid', 'profile', 'email'],
+      resource_name: 'AnchorDesk MCP',
+    });
+  });
+
+  it('points MCP 401 responses at the public metadata document', () => {
+    expect(mcpProtectedResourceMetadataUrl()).toBe('http://localhost:5173/.well-known/oauth-protected-resource');
+    expect(mcpWwwAuthenticateHeader()).toBe(
+      'Bearer realm="anchordesk-mcp", resource_metadata="http://localhost:5173/.well-known/oauth-protected-resource"',
+    );
+  });
+
+  it('refuses to advertise OAuth metadata without OIDC enabled', () => {
+    expect(() => buildMcpProtectedResourceMetadata({ ...baseSettings, oidcEnabled: false })).toThrow(/OIDC/);
   });
 });

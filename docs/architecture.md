@@ -125,6 +125,10 @@ from **Admin → Authentication** (env vars seed the initial config on first boo
   `openid-client`, plus bearer-token validation for API clients. Works with Azure AD
   (`https://login.microsoftonline.com/<tenant>/v2.0`), Authentik
   (`https://authentik.host/application/o/<slug>/`), Okta, or any OIDC IdP.
+- **MCP OAuth** — `/mcp/*` remains protected, but OAuth-capable clients can
+  discover `/.well-known/oauth-protected-resource`, sign in with the configured
+  OIDC issuer, and call MCP with the resulting bearer token. AnchorDesk is the
+  protected resource, not a separate OAuth authorization server.
 - **SAML 2.0** — `@node-saml/node-saml` SP: AuthnRequest redirect, signed-assertion
   validation at the ACS endpoint, and SP metadata at `/auth/saml/metadata`.
 
@@ -168,4 +172,5 @@ api/client.ts — all fetch() calls go through here
 | 1.12.0 | My Day time day-spread, company-scoped device linking | **Done** |
 | 1.13.0 | Page-fill board (no Closed column, fall-off close), regex advanced search, denser ticket cockpit, idempotent IMAP ingest | **Done** |
 | 1.14.0 | NinjaOne + Datto RMM (device sync + scripts) and two-way ticket sync for ConnectWise + Jira Cloud — both alpha | **Done** |
+| 1.15.0 | OIDC protected-resource metadata for OAuth MCP clients | **Done** |
 | Roadmap | Postgres LISTEN/NOTIFY for live probe status | Planned |

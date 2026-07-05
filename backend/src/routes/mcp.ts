@@ -1,4 +1,4 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
@@ -8,6 +8,8 @@ import * as audit from '../repositories/auditRepository';
 import * as ticketMail from '../services/mail/ticketMail';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
 import { actorFor } from '../middleware/auth';
+import { getAuthSettings } from '../services/auth/authConfig';
+import { buildMcpProtectedResourceMetadata } from '../services/auth/mcpOAuth';
 
 /**
  * Build a server bound to one connection's identity. `actor` is the audit string
@@ -180,6 +182,18 @@ function buildMcpServer(actor: string): McpServer {
 
 export async function mcpRoutes(app: FastifyInstance) {
   const transports = new Map<string, SSEServerTransport>();
+
+  async function sendProtectedResourceMetadata(_req: FastifyRequest, reply: FastifyReply) {
+    const settings = await getAuthSettings();
+    try {
+      return reply.send(buildMcpProtectedResourceMetadata(settings));
+    } catch (err) {
+      return reply.status(503).send({ error: (err as Error).message });
+    }
+  }
+
+  app.get('/.well-known/oauth-protected-resource', sendProtectedResourceMetadata);
+  app.get('/.well-known/oauth-protected-resource/*', sendProtectedResourceMetadata);
 
   // SSE endpoint — MCP client connects here to receive events. The auth hook has
   // already resolved req.user from the personal access token on the upgrade, so

@@ -26,6 +26,7 @@ import { getAuthSettings } from '../services/auth/authConfig';
 import * as userRepo from '../repositories/userRepository';
 import * as apiTokens from '../services/auth/apiTokens';
 import { isPublic } from './publicPaths';
+import { mcpWwwAuthenticateHeader } from '../services/auth/mcpOAuth';
 
 export { isPublic };
 
@@ -127,6 +128,17 @@ function toAuthUser(u: {
   };
 }
 
+function isMcpRequest(url: string): boolean {
+  return url.split('?')[0].startsWith('/mcp/');
+}
+
+function unauthorized(request: FastifyRequest, reply: FastifyReply) {
+  if (isMcpRequest(request.url)) {
+    reply.header('WWW-Authenticate', mcpWwwAuthenticateHeader());
+  }
+  return reply.status(401).send({ error: 'Authentication required' });
+}
+
 export async function registerAuthHook(server: FastifyInstance) {
   if (config.oidcDisabled) {
     server.log.warn('OIDC_DISABLED=true — all requests run as the dev admin user');
@@ -169,7 +181,7 @@ export async function registerAuthHook(server: FastifyInstance) {
           return enforceBaseline(request, reply);
         }
         // A malformed/revoked PAT is never a valid OIDC token — fail fast.
-        return reply.status(401).send({ error: 'Authentication required' });
+        return unauthorized(request, reply);
       }
 
       try {
@@ -185,7 +197,7 @@ export async function registerAuthHook(server: FastifyInstance) {
       }
     }
 
-    return reply.status(401).send({ error: 'Authentication required' });
+    return unauthorized(request, reply);
   });
 }
 
