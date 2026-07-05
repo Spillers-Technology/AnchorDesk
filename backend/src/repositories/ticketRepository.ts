@@ -1,4 +1,4 @@
-import { Prisma, TicketSource } from '@prisma/client';
+import { Prisma, TicketSource, SyncState } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
 import { publish } from '../services/realtime/eventBus';
@@ -386,6 +386,34 @@ export async function remove(id: number, actorSub: string) {
 
   publish({ type: 'ticket.deleted', ticketId: id, actor: actorSub });
   return ticket;
+}
+
+// ─── Two-way sync bookkeeping ──────────────────────────────────────────────────
+
+/** Mark an external ticket dirty (local change awaiting outbound push). No-op for
+ *  local tickets or ones already flagged as conflicted (a conflict must be
+ *  resolved before it can go back to pending). */
+export async function markPending(id: number): Promise<void> {
+  const t = await prisma.ticket.findUnique({ where: { id }, select: { externalId: true, syncState: true } });
+  if (!t?.externalId || t.syncState === 'conflict') return;
+  await prisma.ticket.update({ where: { id }, data: { syncState: 'pending' } });
+}
+
+/** Set the sync state and (optionally) the reconcile bookkeeping fields. */
+export async function setSyncState(
+  id: number,
+  state: SyncState,
+  extra?: { remoteHash?: string; remoteUpdatedAt?: Date | null; syncedAt?: Date }
+): Promise<void> {
+  await prisma.ticket.update({
+    where: { id },
+    data: {
+      syncState: state,
+      ...(extra?.remoteHash !== undefined ? { remoteHash: extra.remoteHash } : {}),
+      ...(extra?.remoteUpdatedAt !== undefined ? { remoteUpdatedAt: extra.remoteUpdatedAt } : {}),
+      ...(extra?.syncedAt !== undefined ? { syncedAt: extra.syncedAt } : {}),
+    },
+  });
 }
 
 /** Upsert a ticket from an external sync source. Returns {ticket, created}. */

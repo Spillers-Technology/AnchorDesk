@@ -215,6 +215,14 @@ model Ticket {
   // can exceed 100 chars — keep at 255 so long Message-IDs don't overflow.
   externalId       String?      @map("external_id") @db.VarChar(255)
   externalProvider String?      @map("external_provider") @db.VarChar(50)
+  // Two-way sync bookkeeping (external tickets only). syncState is null for local
+  // tickets. remoteHash fingerprints the remote field set at last reconcile so a
+  // later reconcile can tell whether the remote changed; remoteUpdatedAt mirrors
+  // the provider's own last-updated stamp. syncedAt is the last clean reconcile.
+  syncState        SyncState?   @map("sync_state")
+  syncedAt         DateTime?    @map("synced_at")
+  remoteHash       String?      @map("remote_hash") @db.VarChar(64)
+  remoteUpdatedAt  DateTime?    @map("remote_updated_at")
   // SLA tracking. The resolved policy (slaPolicyId) yields response/resolution
   // deadlines, recomputed when priority or company changes. firstRespondedAt is
   // stamped on the first outbound tech note/email and freezes the response clock.
@@ -566,8 +574,21 @@ enum AuthProvider {
 enum TicketSource {
   local
   connectwise
+  jira
   imap
   api
+}
+
+// Per-ticket two-way sync state (external tickets only; null for local).
+//  synced   — local and remote agree as of syncedAt
+//  pending  — local changed, awaiting outbound push
+//  conflict — both sides changed since syncedAt; auto-sync is held for manual resolve
+//  error    — last sync attempt failed
+enum SyncState {
+  synced
+  pending
+  conflict
+  error
 }
 
 enum NoteType {
@@ -588,6 +609,7 @@ enum AuditAction {
 
 enum ProviderType {
   connectwise
+  jira
   imap
   tactical_rmm
   ninjaone

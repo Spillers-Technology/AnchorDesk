@@ -67,7 +67,7 @@ export default function SyncView({ onTicketsChanged }: Props) {
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newType, setNewType] = useState<"connectwise">("connectwise");
+  const [newType, setNewType] = useState<"connectwise" | "jira">("connectwise");
   const [newBoard, setNewBoard] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -128,7 +128,12 @@ export default function SyncView({ onTicketsChanged }: Props) {
       await api.createSyncProvider({
         name: newName.trim(),
         type: newType,
-        config: newBoard.trim() ? { board: newBoard.trim() } : {},
+        // The optional field is the CW board name, or a Jira JQL override.
+        config: newBoard.trim()
+          ? newType === "jira"
+            ? { jql: newBoard.trim() }
+            : { board: newBoard.trim() }
+          : {},
       });
       setNewName("");
       setNewBoard("");
@@ -380,12 +385,13 @@ export default function SyncView({ onTicketsChanged }: Props) {
               select
               label="Provider type"
               value={newType}
-              onChange={(e) => setNewType(e.target.value as "connectwise")}
+              onChange={(e) => setNewType(e.target.value as "connectwise" | "jira")}
             >
               <MenuItem value="connectwise">ConnectWise Manage</MenuItem>
+              <MenuItem value="jira">Jira Cloud</MenuItem>
             </TextField>
             <TextField
-              label="Board name (optional)"
+              label={newType === "jira" ? "JQL filter (optional)" : "Board name (optional)"}
               value={newBoard}
               onChange={(e) => setNewBoard(e.target.value)}
               helperText="Leave blank to use the adapter default. Credentials come from Admin → Integrations."

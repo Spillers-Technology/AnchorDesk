@@ -44,6 +44,7 @@ import RichTextEditor from "./RichTextEditor";
 import RunScriptDialog from "./RunScriptDialog";
 import SlaChip from "./SlaChip";
 import SyncBadges from "./SyncBadges";
+import { SYNC_PROVIDER_LABELS } from "../syncBadges";
 import * as api from "../api/client";
 import { TICKET_STATUSES, TICKET_PRIORITIES, statusColor } from "../ticketVocab";
 
@@ -104,6 +105,37 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     if (ticket.localId == null) return;
     api.getTicket(ticket.localId).then((t) => setFull(t as any)).catch(() => {});
   }, [ticket.localId]);
+
+  // Two-way sync: reconcile now, or resolve a held conflict by picking a side.
+  const [syncing, setSyncing] = useState(false);
+  const doSyncNow = async () => {
+    if (ticket.localId == null) return;
+    setSyncing(true);
+    try {
+      await api.syncTicket(ticket.localId);
+      reloadFull();
+      onNotesChanged?.();
+      onUpdated?.("sync");
+    } catch (e) {
+      /* surfaced via the badge on next reload */
+    } finally {
+      setSyncing(false);
+    }
+  };
+  const doResolveConflict = async (resolution: "local" | "remote") => {
+    if (ticket.localId == null) return;
+    setSyncing(true);
+    try {
+      await api.resolveTicketConflict(ticket.localId, resolution);
+      reloadFull();
+      onNotesChanged?.();
+      onUpdated?.("sync");
+    } catch (e) {
+      /* surfaced via the badge on next reload */
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const addLabel = async (labelId: number) => {
     if (ticket.localId == null) return;
@@ -301,6 +333,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                   source,
                   externalProvider,
                   externalId: full?.externalId ? String(full.externalId) : ticket.externalId,
+                  syncState: full?.syncState ?? undefined,
                 }}
                 header
               />
@@ -337,6 +370,15 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
       </Box>
 
       <DialogContent dividers sx={{ bgcolor: "background.default", p: { xs: 1.5, md: 2 } }}>
+        {source !== "local" && full?.externalId && (
+          <SyncStatusBar
+            state={full?.syncState as string | undefined}
+            provider={externalProvider ?? source}
+            syncing={syncing}
+            onSyncNow={doSyncNow}
+            onResolve={doResolveConflict}
+          />
+        )}
         <Grid container spacing={2}>
           {/* Main column */}
           <Grid item xs={12} md={7}>
@@ -596,6 +638,76 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     </Dialog>
   );
 };
+
+/**
+ * Two-way sync status bar for an external ticket. Shows the current state and,
+ * on a held conflict, the "keep local / keep remote" resolution. "Sync now"
+ * reconciles on demand. Local edits already push automatically on save.
+ */
+function SyncStatusBar({
+  state,
+  provider,
+  syncing,
+  onSyncNow,
+  onResolve,
+}: {
+  state?: string;
+  provider: string;
+  syncing: boolean;
+  onSyncNow: () => void;
+  onResolve: (r: "local" | "remote") => void;
+}) {
+  const providerLabel = SYNC_PROVIDER_LABELS[provider] ?? provider;
+
+  if (state === "conflict") {
+    return (
+      <Alert
+        severity="error"
+        sx={{ mb: 2 }}
+        action={
+          <Stack direction="row" spacing={1}>
+            <Button color="inherit" size="small" disabled={syncing} onClick={() => onResolve("local")}>
+              Keep local
+            </Button>
+            <Button color="inherit" size="small" disabled={syncing} onClick={() => onResolve("remote")}>
+              Keep {providerLabel}
+            </Button>
+          </Stack>
+        }
+      >
+        This ticket changed here and in {providerLabel} — auto-sync is paused. Choose which version wins.
+      </Alert>
+    );
+  }
+
+  const severity = state === "error" ? "warning" : state === "pending" ? "info" : "success";
+  const text =
+    state === "error"
+      ? `Last sync with ${providerLabel} failed.`
+      : state === "pending"
+      ? `Local changes are queued to push to ${providerLabel}.`
+      : `In sync with ${providerLabel}.`;
+
+  return (
+    <Alert
+      severity={severity}
+      sx={{ mb: 2 }}
+      action={
+        <Button
+          color="inherit"
+          size="small"
+          disabled={syncing}
+          startIcon={syncing ? <CircularProgress size={14} /> : undefined}
+          onClick={onSyncNow}
+        >
+          Sync now
+        </Button>
+      }
+    >
+      {text}
+    </Alert>
+  );
+}
 
 const RMM_SOURCES = ["tactical_rmm", "ninjaone", "datto_rmm"];
 function isRmmSource(s?: string): boolean {

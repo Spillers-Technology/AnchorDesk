@@ -17,6 +17,7 @@ import { config } from '../config/config';
 export type IntegrationKey =
   | 'smtp'
   | 'connectwise'
+  | 'jira'
   | 'tactical'
   | 'ninjaone'
   | 'datto'
@@ -41,6 +42,13 @@ export interface ConnectwiseConfig {
   publicKey: string;
   privateKey: string;
   clientId: string;
+}
+export interface JiraConfig {
+  baseUrl: string;
+  email: string;
+  apiToken: string;
+  projectKey: string;
+  jql: string;
 }
 export interface TacticalConfig {
   apiUrl: string;
@@ -88,6 +96,7 @@ function normalizeTicketDigits(value: unknown): number {
 const SECRET_FIELDS: Record<IntegrationKey, string[]> = {
   smtp: ['pass'],
   connectwise: ['privateKey', 'clientId'],
+  jira: ['apiToken'],
   tactical: ['apiKey'],
   ninjaone: ['clientSecret'],
   datto: ['apiSecretKey'],
@@ -102,6 +111,8 @@ function envDefaults(key: IntegrationKey): Record<string, unknown> {
       return { ...config.smtp };
     case 'connectwise':
       return { ...config.cwm };
+    case 'jira':
+      return { ...config.jira };
     case 'tactical':
       return { apiUrl: config.trmm.apiUrl, apiKey: config.trmm.apiKey };
     case 'ninjaone':
@@ -129,7 +140,7 @@ async function load(key: IntegrationKey): Promise<Record<string, unknown>> {
 
 /** Seed any missing integration rows from env (first boot). */
 export async function seedSettings(): Promise<void> {
-  for (const key of ['smtp', 'connectwise', 'tactical', 'ninjaone', 'datto', 'storage', 'tickets', 'ui'] as IntegrationKey[]) {
+  for (const key of ['smtp', 'connectwise', 'jira', 'tactical', 'ninjaone', 'datto', 'storage', 'tickets', 'ui'] as IntegrationKey[]) {
     const existing = await prisma.setting.findUnique({ where: { key } });
     if (!existing) {
       await prisma.setting.create({ data: { key, value: envDefaults(key) as object } });
@@ -154,6 +165,14 @@ export async function applyRuntimeConfig(): Promise<void> {
   });
   const t = await getTactical();
   Object.assign(config.trmm, { apiUrl: t.apiUrl.replace(/\/$/, ''), apiKey: t.apiKey });
+  const j = await getJira();
+  Object.assign(config.jira, {
+    baseUrl: j.baseUrl.replace(/\/$/, ''),
+    email: j.email,
+    apiToken: j.apiToken,
+    projectKey: j.projectKey,
+    jql: j.jql,
+  });
   const n = await getNinja();
   Object.assign(config.ninja, {
     apiUrl: n.apiUrl.replace(/\/$/, ''),
@@ -192,6 +211,17 @@ export async function getConnectwise(): Promise<ConnectwiseConfig> {
     publicKey: String(v.publicKey ?? ''),
     privateKey: String(v.privateKey ?? ''),
     clientId: String(v.clientId ?? ''),
+  };
+}
+
+export async function getJira(): Promise<JiraConfig> {
+  const v = await load('jira');
+  return {
+    baseUrl: String(v.baseUrl ?? ''),
+    email: String(v.email ?? ''),
+    apiToken: String(v.apiToken ?? ''),
+    projectKey: String(v.projectKey ?? ''),
+    jql: String(v.jql ?? ''),
   };
 }
 
@@ -263,8 +293,14 @@ export async function updateSetting(
     create: { key, value: next as object },
   });
   cache.set(key, next);
-  // CW/RMM services read the in-memory config; refresh it on edit.
-  if (key === 'connectwise' || key === 'tactical' || key === 'ninjaone' || key === 'datto') {
+  // CW/Jira/RMM services read the in-memory config; refresh it on edit.
+  if (
+    key === 'connectwise' ||
+    key === 'jira' ||
+    key === 'tactical' ||
+    key === 'ninjaone' ||
+    key === 'datto'
+  ) {
     await applyRuntimeConfig();
   }
   return next;

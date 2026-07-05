@@ -268,6 +268,7 @@ export interface StorageView {
 export interface IntegrationsView {
   smtp: { host?: string; port?: number; secure?: boolean; user?: string; from?: string; hasPass?: boolean };
   connectwise: { server?: string; company?: string; publicKey?: string; hasPrivateKey?: boolean; hasClientId?: boolean };
+  jira: { baseUrl?: string; email?: string; projectKey?: string; jql?: string; hasApiToken?: boolean };
   tactical: { apiUrl?: string; hasApiKey?: boolean };
   ninjaone: { apiUrl?: string; clientId?: string; scope?: string; hasClientSecret?: boolean };
   datto: { apiUrl?: string; apiKey?: string; hasApiSecretKey?: boolean };
@@ -280,7 +281,7 @@ export function getIntegrations() {
 }
 
 export function updateIntegration(
-  key: "smtp" | "connectwise" | "tactical" | "ninjaone" | "datto" | "storage" | "tickets",
+  key: "smtp" | "connectwise" | "jira" | "tactical" | "ninjaone" | "datto" | "storage" | "tickets",
   data: Record<string, unknown>
 ) {
   return request<Record<string, unknown>>(`/integrations/${key}`, { method: "PATCH", body: JSON.stringify(data) });
@@ -521,13 +522,34 @@ export function listSyncProviders() {
 
 export function createSyncProvider(data: {
   name: string;
-  type: "connectwise";
+  type: "connectwise" | "jira";
   enabled?: boolean;
   config?: Record<string, unknown>;
 }) {
   return request<SyncProvider>('/sync/providers', {
     method: 'POST',
     body: JSON.stringify(data),
+  });
+}
+
+// ─── Two-way ticket sync ───────────────────────────────────────────────────────
+
+export interface ReconcileResult {
+  ticketId: number;
+  outcome: "synced" | "pushed" | "pulled" | "conflict" | "error" | "skipped";
+  message?: string;
+}
+
+/** Reconcile an external ticket with its source now (pull / push / flag conflict). */
+export function syncTicket(id: number) {
+  return request<ReconcileResult>(`/tickets/${id}/sync`, { method: "POST" });
+}
+
+/** Resolve a held conflict by choosing the winning side. */
+export function resolveTicketConflict(id: number, resolution: "local" | "remote") {
+  return request<ReconcileResult>(`/tickets/${id}/resolve-conflict`, {
+    method: "POST",
+    body: JSON.stringify({ resolution }),
   });
 }
 

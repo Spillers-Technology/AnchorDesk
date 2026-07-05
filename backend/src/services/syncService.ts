@@ -8,11 +8,13 @@
  * TicketProvider implementation based on the sync_providers.type column.
  */
 
+import { TicketSource } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import { TicketProvider } from '../providers/TicketProvider';
-import { ConnectWiseProvider } from '../providers/ConnectWiseProvider';
+import { createTicketProvider } from '../providers/ticketProviderFactory';
 import * as ticketRepo from '../repositories/ticketRepository';
 import * as noteRepo from '../repositories/noteRepository';
+import * as twoWaySync from './twoWaySync';
 
 export interface SyncResult {
   providerId: number;
@@ -22,22 +24,6 @@ export interface SyncResult {
   notesUpserted: number;
   errors: string[];
   durationMs: number;
-}
-
-/** Factory: returns the correct TicketProvider for a sync_providers row. */
-function createProvider(type: string, _config: Record<string, unknown>): TicketProvider {
-  switch (type) {
-    case 'connectwise':
-      // Board name can be overridden in config
-      return new ConnectWiseProvider((_config.board as string) ?? undefined);
-
-    // Phase 4: ImapProvider
-    // case 'imap':
-    //   return new ImapProvider(config);
-
-    default:
-      throw new Error(`Unknown provider type: ${type}`);
-  }
 }
 
 /** Run a full sync for a single provider. Returns a result summary. */
@@ -60,7 +46,10 @@ export async function runSync(providerRow: {
   };
 
   const config = (providerRow.config ?? {}) as Record<string, unknown>;
-  const provider = createProvider(providerRow.type, config);
+  const provider = createTicketProvider(providerRow.type, config);
+  // Two-way providers reconcile existing tickets (conflict-aware) instead of the
+  // blind inbound overwrite used for read-only sources.
+  const twoWay = provider.canWriteBack === true;
 
   // Incremental: only fetch records updated since the last sync
   const since = providerRow.lastSyncedAt ?? undefined;
@@ -75,8 +64,59 @@ export async function runSync(providerRow: {
     return result;
   }
 
+  const source = provider.name as TicketSource;
+
   for (const ext of externalTickets) {
     try {
+      // Two-way providers: create-if-missing, then reconcile (conflict-aware).
+      // A blind overwrite would clobber unsynced local edits, so existing tickets
+      // never go through upsertExternal here.
+      if (twoWay) {
+        const existing = await prisma.ticket.findUnique({
+          where: { externalId_externalProvider: { externalId: ext.externalId, externalProvider: provider.name } },
+        });
+        let localId: number;
+        if (existing) {
+          localId = existing.id;
+        } else {
+          const t = await ticketRepo.create(
+            {
+              title: ext.title,
+              summary: ext.summary,
+              description: ext.description,
+              status: ext.status,
+              priority: ext.priority,
+              companyName: ext.companyName,
+              assignee: ext.assignee,
+              ticketNumber: ext.ticketNumber,
+              source,
+              externalId: ext.externalId,
+              externalProvider: provider.name,
+            },
+            'system'
+          );
+          localId = t.id;
+          result.ticketsCreated++;
+        }
+
+        const r = await twoWaySync.reconcileTicket(localId, { remote: ext, actor: 'system' });
+        if (r.outcome === 'pulled' || r.outcome === 'pushed') result.ticketsUpdated++;
+        if (r.outcome === 'conflict') {
+          result.errors.push(`Ticket ${ext.externalId}: conflict held for manual resolution`);
+        }
+
+        await prisma.syncLog.create({
+          data: {
+            providerId: providerRow.id,
+            externalId: ext.externalId,
+            direction: r.outcome === 'pushed' ? 'outbound' : 'inbound',
+            status: r.outcome === 'error' ? 'error' : r.outcome === 'conflict' ? 'skipped' : 'success',
+            message: r.message,
+          },
+        });
+        continue;
+      }
+
       const { created } = await ticketRepo.upsertExternal(
         ext.externalId,
         provider.name,
@@ -89,7 +129,7 @@ export async function runSync(providerRow: {
           companyName: ext.companyName,
           assignee: ext.assignee,
           ticketNumber: ext.ticketNumber,
-          source: 'connectwise',
+          source,
         },
         'system'
       );
