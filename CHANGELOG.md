@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.15.0 — 2026-07-05 — Connected Domains (minor)
+
+### Added
+
+- **OAuth-ready MCP for hosted custom domains.** AnchorDesk now publishes OAuth protected-resource metadata for `/mcp/sse`, adds MCP `WWW-Authenticate` discovery hints, and lets OAuth clients such as ChatGPT authenticate through the configured OIDC provider while PAT-based MCP clients keep working.
+- **ChatGPT connector setup docs.** A new MCP auth guide covers callback URL setup, scopes, OAuth client fields, easier IdP reuse, and troubleshooting for hosted instances.
+
+### Changed
+
+- The production web proxy forwards `/.well-known/oauth-protected-resource` to the backend so custom-domain installs return JSON discovery instead of the app shell.
+
+### Notes
+
+- No schema change. OIDC must be enabled for OAuth clients; personal access tokens remain supported for clients that can send bearer headers.
+
+See [RELEASE_NOTES_v1.15.0.md](RELEASE_NOTES_v1.15.0.md) for the full release notes.
+
 ## 1.14.0 — 2026-07-05 — Open Channels (minor)
 
 > **Alpha:** the two integrations below are written against the vendors' published

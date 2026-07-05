@@ -22,14 +22,12 @@
 
 What sets it apart from a plain helpdesk: each ticket can become an operations cockpit. Link the **devices** involved, inspect their source and status, run RMM scripts, send email, and keep the resulting activity on the ticket. Core changes are recorded in an **append-only audit log** with actor and before/after data.
 
-## What ships in v1.14.0
+## What ships in v1.15.0
 
-> ⚠️ **Alpha:** the two integrations below are built against the vendors' published APIs but **not yet tested against live tenants**. They're config-gated and off until you connect an account.
+- **🤖 ChatGPT-ready MCP on hosted domains** — custom-domain AnchorDesk instances can now expose ticketing tools to OAuth clients such as ChatGPT. The MCP server publishes protected-resource metadata, trusts your configured OIDC provider, and keeps personal access tokens available for header-capable clients.
+- **🧭 Connector setup guide** — new MCP auth docs walk through the easier IdP path, callback URL setup, scopes, OAuth fields, and troubleshooting.
 
-- **🔌 NinjaOne & Datto RMM** — device sync **and** script execution join Tactical RMM behind a provider registry. NinjaOne runs saved automation scripts by id; Datto queues asynchronous **quick jobs** by component UID. Configure both in **Admin → Integrations**, with per-provider sync buttons and provenance badges.
-- **🔄 Two-way ticket sync (ConnectWise & Jira)** — external tickets stay visible as external, are editable here, and push status/priority/assignee + notes back out, badged by sync state. Parallel edits on **both** sides are caught and **held as a conflict** for you to resolve (keep local / keep remote) rather than silently overwritten. A new Jira Cloud provider joins the now-outbound ConnectWise sync.
-
-**Also landed recently:** the page-filling **Clear Deck** board with regex advanced search and a denser cockpit (1.13), the **My Day** time day-spread and company-scoped device linking (1.12), built-in **personal access tokens** for MCP/agent auth (1.10), and a streamlined **navigation / IA** pass (1.11).
+**Also landed recently:** NinjaOne and Datto RMM plus two-way ConnectWise/Jira ticket sync (1.14), the page-filling **Clear Deck** board with regex advanced search and a denser cockpit (1.13), the **My Day** time day-spread and company-scoped device linking (1.12), and built-in **personal access tokens** for MCP/agent auth (1.10).
 
 The core platform also includes:
 
@@ -126,8 +124,8 @@ Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxie
 
 For the complete Compose stack, run `docker compose up --build`. Tagged release images are published as:
 
-- `ghcr.io/spillers-technology/anchordesk-backend:1.14.0`
-- `ghcr.io/spillers-technology/anchordesk-web-client:1.14.0`
+- `ghcr.io/spillers-technology/anchordesk-backend:1.15.0`
+- `ghcr.io/spillers-technology/anchordesk-web-client:1.15.0`
 
 ## Configuration
 
