@@ -15,7 +15,7 @@ interface IdParam {
   id: string;
 }
 
-const INTEGRATION_KEYS: settings.IntegrationKey[] = ['smtp', 'connectwise', 'tactical', 'storage', 'tickets'];
+const INTEGRATION_KEYS: settings.IntegrationKey[] = ['smtp', 'connectwise', 'tactical', 'ninjaone', 'datto', 'storage', 'tickets'];
 const isKey = (k: string): k is settings.IntegrationKey => INTEGRATION_KEYS.includes(k as settings.IntegrationKey);
 
 export async function integrationRoutes(server: FastifyInstance) {

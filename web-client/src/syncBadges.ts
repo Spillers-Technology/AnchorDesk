@@ -7,6 +7,8 @@ export const SYNC_PROVIDER_LABELS: Record<string, string> = {
   connectwise: "ConnectWise",
   imap: "IMAP",
   tactical_rmm: "Tactical",
+  ninjaone: "NinjaOne",
+  datto_rmm: "Datto RMM",
   meshcentral: "MeshCentral",
   netviz: "NetViz",
   api: "API",

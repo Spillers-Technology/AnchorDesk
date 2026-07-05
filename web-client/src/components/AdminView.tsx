@@ -510,11 +510,13 @@ function ProbesPanel() {
 function DevicesPanel() {
   const { data, loading, error, reload } = useAsync(() => api.listDevices({ pageSize: 200 }) as Promise<any[]>);
   const [companies, setCompanies] = useState<api.Company[]>([]);
-  const [syncing, setSyncing] = useState(false);
+  const [rmms, setRmms] = useState<api.RmmProviderStatus[]>([]);
+  const [syncing, setSyncing] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
   useEffect(() => {
     api.listCompanies().then(setCompanies).catch(() => setCompanies([]));
+    api.getRmmStatus().then((s) => setRmms(s.providers)).catch(() => setRmms([]));
   }, []);
 
   // Resolve an Autocomplete value (known Company or free-typed string) into the
@@ -529,30 +531,41 @@ function DevicesPanel() {
     return { companyId: value.id, companyName: value.name };
   };
 
-  const syncTactical = async () => {
-    setSyncing(true);
+  const syncFrom = async (provider: string) => {
+    setSyncing(provider);
     setSyncMsg(null);
     try {
-      const r = await api.syncDevices();
+      const r = await api.syncDevices(provider);
       setSyncMsg(`Synced from ${r.provider}: ${r.created} created, ${r.updated} updated` + (r.errors?.length ? `, ${r.errors.length} errors` : ""));
       reload();
     } catch (e) {
       setSyncMsg((e as Error).message);
     } finally {
-      setSyncing(false);
+      setSyncing(null);
     }
   };
 
   if (loading) return <CircularProgress />;
   if (error) return <Alert severity="error">{error}</Alert>;
 
+  const configuredRmms = rmms.filter((r) => r.configured);
+
   return (
     <Stack spacing={2}>
       <Box>
-        <Button variant="contained" onClick={syncTactical} disabled={syncing}
-          startIcon={syncing ? <CircularProgress size={16} /> : undefined}>
-          Sync from Tactical RMM
-        </Button>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {configuredRmms.map((r) => (
+            <Button key={r.key} variant="contained" onClick={() => syncFrom(r.key)} disabled={!!syncing}
+              startIcon={syncing === r.key ? <CircularProgress size={16} /> : undefined}>
+              Sync from {r.label}
+            </Button>
+          ))}
+          {configuredRmms.length === 0 && (
+            <Typography variant="body2" color="text.secondary">
+              No RMM configured — add one under Admin → Integrations to sync devices.
+            </Typography>
+          )}
+        </Stack>
         {syncMsg && <Alert severity="info" sx={{ mt: 1 }}>{syncMsg}</Alert>}
       </Box>
       <Paper variant="outlined">
@@ -598,7 +611,7 @@ function DevicesPanel() {
             </TableRow>
           ))}
           {(data ?? []).length === 0 && (
-            <TableRow><TableCell colSpan={8}>No devices yet — register a probe, sync from Tactical, or add one manually.</TableCell></TableRow>
+            <TableRow><TableCell colSpan={8}>No devices yet — register a probe, sync from an RMM, or add one manually.</TableCell></TableRow>
           )}
         </TableBody>
       </Table>
@@ -611,7 +624,7 @@ function IntegrationsPanel() {
   const { data, loading, error, reload } = useAsync(() => api.getIntegrations());
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const save = async (key: "smtp" | "connectwise" | "tactical" | "storage" | "tickets", patch: Record<string, unknown>) => {
+  const save = async (key: "smtp" | "connectwise" | "tactical" | "ninjaone" | "datto" | "storage" | "tickets", patch: Record<string, unknown>) => {
     setMsg(null);
     try {
       await api.updateIntegration(key, patch);
@@ -675,6 +688,29 @@ function IntegrationsPanel() {
           { k: "apiKey", label: "API key", secret: true, has: data.tactical.hasApiKey },
         ]}
         onSave={(patch) => save("tactical", patch)}
+      />
+
+      <IntegrationCard
+        title="NinjaOne RMM"
+        configured={!!data.ninjaone.apiUrl && !!data.ninjaone.clientId}
+        fields={[
+          { k: "apiUrl", label: "API URL (regional host, e.g. https://app.ninjarmm.com)", value: data.ninjaone.apiUrl },
+          { k: "clientId", label: "Client ID", value: data.ninjaone.clientId },
+          { k: "clientSecret", label: "Client secret", secret: true, has: data.ninjaone.hasClientSecret },
+          { k: "scope", label: "Scope (e.g. monitoring management)", value: data.ninjaone.scope },
+        ]}
+        onSave={(patch) => save("ninjaone", patch)}
+      />
+
+      <IntegrationCard
+        title="Datto RMM"
+        configured={!!data.datto.apiUrl && !!data.datto.apiKey}
+        fields={[
+          { k: "apiUrl", label: "API URL (platform host, e.g. https://merlot-api.centrastage.net)", value: data.datto.apiUrl },
+          { k: "apiKey", label: "API key", value: data.datto.apiKey },
+          { k: "apiSecretKey", label: "API secret key", secret: true, has: data.datto.hasApiSecretKey },
+        ]}
+        onSave={(patch) => save("datto", patch)}
       />
 
       <IntegrationCard
