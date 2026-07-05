@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.16.0 — 2026-07-05 — Trust Anchor (minor)
+
+### Added
+
+- **Built-in OAuth 2.0 authorization server for MCP.** AnchorDesk is now its own authorization server, so OAuth clients such as ChatGPT's custom connector complete the full authorization-code + PKCE flow against AnchorDesk itself — no external IdP required. It implements Dynamic Client Registration (RFC 7591) at `/oauth/register`, a session-gated consent screen at `/oauth/authorize` (an unauthenticated user is bounced to the AnchorDesk login and returned afterward), token exchange at `/oauth/token`, and authorization-server metadata at `/.well-known/oauth-authorization-server` (RFC 8414). The issued access token is a freshly minted personal access token scoped to the approving user, so RBAC and audit attribution are unchanged and the grant is revocable from **Account → API tokens**.
+
+### Changed
+
+- `/.well-known/oauth-protected-resource` now advertises **AnchorDesk itself** as the authorization server rather than the configured OIDC issuer. This is what lets ChatGPT register dynamically — a step most external IdPs don't allow — and keeps the resource and authorization servers on one origin, which is what MCP connectors expect. Delegating to an OIDC provider (the 1.15.0 approach) is no longer required or used for MCP.
+- The production web proxy (nginx) and the Vite dev proxy now forward `/oauth/*` and `/.well-known/oauth-authorization-server` to the backend.
+
+### Notes
+
+- Schema change: two additive tables (`oauth_clients`, `oauth_auth_codes`). Run `prisma db push` (or `make db-push`) on upgrade.
+- To connect ChatGPT, point its custom connector at `https://<your-app-base-url>/mcp/sse` — discovery, registration, and consent are automatic. OIDC no longer needs to be enabled for the MCP OAuth flow.
+
+See [RELEASE_NOTES_v1.16.0.md](RELEASE_NOTES_v1.16.0.md) for the full release notes.
+
 ## 1.15.0 — 2026-07-05 — Connected Domains (minor)
 
 ### Added
