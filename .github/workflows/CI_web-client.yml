@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    runs-on: self-hosted
+    runs-on: arc-org
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
