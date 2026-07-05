@@ -32,7 +32,7 @@ spec:
 
       containers:
         - name: web-client
-          image: ghcr.io/spilloid/anchordesk-web-client:latest
+          image: ghcr.io/spillers-technology/anchordesk-web-client:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 80

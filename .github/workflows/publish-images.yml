@@ -14,7 +14,7 @@ on:
 env:
   REGISTRY: ghcr.io
   # ghcr requires a lowercase path; hardcoded to avoid repo-name casing issues.
-  IMAGE_BASE: ghcr.io/spilloid/anchordesk
+  IMAGE_BASE: ghcr.io/spillers-technology/anchordesk
 
 jobs:
   build-push:

@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.14.0 — 2026-07-05 — Open Channels (minor)
+
+> **Alpha:** the two integrations below are written against the vendors' published
+> APIs but have **not yet been exercised against live tenants** (no credentials at
+> release time). Treat RMM sync/scripts and two-way ticket sync as **experimental**
+> — the seams are stable, but expect per-provider field mappings to need tuning
+> once real accounts are connected.
+
+### Added
+
+- **NinjaOne and Datto RMM (alpha).** Device sync **and** script execution alongside Tactical RMM, behind a new **RMM registry** that maps a device source (`tactical_rmm` / `ninjaone` / `datto_rmm`) to an adapter bundling config-check + `DeviceProvider` + script catalogue + live snapshot. NinjaOne uses OAuth2 client-credentials and runs saved scripts by id; Datto uses the OAuth2 password grant and runs asynchronous **quick jobs** (queue a component UID, poll). Config is DB-backed in **Admin → Integrations**, with per-provider sync buttons and provenance badges.
+- **Two-way ticket sync for ConnectWise Manage and Jira Cloud (alpha).** External tickets sync **both directions** and stay badged by sync state (`synced` / `pending` / `conflict` / `error`). A local edit pushes status/priority/assignee + notes back out; inbound pull still covers everything. **Conflict policy is flag-and-hold:** if both sides changed since the last sync, the ticket is flagged and auto-sync pauses until a human picks **keep local** or **keep remote**. New endpoints `POST /tickets/:id/sync` and `POST /tickets/:id/resolve-conflict`; a new **JiraProvider** (Jira Cloud v3, ADF bodies, status via transitions) joins the now-outbound-capable ConnectWiseProvider.
+
+### Changed
+
+- **CI/CD moved to the org's ARC runners and GitOps deploy.** After the repo moved to the `Spillers-Technology` org, CI targets the `arc-org` runner scale set (not the retired `self-hosted` label), the GHCR image path moved to the org namespace, and the compose-on-a-runner `CD.yml` was **removed** in favour of the GitOps/kustomize deploy flow.
+
+### Notes
+
+- New enum values require `prisma db push` on upgrade (see release notes).
+
+See [RELEASE_NOTES_v1.14.0.md](RELEASE_NOTES_v1.14.0.md) for the full release notes.
+
 ## 1.13.0 — 2026-06-27 — Clear Deck (minor)
 
 ### Added

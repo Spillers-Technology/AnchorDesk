@@ -32,7 +32,7 @@ spec:
 
         # Apply Prisma schema to the database (idempotent).
         - name: prisma-db-push
-          image: ghcr.io/spilloid/anchordesk-backend:latest
+          image: ghcr.io/spillers-technology/anchordesk-backend:latest
           imagePullPolicy: Always
           command: ["npx", "prisma", "db", "push", "--skip-generate"]
           env:
@@ -44,7 +44,7 @@ spec:
 
       containers:
         - name: backend
-          image: ghcr.io/spilloid/anchordesk-backend:latest
+          image: ghcr.io/spillers-technology/anchordesk-backend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8060
