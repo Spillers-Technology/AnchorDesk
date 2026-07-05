@@ -270,6 +270,8 @@ export interface IntegrationsView {
   connectwise: { server?: string; company?: string; publicKey?: string; hasPrivateKey?: boolean; hasClientId?: boolean };
   jira: { baseUrl?: string; email?: string; projectKey?: string; jql?: string; hasApiToken?: boolean };
   tactical: { apiUrl?: string; hasApiKey?: boolean };
+  ninjaone: { apiUrl?: string; clientId?: string; scope?: string; hasClientSecret?: boolean };
+  datto: { apiUrl?: string; apiKey?: string; hasApiSecretKey?: boolean };
   storage: StorageView;
   tickets: { numberDigits?: number };
 }
@@ -279,7 +281,7 @@ export function getIntegrations() {
 }
 
 export function updateIntegration(
-  key: "smtp" | "connectwise" | "jira" | "tactical" | "storage" | "tickets",
+  key: "smtp" | "connectwise" | "jira" | "tactical" | "ninjaone" | "datto" | "storage" | "tickets",
   data: Record<string, unknown>
 ) {
   return request<Record<string, unknown>>(`/integrations/${key}`, { method: "PATCH", body: JSON.stringify(data) });
@@ -600,27 +602,32 @@ export function getDevice(id: number) {
   return request<unknown>(`/devices/${id}`);
 }
 
-export interface TacticalLiveData {
-  provider: "tactical_rmm";
+/** Live snapshot pulled from whichever RMM owns the device. Fields beyond the
+ *  common core are optional — not every RMM reports them. */
+export interface RmmLiveData {
+  provider: "tactical_rmm" | "ninjaone" | "datto_rmm";
   fetchedAt: string;
-  agentId: string;
+  externalId: string;
   hostname: string | null;
   status: string;
   operatingSystem: string | null;
   platform: string | null;
   localIps: string[];
   publicIp: string | null;
-  clientName: string | null;
-  siteName: string | null;
-  monitoringType: string | null;
+  siteName?: string | null;
   lastSeen: string | null;
-  makeModel: string | null;
-  serialNumber: string | null;
-  cpuModel: string | null;
+  clientName?: string | null;
+  monitoringType?: string | null;
+  makeModel?: string | null;
+  serialNumber?: string | null;
+  cpuModel?: string | null;
 }
 
+/** @deprecated use RmmLiveData — kept as an alias so existing imports compile. */
+export type TacticalLiveData = RmmLiveData;
+
 export function getDeviceLive(id: number) {
-  return request<TacticalLiveData>(`/devices/${id}/live`);
+  return request<RmmLiveData>(`/devices/${id}/live`);
 }
 
 export function createDevice(data: Record<string, unknown>) {
@@ -875,16 +882,27 @@ export function deleteSlaPolicy(id: number) {
 
 // ─── RMM / scripts ─────────────────────────────────────────────────────────────
 
+export interface RmmProviderStatus {
+  key: "tactical_rmm" | "ninjaone" | "datto_rmm";
+  label: string;
+  configured: boolean;
+  hasScriptCatalog: boolean;
+}
+
 export function getRmmStatus() {
-  return request<{ tactical: { configured: boolean } }>('/rmm/status');
+  return request<{ providers: RmmProviderStatus[]; tactical: { configured: boolean } }>('/rmm/status');
 }
 
-export function listScripts() {
-  return request<{ id: number; name: string; shell?: string }[]>('/scripts');
+/** Script catalog for a given RMM. Providers without a catalog (Datto) return []. */
+export function listScripts(provider?: string) {
+  const qs = provider ? `?provider=${encodeURIComponent(provider)}` : "";
+  return request<{ id: string; name: string; shell?: string }[]>(`/scripts${qs}`);
 }
 
-export function syncDevices() {
-  return request<{ provider: string; created: number; updated: number; errors: string[] }>('/devices/sync', {
+/** Pull devices from an RMM; `provider` defaults server-side to Tactical. */
+export function syncDevices(provider?: string) {
+  const qs = provider ? `?provider=${encodeURIComponent(provider)}` : "";
+  return request<{ provider: string; created: number; updated: number; errors: string[] }>(`/devices/sync${qs}`, {
     method: 'POST',
   });
 }

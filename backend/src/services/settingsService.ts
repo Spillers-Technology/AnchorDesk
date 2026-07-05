@@ -14,7 +14,16 @@ import { config } from '../config/config';
 // Keyed rows in the `settings` table. Mostly external-integration config, plus
 // 'ui' which holds interface preferences (read by every authed user, not just
 // admins — see routes/uiSettings.ts).
-export type IntegrationKey = 'smtp' | 'connectwise' | 'jira' | 'tactical' | 'storage' | 'tickets' | 'ui';
+export type IntegrationKey =
+  | 'smtp'
+  | 'connectwise'
+  | 'jira'
+  | 'tactical'
+  | 'ninjaone'
+  | 'datto'
+  | 'storage'
+  | 'tickets'
+  | 'ui';
 
 export interface SmtpConfig {
   host: string;
@@ -44,6 +53,17 @@ export interface JiraConfig {
 export interface TacticalConfig {
   apiUrl: string;
   apiKey: string;
+}
+export interface NinjaConfig {
+  apiUrl: string;
+  clientId: string;
+  clientSecret: string;
+  scope: string;
+}
+export interface DattoConfig {
+  apiUrl: string;
+  apiKey: string;
+  apiSecretKey: string;
 }
 export interface StorageConfig {
   backend: 'local' | 's3';
@@ -78,6 +98,8 @@ const SECRET_FIELDS: Record<IntegrationKey, string[]> = {
   connectwise: ['privateKey', 'clientId'],
   jira: ['apiToken'],
   tactical: ['apiKey'],
+  ninjaone: ['clientSecret'],
+  datto: ['apiSecretKey'],
   storage: ['s3SecretAccessKey'],
   tickets: [],
   ui: [],
@@ -93,6 +115,10 @@ function envDefaults(key: IntegrationKey): Record<string, unknown> {
       return { ...config.jira };
     case 'tactical':
       return { apiUrl: config.trmm.apiUrl, apiKey: config.trmm.apiKey };
+    case 'ninjaone':
+      return { ...config.ninja };
+    case 'datto':
+      return { ...config.datto };
     case 'storage':
       return { ...config.storage };
     case 'tickets':
@@ -114,7 +140,7 @@ async function load(key: IntegrationKey): Promise<Record<string, unknown>> {
 
 /** Seed any missing integration rows from env (first boot). */
 export async function seedSettings(): Promise<void> {
-  for (const key of ['smtp', 'connectwise', 'jira', 'tactical', 'storage', 'tickets', 'ui'] as IntegrationKey[]) {
+  for (const key of ['smtp', 'connectwise', 'jira', 'tactical', 'ninjaone', 'datto', 'storage', 'tickets', 'ui'] as IntegrationKey[]) {
     const existing = await prisma.setting.findUnique({ where: { key } });
     if (!existing) {
       await prisma.setting.create({ data: { key, value: envDefaults(key) as object } });
@@ -146,6 +172,19 @@ export async function applyRuntimeConfig(): Promise<void> {
     apiToken: j.apiToken,
     projectKey: j.projectKey,
     jql: j.jql,
+  });
+  const n = await getNinja();
+  Object.assign(config.ninja, {
+    apiUrl: n.apiUrl.replace(/\/$/, ''),
+    clientId: n.clientId,
+    clientSecret: n.clientSecret,
+    scope: n.scope,
+  });
+  const d = await getDatto();
+  Object.assign(config.datto, {
+    apiUrl: d.apiUrl.replace(/\/$/, ''),
+    apiKey: d.apiKey,
+    apiSecretKey: d.apiSecretKey,
   });
 }
 
@@ -189,6 +228,25 @@ export async function getJira(): Promise<JiraConfig> {
 export async function getTactical(): Promise<TacticalConfig> {
   const v = await load('tactical');
   return { apiUrl: String(v.apiUrl ?? ''), apiKey: String(v.apiKey ?? '') };
+}
+
+export async function getNinja(): Promise<NinjaConfig> {
+  const v = await load('ninjaone');
+  return {
+    apiUrl: String(v.apiUrl ?? ''),
+    clientId: String(v.clientId ?? ''),
+    clientSecret: String(v.clientSecret ?? ''),
+    scope: String(v.scope ?? 'monitoring management'),
+  };
+}
+
+export async function getDatto(): Promise<DattoConfig> {
+  const v = await load('datto');
+  return {
+    apiUrl: String(v.apiUrl ?? ''),
+    apiKey: String(v.apiKey ?? ''),
+    apiSecretKey: String(v.apiSecretKey ?? ''),
+  };
 }
 
 export async function getStorage(): Promise<StorageConfig> {
@@ -235,8 +293,16 @@ export async function updateSetting(
     create: { key, value: next as object },
   });
   cache.set(key, next);
-  // CW/Jira/Tactical services read the in-memory config; refresh it on edit.
-  if (key === 'connectwise' || key === 'jira' || key === 'tactical') await applyRuntimeConfig();
+  // CW/Jira/RMM services read the in-memory config; refresh it on edit.
+  if (
+    key === 'connectwise' ||
+    key === 'jira' ||
+    key === 'tactical' ||
+    key === 'ninjaone' ||
+    key === 'datto'
+  ) {
+    await applyRuntimeConfig();
+  }
   return next;
 }
 

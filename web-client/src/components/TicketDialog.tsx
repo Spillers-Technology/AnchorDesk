@@ -93,7 +93,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   const [attachments, setAttachments] = useState<api.Attachment[]>([]);
   const [allLabels, setAllLabels] = useState<api.Label[]>([]);
   const [liveDevices, setLiveDevices] = useState<
-    Record<number, { loading: boolean; data?: api.TacticalLiveData; error?: string }>
+    Record<number, { loading: boolean; data?: api.RmmLiveData; error?: string }>
   >({});
 
   const reloadAttachments = useCallback(() => {
@@ -512,8 +512,8 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                               {d.ipAddress && <Typography variant="caption" color="text.secondary">{d.ipAddress}</Typography>}
                             </Box>
                             <Chip size="small" variant="outlined" label={sourceLabel(d.source)} color={sourceColor(d.source)} />
-                            {d.source === "tactical_rmm" && (
-                              <Tooltip title="Refresh live Tactical data">
+                            {isRmmSource(d.source) && (
+                              <Tooltip title="Refresh live RMM data">
                                 <IconButton size="small" onClick={() => loadDeviceLive(d.id)}><SyncIcon fontSize="small" /></IconButton>
                               </Tooltip>
                             )}
@@ -526,8 +526,8 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                               <IconButton size="small" onClick={() => unlinkDevice(d.id)}><Close fontSize="small" /></IconButton>
                             </Tooltip>
                           </Stack>
-                          {d.source === "tactical_rmm" && (
-                            <TacticalLivePanel state={liveDevices[d.id]} />
+                          {isRmmSource(d.source) && (
+                            <RmmLivePanel state={liveDevices[d.id]} />
                           )}
                         </Box>
                       );
@@ -620,6 +620,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
           onClose={() => setScriptDevice(null)}
           deviceId={scriptDevice.id}
           deviceName={scriptDevice.displayName || scriptDevice.hostname || `device ${scriptDevice.id}`}
+          deviceSource={scriptDevice.source}
           ticketId={ticket.localId}
         />
       )}
@@ -708,9 +709,16 @@ function SyncStatusBar({
   );
 }
 
+const RMM_SOURCES = ["tactical_rmm", "ninjaone", "datto_rmm"];
+function isRmmSource(s?: string): boolean {
+  return !!s && RMM_SOURCES.includes(s);
+}
+
 function sourceLabel(s?: string): string {
   switch (s) {
     case "tactical_rmm": return "Tactical";
+    case "ninjaone": return "NinjaOne";
+    case "datto_rmm": return "Datto";
     case "netviz": return "NetViz";
     case "meshcentral": return "Mesh";
     case "api": return "API";
@@ -718,21 +726,21 @@ function sourceLabel(s?: string): string {
   }
 }
 function sourceColor(s?: string): "primary" | "secondary" | "default" {
-  if (s === "tactical_rmm") return "primary";
+  if (isRmmSource(s)) return "primary";
   if (s === "netviz") return "secondary";
   return "default";
 }
 
-function TacticalLivePanel({
+function RmmLivePanel({
   state,
 }: {
-  state?: { loading: boolean; data?: api.TacticalLiveData; error?: string };
+  state?: { loading: boolean; data?: api.RmmLiveData; error?: string };
 }) {
   if (!state || state.loading) {
     return (
       <Stack direction="row" alignItems="center" spacing={1} sx={{ ml: 4, mt: 0.75 }}>
         <CircularProgress size={12} />
-        <Typography variant="caption" color="text.secondary">Loading live Tactical data…</Typography>
+        <Typography variant="caption" color="text.secondary">Loading live RMM data…</Typography>
       </Stack>
     );
   }

@@ -118,6 +118,29 @@ export const config = {
     apiKey: process.env.TRMM_API_KEY || '',
   },
 
+  // NinjaOne RMM (optional) — device sync + script runs. OAuth2 client-credentials.
+  // apiUrl is the regional API host, e.g. https://app.ninjarmm.com (also eu/oc/ca).
+  // clientId/clientSecret come from an API app created in the NinjaOne portal;
+  // scope must include the grants that app was given (management is required to
+  // run scripts, monitoring to read devices).
+  ninja: {
+    apiUrl: (process.env.NINJA_API_URL || 'https://app.ninjarmm.com').replace(/\/$/, ''),
+    clientId: process.env.NINJA_CLIENT_ID || '',
+    clientSecret: process.env.NINJA_CLIENT_SECRET || '',
+    scope: process.env.NINJA_SCOPE || 'monitoring management',
+  },
+
+  // Datto RMM (optional) — device sync + quick-job script runs. OAuth2 password
+  // grant against a fixed public client (public-client/public); the API key and
+  // secret key (Setup > Account > API Access in Datto RMM) are the username and
+  // password. apiUrl is the regional API host, e.g. https://merlot-api.centrastage.net
+  // (pinotage/syrah/vidal/zinfandel/merlot/concord per your platform).
+  datto: {
+    apiUrl: (process.env.DATTO_API_URL || '').replace(/\/$/, ''),
+    apiKey: process.env.DATTO_API_KEY || '',
+    apiSecretKey: process.env.DATTO_API_SECRET_KEY || '',
+  },
+
   // ConnectWise Manage (optional — only needed if CW sync is configured)
   cwm: {
     company: process.env.CWM_COMPANY || '',

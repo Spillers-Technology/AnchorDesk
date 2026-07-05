@@ -612,6 +612,8 @@ enum ProviderType {
   jira
   imap
   tactical_rmm
+  ninjaone
+  datto_rmm
   meshcentral
   netviz
 }
@@ -620,6 +622,8 @@ enum DeviceSource {
   local
   netviz
   tactical_rmm
+  ninjaone
+  datto_rmm
   meshcentral
   api
 }

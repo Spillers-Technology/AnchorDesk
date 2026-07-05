@@ -6,9 +6,9 @@
  */
 
 import { DeviceProvider } from '../providers/DeviceProvider';
-import { TacticalRmmProvider } from '../providers/TacticalRmmProvider';
 import * as deviceRepo from '../repositories/deviceRepository';
 import { DeviceSource } from '@prisma/client';
+import { getAdapter } from '../rmm/registry';
 
 export interface DeviceSyncResult {
   provider: string;
@@ -73,6 +73,35 @@ async function syncProvider(
   return result;
 }
 
+/**
+ * Pull devices from any registered RMM by its device-source key
+ * ('tactical_rmm' | 'ninjaone' | 'datto_rmm'). The registry owns the provider +
+ * config check; this just runs the shared fetch + upsert cycle.
+ */
+export function syncBySource(source: string, actorSub: string): Promise<DeviceSyncResult> {
+  const adapter = getAdapter(source);
+  if (!adapter) {
+    return Promise.resolve({
+      provider: source,
+      created: 0,
+      updated: 0,
+      errors: [`Unknown RMM source "${source}"`],
+      durationMs: 0,
+    });
+  }
+  if (!adapter.isConfigured()) {
+    return Promise.resolve({
+      provider: adapter.key,
+      created: 0,
+      updated: 0,
+      errors: [`${adapter.label} is not configured`],
+      durationMs: 0,
+    });
+  }
+  return syncProvider(adapter.provider(), adapter.key as DeviceSource, actorSub);
+}
+
+/** Back-compat helper — the original Tactical-only entrypoint. */
 export function syncTactical(actorSub: string): Promise<DeviceSyncResult> {
-  return syncProvider(new TacticalRmmProvider(), 'tactical_rmm', actorSub);
+  return syncBySource('tactical_rmm', actorSub);
 }
