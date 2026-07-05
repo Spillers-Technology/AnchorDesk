@@ -26,6 +26,7 @@ export interface CreateNoteInput {
 
 export interface UpdateNoteInput {
   content?: string;
+  htmlContent?: string | null;
   timeStart?: Date | null;
   timeStop?: Date | null;
   minutes?: number | null;

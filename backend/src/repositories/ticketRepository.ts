@@ -4,6 +4,7 @@ import * as audit from './auditRepository';
 import { publish } from '../services/realtime/eventBus';
 import { computeSlaFields } from '../services/sla';
 import { getTickets } from '../services/settingsService';
+import { sanitizeEmailHtml } from '../services/mail/sanitizeHtml';
 import { clamp } from '../util/strings';
 
 export interface TicketListOptions {
@@ -125,6 +126,13 @@ export interface UpdateTicketInput {
   assignee?: string;
   assigneeId?: number | null;
   closedAt?: Date | null;
+}
+
+const HTML_TAG_RE = /<\/?[a-z][\s\S]*>/i;
+
+function sanitizeTicketDescription(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return HTML_TAG_RE.test(value) ? sanitizeEmailHtml(value) : value;
 }
 
 /** Resolve a Company's name so we can keep ticket.companyName denormalized. */
@@ -276,7 +284,7 @@ export async function create(input: CreateTicketInput, actorSub: string) {
       // can't overflow and 500 the insert (see schema column widths).
       title: clamp(input.title, 255),
       summary: clamp(input.summary, 500),
-      description: input.description,
+      description: sanitizeTicketDescription(input.description),
       status: input.status ?? 'New',
       priority: input.priority,
       companyName: clamp(companyName, 150),
@@ -314,6 +322,7 @@ export async function update(id: number, input: UpdateTicketInput, actorSub: str
     ...input,
     title: clamp(input.title, 255),
     summary: clamp(input.summary, 500),
+    description: sanitizeTicketDescription(input.description),
     status: clamp(input.status, 100),
     priority: clamp(input.priority, 50),
     companyName: clamp(input.companyName, 150),

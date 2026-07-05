@@ -16,7 +16,7 @@ The core entity. Created locally or synced from an external source.
 | `ticket_number` | VARCHAR(50) | Public ticket number. Generated locally from `ticket_number_seq`, or retained from an external provider |
 | `title` | VARCHAR | Required. Short title / subject line |
 | `summary` | VARCHAR | One-liner summary (may duplicate title for CW imports) |
-| `description` | TEXT | Full description / initial note |
+| `description` | TEXT | Full description / initial note; may contain sanitized HTML from the ticket modal |
 | `status` | VARCHAR | e.g. New, InProgress, Closed. Free-form string |
 | `priority` | VARCHAR | e.g. Low, Medium, High, Critical |
 | `company_name` | VARCHAR | Client company name (denormalized string, not FK) |

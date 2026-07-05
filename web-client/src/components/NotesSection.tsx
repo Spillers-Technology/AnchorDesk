@@ -6,18 +6,21 @@ import {
   ListItem,
   Typography,
   IconButton,
-  TextField,
   Paper,
   Chip,
   Button,
   Stack,
+  Alert,
+  Tooltip,
 } from "@mui/material";
 import { ArrowDownward, ArrowUpward, Edit, Save, Undo } from "@mui/icons-material";
 import CallReceivedIcon from "@mui/icons-material/CallReceived";
 import CallMadeIcon from "@mui/icons-material/CallMade";
 import ReplyIcon from "@mui/icons-material/Reply";
-import DOMPurify from "dompurify";
 import { Note } from "../interfaces";
+import { isRichTextEmpty, toEditorHtml } from "../html";
+import HtmlContent from "./HtmlContent";
+import RichTextEditor from "./RichTextEditor";
 
 interface NotesSectionProps {
   notes: Note[];
@@ -27,6 +30,7 @@ interface NotesSectionProps {
   currentUser: any;
   /** When provided, email notes show a Reply action that opens the composer. */
   onReply?: (note: Note) => void;
+  onEditNote?: (note: Note, html: string) => Promise<void> | void;
 }
 
 const NotesSection: React.FC<NotesSectionProps> = ({
@@ -35,8 +39,11 @@ const NotesSection: React.FC<NotesSectionProps> = ({
   toggleSort,
   canEditNote,
   onReply,
+  onEditNote,
 }) => {
   const [editingNotes, setEditingNotes] = useState<{ [key: string]: string }>({});
+  const [savingNote, setSavingNote] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const sortedNotes = [...notes].sort((a, b) => {
     const dateA = new Date(a.dateCreated).getTime();
@@ -44,22 +51,30 @@ const NotesSection: React.FC<NotesSectionProps> = ({
     return sortAscending ? dateA - dateB : dateB - dateA;
   });
 
-  const handleEditNote = (noteId: string) => {
+  const handleEditNote = (note: Note) => {
     setEditingNotes((prev) => ({
       ...prev,
-      [noteId]: notes.find((n) => n.id === noteId)?.text || "",
+      [note.id]: toEditorHtml(note.html ?? note.text),
     }));
   };
 
-  const handleSaveNote = (noteId: string) => {
-    const newText = editingNotes[noteId];
-    console.log(`Saving note ${noteId}:`, newText);
-    // Save to backend
-    setEditingNotes((prev) => {
-      const updated = { ...prev };
-      delete updated[noteId];
-      return updated;
-    });
+  const handleSaveNote = async (note: Note) => {
+    const html = editingNotes[note.id] ?? "";
+    if (isRichTextEmpty(html)) return;
+    setSavingNote(note.id);
+    setEditError(null);
+    try {
+      await onEditNote?.(note, html);
+      setEditingNotes((prev) => {
+        const updated = { ...prev };
+        delete updated[note.id];
+        return updated;
+      });
+    } catch (err) {
+      setEditError((err as Error).message);
+    } finally {
+      setSavingNote(null);
+    }
   };
 
   const handleRevertNote = (noteId: string) => {
@@ -88,16 +103,17 @@ const NotesSection: React.FC<NotesSectionProps> = ({
           )}
         </Typography>
       </Box>
+      {editError && <Alert severity="error" sx={{ mb: 1 }}>{editError}</Alert>}
 
       {notes.length > 0 ? (
-        <List>
+        <List disablePadding>
           {sortedNotes.map((note) =>
             note.type === "email" ? (
               <EmailBubble key={note.id} note={note} onReply={onReply} />
             ) : (
-              <ListItem key={note.id} divider>
-                <Box sx={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
-                  <Box sx={{ minWidth: 150 }}>
+              <ListItem key={note.id} divider alignItems="flex-start" sx={{ px: 0, py: 1.5 }}>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ width: "100%" }}>
+                  <Box sx={{ width: { sm: 220 }, flexShrink: 0 }}>
                     <Typography variant="body2" sx={{ color: "text.secondary" }}>
                       {new Date(note.dateCreated).toLocaleTimeString()}{" "}
                       {new Date(note.dateCreated).toLocaleDateString()}
@@ -111,38 +127,46 @@ const NotesSection: React.FC<NotesSectionProps> = ({
                         : "Note"}
                     </Typography>
                   </Box>
-                  <Box sx={{ maxWidth: "70%" }}>
+                  <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                     {editingNotes[note.id] !== undefined ? (
-                      <>
-                        <TextField
-                          multiline
-                          fullWidth
-                          variant="outlined"
+                      <Stack spacing={1}>
+                        <RichTextEditor
                           value={editingNotes[note.id]}
-                          onChange={(e) =>
+                          onChange={(html) =>
                             setEditingNotes((prev) => ({
                               ...prev,
-                              [note.id]: e.target.value,
+                              [note.id]: html,
                             }))
                           }
+                          minHeight={140}
                         />
-                        <IconButton onClick={() => handleSaveNote(note.id)}>
-                          <Save />
-                        </IconButton>
-                        <IconButton onClick={() => handleRevertNote(note.id)}>
-                          <Undo />
-                        </IconButton>
-                      </>
+                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                          <Button size="small" startIcon={<Undo />} onClick={() => handleRevertNote(note.id)}>
+                            Cancel
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            startIcon={<Save />}
+                            disabled={savingNote === note.id || isRichTextEmpty(editingNotes[note.id])}
+                            onClick={() => handleSaveNote(note)}
+                          >
+                            {savingNote === note.id ? "Saving" : "Save"}
+                          </Button>
+                        </Stack>
+                      </Stack>
                     ) : (
                       <NoteBody note={note} />
                     )}
                   </Box>
                   {canEditNote(note) && editingNotes[note.id] === undefined && (
-                    <IconButton onClick={() => handleEditNote(note.id)}>
-                      <Edit />
-                    </IconButton>
+                    <Tooltip title="Edit note">
+                      <IconButton aria-label="Edit note" onClick={() => handleEditNote(note)}>
+                        <Edit />
+                      </IconButton>
+                    </Tooltip>
                   )}
-                </Box>
+                </Stack>
               </ListItem>
             )
           )}
@@ -156,33 +180,16 @@ const NotesSection: React.FC<NotesSectionProps> = ({
   );
 };
 
-// Shared style for rendered HTML bodies: images never overflow and load lazily,
-// so a big inline image doesn't break the timeline layout while it loads.
-const HTML_BODY_SX = {
-  "& img": { maxWidth: "100%", height: "auto", borderRadius: 1 },
-  "& a": { color: "primary.main" },
-  "& pre": { whiteSpace: "pre-wrap", overflowX: "auto", bgcolor: "grey.100", p: 1, borderRadius: 1 },
-} as const;
-
 /** Render an internal note body: sanitized HTML (script logs, inline images)
  *  when present, else plain text. */
 function NoteBody({ note }: { note: Note }) {
-  if (note.html) {
-    const safe = DOMPurify.sanitize(note.html, { ADD_ATTR: ["loading"] });
-    return <Box sx={{ ...HTML_BODY_SX, color: "text.primary" }} dangerouslySetInnerHTML={{ __html: safe }} />;
-  }
-  return (
-    <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", color: "text.primary" }}>
-      {note.text}
-    </Typography>
-  );
+  return <HtmlContent value={note.html ?? note.text} emptyText="No note text." />;
 }
 
 /** A single email rendered as a conversation bubble. Inbound mail aligns left
  *  (neutral), outbound aligns right (accent), so a thread reads like a chat. */
 function EmailBubble({ note, onReply }: { note: Note; onReply?: (note: Note) => void }) {
   const outbound = note.direction === "outbound";
-  const safeHtml = note.html ? DOMPurify.sanitize(note.html, { ADD_ATTR: ["loading"] }) : null;
 
   return (
     <ListItem sx={{ display: "flex", justifyContent: outbound ? "flex-end" : "flex-start", px: 0 }}>
@@ -196,7 +203,7 @@ function EmailBubble({ note, onReply }: { note: Note; onReply?: (note: Note) => 
           bgcolor: outbound ? "primary.50" : "grey.50",
           borderColor: outbound ? "primary.100" : "divider",
         }}
-      >
+        >
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
           <Chip
             size="small"
@@ -222,14 +229,8 @@ function EmailBubble({ note, onReply }: { note: Note; onReply?: (note: Note) => 
             {note.subject}
           </Typography>
         )}
-        <Box sx={{ mt: 1, ...HTML_BODY_SX, color: "text.primary" }}>
-          {safeHtml ? (
-            <div dangerouslySetInnerHTML={{ __html: safeHtml }} />
-          ) : (
-            <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
-              {note.text}
-            </Typography>
-          )}
+        <Box sx={{ mt: 1 }}>
+          <HtmlContent value={note.html ?? note.text} emptyText="No email body." />
         </Box>
         {onReply && (
           <Box sx={{ mt: 1, textAlign: "right" }}>

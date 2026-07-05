@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.17.0 — 2026-07-05 — Fair Copy (minor)
+
+### Added
+
+- **Rich-text ticket modal.** The ticket description renders as formatted HTML when markup is present (plain text is preserved otherwise) and edits through a shared rich-text editor with a visual/source-HTML toggle. The email composer shares the same editor and toggle.
+- **Notes are a distinct rich composer, separate from email.** The activity card has its own rich note editor; saved notes become normal ticket notes with no mail configuration, recipients, or subject required. Editing an existing note now actually persists — the previous handler only logged to the console.
+- **Bulk updates from the ticket views.** A write-capable user can select visible tickets from cards, table, or Kanban and set status, priority, and assignee in one operation. Selection is page/board-scoped (the currently loaded tickets), not "all matching this filter".
+- **Unified contact picker.** The ticket modal's Contact field is now a searchable pick-or-create autocomplete matching the Company field, and the selected contact's email/phone is shown inline so you're not choosing blind.
+
+### Changed
+
+- Ticket descriptions and note HTML are sanitized server-side on save; list and card previews strip HTML to plain text; the printable ticket export renders sanitized formatted bodies instead of escaping raw tags.
+- The Vite dev proxy now defaults `BACKEND_ORIGIN` to `http://localhost:8060` (host-local dev is the common path); set `BACKEND_ORIGIN=http://backend:8060` for containerized dev.
+
+### Notes
+
+- No schema change. The rich description still lives in the existing `tickets.description` text column; there is no separate versioned rich-text document model in this pass.
+- Bulk selection is intentionally limited to the loaded page/board and does not include delete, merge, label, or free-text changes.
+
+See [RELEASE_NOTES_v1.17.0.md](RELEASE_NOTES_v1.17.0.md) for the full release notes.
+
 ## 1.16.0 — 2026-07-05 — Trust Anchor (minor)
 
 ### Added
