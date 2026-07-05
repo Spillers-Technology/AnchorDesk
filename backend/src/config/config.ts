@@ -126,4 +126,16 @@ export const config = {
     privateKey: process.env.CWM_PRIVATEKEY || '',
     clientId: process.env.CWM_CLIENTID || '',
   },
+
+  // Jira Cloud (optional — two-way ticket sync). baseUrl is the site, e.g.
+  // https://your-org.atlassian.net. Auth is the account email + an API token
+  // (id.atlassian.com > Security > API tokens). projectKey/jql scope which issues
+  // sync; leave jql blank to use open issues in the project.
+  jira: {
+    baseUrl: (process.env.JIRA_BASE_URL || '').replace(/\/$/, ''),
+    email: process.env.JIRA_EMAIL || '',
+    apiToken: process.env.JIRA_API_TOKEN || '',
+    projectKey: process.env.JIRA_PROJECT_KEY || '',
+    jql: process.env.JIRA_JQL || '',
+  },
 };

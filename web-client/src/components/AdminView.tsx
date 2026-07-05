@@ -611,7 +611,7 @@ function IntegrationsPanel() {
   const { data, loading, error, reload } = useAsync(() => api.getIntegrations());
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const save = async (key: "smtp" | "connectwise" | "tactical" | "storage" | "tickets", patch: Record<string, unknown>) => {
+  const save = async (key: "smtp" | "connectwise" | "jira" | "tactical" | "storage" | "tickets", patch: Record<string, unknown>) => {
     setMsg(null);
     try {
       await api.updateIntegration(key, patch);
@@ -665,6 +665,19 @@ function IntegrationsPanel() {
           { k: "clientId", label: "Client ID", secret: true, has: data.connectwise.hasClientId },
         ]}
         onSave={(patch) => save("connectwise", patch)}
+      />
+
+      <IntegrationCard
+        title="Jira Cloud (two-way tickets)"
+        configured={!!data.jira.baseUrl && !!data.jira.email}
+        fields={[
+          { k: "baseUrl", label: "Site URL (e.g. https://org.atlassian.net)", value: data.jira.baseUrl },
+          { k: "email", label: "Account email", value: data.jira.email },
+          { k: "apiToken", label: "API token", secret: true, has: data.jira.hasApiToken },
+          { k: "projectKey", label: "Project key (optional)", value: data.jira.projectKey },
+          { k: "jql", label: "JQL filter (optional)", value: data.jira.jql },
+        ]}
+        onSave={(patch) => save("jira", patch)}
       />
 
       <IntegrationCard

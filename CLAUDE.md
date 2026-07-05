@@ -56,7 +56,8 @@ backend (Fastify + TypeScript)
 PostgreSQL :5432  ← source of truth
      │
   sync providers
-     ├── ConnectWiseProvider  (reads/writes CW Manage)
+     ├── ConnectWiseProvider  (two-way: CW Manage tickets + notes)
+     ├── JiraProvider         (two-way: Jira Cloud issues + comments)
      ├── NetVizProvider       (probe → device ingest)
      ├── TacticalRmmProvider  (device sync + script runner)
      └── ImapProvider         (planned)
@@ -66,6 +67,24 @@ GoF patterns in use:
 - **Strategy** — `TicketProvider`, `DeviceProvider`, and `ScriptRunner` interfaces (see `src/providers/`, `src/runners/`)
 - **Repository** — `src/repositories/` wraps all Prisma queries; routes never touch Prisma directly
 - **Observer (append-only log)** — every mutation goes through `auditRepository.record()` before responding
+
+### Two-way ticket sync (ConnectWise / Jira) — ALPHA
+External tickets sync in both directions, staying visible as external and badged by
+their sync state. `TicketProvider` gained `canWriteBack` + `getTicket` /
+`updateTicket` / `pushNote`; `ConnectWiseProvider` and `JiraProvider` (Jira Cloud
+v3, ADF bodies, email+token auth) implement them. `services/twoWaySync.ts` owns the
+reconcile: each ticket carries `syncState` (`synced` / `pending` / `conflict` /
+`error`), a `remoteHash` fingerprint, and `syncedAt`. A local edit marks the ticket
+`pending` (in the route layer, so inbound apply doesn't self-trigger) and kicks a
+reconcile that pushes status/priority/assignee + unsynced notes. **Conflict policy
+is flag-and-hold**: if the remote also changed since `syncedAt`, the ticket goes
+`conflict` and auto-sync pauses until a human resolves it (`POST
+/tickets/:id/resolve-conflict` with `local` or `remote`); `POST /tickets/:id/sync`
+reconciles on demand. Batch sync (`syncService`) routes two-way providers through
+reconcile instead of the blind inbound overwrite used for read-only sources. Config
+seeds from env, editable in **Admin → Integrations** (`jira` row). Since we lack
+live credentials, provider request shapes are written to the published APIs but not
+yet exercised end to end.
 
 ### Auth flow (1.1.0)
 - `middleware/auth.ts` runs on every request. It resolves a **session cookie** (browser login), a **personal access token** (`Authorization: Bearer adk_…`, resolved locally — see below), or an **OIDC bearer token** (API clients) to a `request.user` carrying a role, then enforces baseline RBAC (`readonly` can't mutate). `requireRole('admin')` gates admin surfaces. Public paths: `/ping`, `/probe/*`, and the `/auth/*` login endpoints.

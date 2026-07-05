@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as ticketRepo from '../repositories/ticketRepository';
 import * as noteRepo from '../repositories/noteRepository';
 import * as audit from '../repositories/auditRepository';
+import * as twoWaySync from '../services/twoWaySync';
 import { renderTicketHtml } from '../services/ticketExport';
 import { parseId } from '../util/ids';
 
@@ -68,7 +69,37 @@ export async function ticketRoutes(server: FastifyInstance) {
       req.actorSub
     );
     if (!ticket) return reply.status(404).send({ error: 'Ticket not found' });
+
+    // Two-way sync: a local edit to an external ticket becomes pending, then we
+    // kick a reconcile (which pushes, or flags a conflict if the remote also
+    // moved). Fire-and-forget so the edit response stays snappy.
+    if (ticket.externalId && ticket.externalProvider) {
+      await ticketRepo.markPending(id);
+      void twoWaySync
+        .reconcileTicket(id, { actor: req.actorSub })
+        .catch((err) => req.log.warn({ err, ticketId: id }, 'two-way reconcile after edit failed'));
+    }
     return reply.send(ticket);
+  });
+
+  // Reconcile an external ticket with its source now (pull/push/flag conflict).
+  server.post('/tickets/:id/sync', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
+    const id = parseId(req.params.id);
+    if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
+    const result = await twoWaySync.reconcileTicket(id, { actor: req.actorSub });
+    return reply.send(result);
+  });
+
+  // Resolve a held conflict by choosing the winning side.
+  server.post('/tickets/:id/resolve-conflict', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
+    const id = parseId(req.params.id);
+    if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
+    const resolution = (req.body as { resolution?: string })?.resolution;
+    if (resolution !== 'local' && resolution !== 'remote') {
+      return reply.status(400).send({ error: "resolution must be 'local' or 'remote'" });
+    }
+    const result = await twoWaySync.resolveConflict(id, resolution, req.actorSub);
+    return reply.send(result);
   });
 
   // Soft-delete ticket
@@ -118,6 +149,14 @@ export async function ticketRoutes(server: FastifyInstance) {
       { ...body, author: body.author ?? req.user?.displayName ?? req.actorSub },
       req.actorSub
     );
+
+    // Push locally-authored notes out to the source system (best-effort). Notes
+    // pulled from the remote already carry an externalId and are skipped inside.
+    if (!body.externalId) {
+      void twoWaySync
+        .pushNoteOut(id, note.id)
+        .catch((err) => req.log.warn({ err, ticketId: id, noteId: note.id }, 'note push-out failed'));
+    }
     return reply.status(201).send(note);
   });
 
