@@ -11,10 +11,13 @@ anchordesk uses the **Strategy pattern** for external integrations. Each provide
 
 interface TicketProvider {
   readonly name: string;
+  readonly canWriteBack?: boolean;
   fetchTickets(since?: Date): Promise<ExternalTicket[]>;
+  getTicket?(externalTicketId: string): Promise<ExternalTicket | null>;
   fetchNotes(externalTicketId: string): Promise<ExternalNote[]>;
-  pushTicket?(ticket: ...): Promise<string>;   // optional — outbound only
-  pushNote?(externalTicketId: string, note: ...): Promise<void>;  // optional
+  pushTicket?(ticket: { title: string; description?: string; companyName?: string }): Promise<string>;
+  updateTicket?(externalTicketId: string, changes: TicketWriteback): Promise<void>;
+  pushNote?(externalTicketId: string, note: { content: string; author: string }): Promise<string | void>;
 }
 ```
 
@@ -68,9 +71,13 @@ In `backend/prisma/schema.prisma`, add your platform to the `ProviderType` enum:
 ```prisma
 enum ProviderType {
   connectwise
+  jira
   imap
   tactical_rmm
+  ninjaone
+  datto_rmm
   meshcentral
+  netviz
   myplatform   // ← add this
 }
 ```
@@ -83,8 +90,10 @@ cd backend && npx prisma db push
 
 ### 3. Configure a provider instance
 
-For supported provider types, use the **Sync** view to create, enable, run, or
-delete provider instances. The equivalent API is:
+For supported ticket-provider types, use the **Sync** view to create, enable,
+run, or delete provider instances. Today the UI exposes `connectwise` and
+`jira`; add your provider to the route allowlist and UI selector before exposing
+it. The equivalent API is:
 
 ```http
 POST /sync/providers
@@ -106,15 +115,16 @@ from environment variables), not in the provider row.
 ### 4. Wire into the sync service
 
 The sync service instantiates providers via a factory based on
-`sync_providers.type`. Register your provider in the factory:
+`sync_providers.type`. Register your ticket provider in the factory:
 
 ```typescript
-// backend/src/services/syncService.ts
+// backend/src/providers/ticketProviderFactory.ts
 
-function createProvider(row: SyncProvider): TicketProvider {
-  switch (row.type) {
-    case 'connectwise': return new ConnectWiseProvider(row.config);
-    case 'myplatform':  return new MyPlatformProvider(row.config);
+export function createTicketProvider(type: string, cfg: Record<string, unknown> = {}): TicketProvider {
+  switch (type) {
+    case 'connectwise': return new ConnectWiseProvider((cfg.board as string) ?? undefined);
+    case 'jira':        return new JiraProvider((cfg.jql as string) ?? undefined);
+    case 'myplatform':  return new MyPlatformProvider(cfg);
     // ...
   }
 }
@@ -125,7 +135,8 @@ function createProvider(row: SyncProvider): TicketProvider {
 ## Notes
 
 - `externalId` + `name` (provider name) must be stable across syncs — they're used to deduplicate records
-- The `pushTicket` / `pushNote` methods are optional — implement them only if outbound sync is needed
+- For two-way sync, set `canWriteBack = true` and implement `getTicket`, `updateTicket`, and `pushNote`
+- `pushTicket` is optional and only needed when the provider can create a new remote ticket from a local ticket
 - All sync activity is logged to `sync_log` automatically by the sync service
 - If your platform doesn't paginate the same way, handle pagination internally in `fetchTickets` and return a flat array
 - Add the new provider type to the create-route allowlist before exposing it in the Sync UI

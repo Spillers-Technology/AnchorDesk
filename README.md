@@ -1,7 +1,7 @@
 <div align="center">
 
 # AnchorDesk
-<img width="1448" height="1086" alt="image" src="https://github.com/user-attachments/assets/3aecc3fd-67d6-43b8-b186-374ad0c0d3a2" />
+<img width="1440" height="960" alt="AnchorDesk Kanban board showing ticket cards with SLA, label, source, and sync badges" src="docs/assets/screenshots/anchordesk-board.jpg" />
 
 **A local-first ticketing platform for MSPs and IT teams — that also sees and acts on the machines behind the tickets.**
 
@@ -22,12 +22,14 @@
 
 What sets it apart from a plain helpdesk: each ticket can become an operations cockpit. Link the **devices** involved, inspect their source and status, run RMM scripts, send email, and keep the resulting activity on the ticket. Core changes are recorded in an **append-only audit log** with actor and before/after data.
 
-## What ships in v1.15.0
+## What ships in v1.17.0
 
-- **🤖 ChatGPT-ready MCP on hosted domains** — custom-domain AnchorDesk instances can now expose ticketing tools to OAuth clients such as ChatGPT. The MCP server publishes protected-resource metadata, trusts your configured OIDC provider, and keeps personal access tokens available for header-capable clients.
-- **🧭 Connector setup guide** — new MCP auth docs walk through the easier IdP path, callback URL setup, scopes, OAuth fields, and troubleshooting.
+- **📝 Rich-text ticket cockpit** — descriptions, internal notes, and outbound email now share one rich editor with a visual/source-HTML toggle. Saved descriptions and rich notes are sanitized server-side; previews strip HTML; printable exports preserve safe formatting.
+- **🗒️ Notes are separate from email** — the activity card has its own rich note composer, and editing an existing note now persists.
+- **☑️ Bulk ticket updates** — select visible tickets from cards, Kanban, or the legacy table and update status, priority, and assignee in one page-scoped operation.
+- **👤 Unified contact picker** — the ticket modal's Contact field now matches the Company picker: searchable, pick-or-create, and displays email/phone for the selected contact.
 
-**Also landed recently:** NinjaOne and Datto RMM plus two-way ConnectWise/Jira ticket sync (1.14), the page-filling **Clear Deck** board with regex advanced search and a denser cockpit (1.13), the **My Day** time day-spread and company-scoped device linking (1.12), and built-in **personal access tokens** for MCP/agent auth (1.10).
+**Also landed recently:** built-in OAuth 2.0 authorization-code + PKCE for MCP clients such as ChatGPT (1.16), OAuth protected-resource metadata for hosted domains (1.15), NinjaOne and Datto RMM plus two-way ConnectWise/Jira ticket sync (1.14), the page-filling **Clear Deck** board with regex advanced search (1.13), the **My Day** time day-spread and company-scoped device linking (1.12), and built-in **personal access tokens** for MCP/agent auth (1.10).
 
 The core platform also includes:
 
@@ -49,10 +51,10 @@ The core platform also includes:
 - **🧭 Admin console** — live ticket/device/probe/user/mailbox counts, recent activity, user and auth management, integration settings, mailbox management, inventory, and an audit-log viewer.
 - **🔐 Auth + RBAC** — local accounts, OIDC, and SAML 2.0 can run side by side. TOTP MFA is required by default for local accounts, with `admin`, `technician`, and `readonly` roles.
 - **🖥️ Device inventory + network map** — ingest devices from [netviz](#probes--devices), sync them from Tactical RMM, or add them manually; group the radial map by probe or company and link devices to tickets.
-- **⚡ Tactical RMM actions** — sync devices, browse the Tactical script catalog, run scripts now or schedule them, and retain job status/output.
-- **🔄 ConnectWise ingestion** — incrementally import ConnectWise Manage tickets and notes into the local database with provider status and sync logs. This is inbound sync, not two-way writeback.
+- **⚡ RMM actions** — Tactical RMM, NinjaOne, and Datto RMM adapters can sync devices, expose live snapshots where available, run scripts or quick jobs, and retain job status/output.
+- **🔄 Two-way ticket sync** — ConnectWise Manage and Jira Cloud can reconcile ticket status, priority, assignee, and notes in both directions. Conflicts are flagged and held until a human keeps local or remote changes. These outbound adapters are alpha until exercised against more live tenants.
 - **📝 Audit history** — ticket, note, device, user, mailbox, and other managed-record changes append actor-attributed history; admins can browse recent events across entities.
-- **🤖 MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) tools let authenticated agents list, read, create, and update tickets, add notes, log time, send ticket email, and inspect ticket history. Header-capable clients can use AnchorDesk personal access tokens; OAuth-capable clients such as ChatGPT can discover the configured OIDC issuer through protected-resource metadata.
+- **🤖 MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) tools let authenticated agents list, read, create, and update tickets, add notes, log time, send ticket email, and inspect ticket history. Header-capable clients can use AnchorDesk personal access tokens; OAuth-capable clients such as ChatGPT can discover AnchorDesk's own authorization server, dynamically register, ask the user for consent, and receive a revocable per-user token.
 - **📦 Self-hosting included** — Docker Compose, Kubernetes manifests, and tagged backend/web images on GHCR.
 
 ## Architecture
@@ -124,8 +126,8 @@ Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxie
 
 For the complete Compose stack, run `docker compose up --build`. Tagged release images are published as:
 
-- `ghcr.io/spillers-technology/anchordesk-backend:1.15.0`
-- `ghcr.io/spillers-technology/anchordesk-web-client:1.15.0`
+- `ghcr.io/spillers-technology/anchordesk-backend:1.17.0`
+- `ghcr.io/spillers-technology/anchordesk-web-client:1.17.0`
 
 ## Configuration
 
@@ -155,7 +157,7 @@ Local tickets are the source of truth. Integrations ingest into or act on those 
 
 | Area | Routes |
 |---|---|
-| **Auth** | `POST /auth/login`, `/auth/mfa/*`, `/auth/oidc/*`, `/auth/saml/*`, `GET /auth/me`, `POST /auth/logout` |
+| **Auth** | `POST /auth/login`, `/auth/mfa/*`, `/auth/oidc/*`, `/auth/saml/*`, `/oauth/*`, `GET /auth/me`, `POST /auth/logout` |
 | **Admin** | `/admin/overview`, `/admin/audit`, user CRUD, auth settings, integration settings, and mailbox CRUD/polling |
 | **Tickets** | `GET/POST /tickets` (paginated `{ items, total, page, pageSize }`), `GET /tickets/search?q=`, `GET/PATCH/DELETE /tickets/:id`, ticket history, notes, and `/tickets/:id/time` |
 | **Devices** | Device CRUD/history plus ticket link/unlink routes |
@@ -163,17 +165,17 @@ Local tickets are the source of truth. Integrations ingest into or act on those 
 | **Scripts** | Tactical catalog, device sync, immediate/scheduled jobs, and job history |
 | **Mail** | SMTP status and `POST /tickets/:id/email`; IMAP polling is managed under `/mailboxes` |
 | **Sync** | Provider list/status, inbound sync runs, and sync logs; legacy read-only `/cw/tickets/*` routes remain available |
-| **MCP** | SSE transport at `/mcp/sse` with client messages at `/mcp/messages`; OAuth protected-resource metadata at `/.well-known/oauth-protected-resource` |
+| **MCP** | SSE transport at `/mcp/sse` with client messages at `/mcp/messages`; OAuth protected-resource metadata at `/.well-known/oauth-protected-resource`; authorization-server metadata at `/.well-known/oauth-authorization-server` |
 | **Health** | `GET /ping` → `pong` |
 
-Probes authenticate with an `X-Probe-Key` API key and are exempt from browser auth. Other routes require a session cookie or OIDC bearer token unless `OIDC_DISABLED=true`. `readonly` users cannot mutate data, and sensitive administration and sync operations require the `admin` role.
+Probes authenticate with an `X-Probe-Key` API key and are exempt from browser auth. Other routes require a session cookie or bearer token (personal access token or OIDC bearer where configured) unless `OIDC_DISABLED=true`. `readonly` users cannot mutate data, and sensitive administration and sync operations require the `admin` role.
 
 ### MCP authentication
 
 AnchorDesk supports two MCP auth paths:
 
 - **Personal access token:** use an MCP client that can send custom headers and point it at `/mcp/sse` with `Authorization: Bearer <token>`.
-- **OAuth/OIDC:** configure OIDC in **Admin → Authentication**, then create or reuse an OAuth client in that IdP for ChatGPT. Add the callback URL shown by ChatGPT, use authorization-code + PKCE, and request `openid profile email`. ChatGPT discovers AnchorDesk's resource metadata from `/.well-known/oauth-protected-resource`, completes the OAuth flow with the IdP, and calls `/mcp/sse` with the issued bearer token.
+- **OAuth:** point an OAuth-capable MCP client such as ChatGPT at `https://<your-app-base-url>/mcp/sse`. AnchorDesk publishes discovery metadata, accepts Dynamic Client Registration at `/oauth/register`, gates `/oauth/authorize` on the normal AnchorDesk login, and exchanges the PKCE-bound code at `/oauth/token` for a freshly minted personal access token for the approving user. OIDC is no longer required for MCP OAuth.
 
 See [docs/mcp-auth.md](docs/mcp-auth.md) for a step-by-step ChatGPT setup guide and troubleshooting notes.
 
@@ -186,7 +188,7 @@ The wire contract lives in [backend/src/providers/NetVizProvider.ts](backend/src
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — patterns, request lifecycle, and auth
-- [docs/mcp-auth.md](docs/mcp-auth.md) — MCP personal-token and OAuth/OIDC setup
+- [docs/mcp-auth.md](docs/mcp-auth.md) — MCP personal-token and built-in OAuth setup
 - [docs/schema.md](docs/schema.md) — database schema
 - [docs/providers.md](docs/providers.md) — adding a sync provider
 - [CLAUDE.md](CLAUDE.md) — developer reference

@@ -1,11 +1,10 @@
 # MCP Authentication
 
 AnchorDesk exposes its Model Context Protocol server at `/mcp/sse`. The MCP
-server is powerful: it can create and update tickets, add notes, log time, send
-ticket email, and read ticket history. For that reason, `/mcp/*` is never public
-in a real deployment.
+server can create and update tickets, add notes, log time, send ticket email,
+and read ticket history, so `/mcp/*` is never public in a real deployment.
 
-There are two supported ways to authenticate an MCP client.
+There are two supported authentication paths.
 
 ## Option 1: Personal Access Token
 
@@ -13,8 +12,8 @@ Use this path for MCP clients that can send custom HTTP headers.
 
 1. Sign in to AnchorDesk.
 2. Open the account menu and create an API token.
-3. Copy the token once. AnchorDesk stores only its hash, so it cannot show the
-   same raw token again later.
+3. Copy the token once. AnchorDesk stores only its SHA-256 hash, so it cannot
+   show the same raw token again later.
 4. Configure your MCP client with:
 
 ```json
@@ -27,129 +26,114 @@ Use this path for MCP clients that can send custom HTTP headers.
 }
 ```
 
-This is the simplest path for local tools, service agents, and clients like
-Codex or Claude Desktop that support request headers.
+This is the simplest path for local tools, service agents, and clients that
+support request headers.
 
-## Option 2: OAuth/OIDC
+## Option 2: Built-In OAuth
 
-Use this path for clients like ChatGPT that do OAuth sign-in instead of custom
-bearer headers.
+Use this path for OAuth-capable MCP clients such as ChatGPT custom connectors.
 
-AnchorDesk does not mint OAuth tokens itself. It acts as an OAuth protected
-resource and trusts your existing OIDC identity provider. In plain English:
+AnchorDesk is its own OAuth 2.0 authorization server for MCP. No external IdP
+or OIDC application is required for this flow.
 
-- ChatGPT signs the user in with your OIDC provider.
-- The provider gives ChatGPT an access token.
-- ChatGPT calls AnchorDesk MCP with that bearer token.
-- AnchorDesk resolves the token through the same OIDC configuration used for SSO.
+The flow is:
 
-SAML-only SSO is not enough for this flow. Your identity provider must expose an
-OIDC/OAuth application.
+1. The client points at `https://your-anchordesk.example.com/mcp/sse`.
+2. The client discovers resource metadata from:
 
-### Before You Start
+```text
+https://your-anchordesk.example.com/.well-known/oauth-protected-resource
+```
 
-Make sure AnchorDesk has OIDC enabled in **Admin -> Authentication**.
+3. The client discovers authorization-server metadata from:
 
-The public `APP_BASE_URL` must match the URL ChatGPT will use, for example:
+```text
+https://your-anchordesk.example.com/.well-known/oauth-authorization-server
+```
+
+4. The client dynamically registers at `/oauth/register`.
+5. The user is sent to `/oauth/authorize`.
+6. If the user is not signed in, AnchorDesk redirects to the normal app login
+   and returns to consent afterward.
+7. Approving consent issues a short-lived authorization code bound to PKCE.
+8. The client redeems the code at `/oauth/token`.
+9. AnchorDesk returns an access token that is a freshly minted personal access
+   token for the approving user.
+
+The resulting MCP actions run as that user. RBAC and audit attribution are the
+same as web/API-token activity, and the grant can be revoked from **Account ->
+API tokens**.
+
+## ChatGPT Setup
+
+1. In ChatGPT, create a custom connector.
+2. Set the server URL to:
+
+```text
+https://your-anchordesk.example.com/mcp/sse
+```
+
+3. Choose OAuth authentication.
+4. Let ChatGPT discover/register automatically.
+5. Complete the AnchorDesk login and consent prompt.
+
+You do not need to create an OAuth client in Azure AD, Authentik, Okta, or any
+other external IdP for MCP. OIDC and SAML are still available for normal browser
+SSO, but MCP OAuth is handled by AnchorDesk itself.
+
+## Deployment Checks
+
+Set `APP_BASE_URL` to the public origin clients will use:
 
 ```dotenv
 APP_BASE_URL=https://tickets.example.com
 ```
 
-After deployment, this URL should return JSON:
+After deployment, these URLs should return JSON, not the AnchorDesk web app
+HTML:
 
 ```text
 https://tickets.example.com/.well-known/oauth-protected-resource
+https://tickets.example.com/.well-known/oauth-authorization-server
 ```
 
-It should not return the AnchorDesk web app HTML.
-
-## ChatGPT Setup
-
-1. In ChatGPT, create a new app or connector.
-2. Set the server URL to:
-
-```text
-https://tickets.example.com/mcp/sse
-```
-
-3. Choose OAuth authentication. AnchorDesk's MCP server expects every MCP call to
-   be authenticated, so OAuth is the normal choice.
-4. Open **Advanced OAuth settings**.
-5. Choose **User-Defined OAuth Client**.
-6. Copy the callback URL shown by ChatGPT.
-7. In your OIDC provider, create a new OAuth/OIDC application, or reuse the
-   existing AnchorDesk OIDC application if your provider allows multiple redirect
-   URIs.
-8. Add the ChatGPT callback URL as an allowed redirect URI.
-9. In ChatGPT, paste the OAuth client ID and, if your provider issued one, the
-   OAuth client secret.
-10. Use scopes:
-
-```text
-openid profile email
-```
-
-11. Set the token endpoint auth method to match the identity provider. Common
-    values are `client_secret_post`, `client_secret_basic`, or `none` for a
-    public PKCE client.
-12. Create the connector and complete the sign-in prompt.
-
-Do not paste an AnchorDesk `adk_...` personal access token into the OAuth client
-secret field. That field is for a client secret issued by the OIDC provider.
-
-## The Easiest IdP Path
-
-For a less technical setup, reuse the same OIDC application already configured
-for AnchorDesk browser SSO, then add the ChatGPT callback URL to that app's
-allowed redirect URIs.
-
-This is easier because AnchorDesk already knows that issuer and client
-configuration. If your IdP does not allow multiple redirect URIs, create a
-separate OIDC application for ChatGPT with the same issuer and the same userinfo
-claims (`sub`, `email`, `preferred_username`, and `name`).
-
-## What the Orange Warnings Mean
-
-ChatGPT may show warnings such as:
-
-- **DCR is unavailable until a Registration URL is present.**
-- **CIMD is unavailable because the server did not advertise CIMD support.**
-
-Those warnings are not the problem when you choose **User-Defined OAuth Client**.
-They only mean AnchorDesk is not doing dynamic OAuth client registration for you.
-You provide the OAuth client ID and secret manually from your IdP instead.
+The bundled nginx config and Vite dev proxy forward `/.well-known/*` and
+`/oauth/*` to the backend. If you use a custom reverse proxy, make sure these
+routes are above any single-page-app fallback.
 
 ## Troubleshooting
 
-### The metadata URL shows the AnchorDesk app, not JSON
+### Metadata URL shows the app shell
 
-The web proxy is not forwarding `/.well-known/oauth-protected-resource` to the
-backend. In the bundled nginx config, this route must be above the SPA fallback.
+Your web proxy is routing `/.well-known/*` to the frontend fallback instead of
+the backend. Move the well-known proxy rule above the SPA catchall.
 
-### ChatGPT says OAuth setup is incomplete
+### ChatGPT cannot register
 
-Check these fields:
+Check that `POST /oauth/register` reaches the backend and that `APP_BASE_URL`
+matches the public origin. Registered redirect URIs must be exact and must use
+HTTPS, except for localhost development.
 
-- **OAuth Client ID:** the client ID from your OIDC provider.
-- **OAuth Client Secret:** the secret from your OIDC provider, not an AnchorDesk
-  API token.
-- **Callback URL:** must be added exactly to the IdP application.
-- **Scopes:** start with `openid profile email`.
-- **Token endpoint auth method:** must match the IdP application's setting.
+### The consent page redirects to login repeatedly
 
-### ChatGPT signs in but MCP calls still get 401
+The user does not have a valid AnchorDesk session after login. Check cookie
+domain, `APP_BASE_URL`, reverse-proxy `X-Forwarded-*` headers, and session
+secret configuration.
 
-AnchorDesk could not resolve the bearer token. Check that:
+### Token exchange fails
 
-- OIDC is enabled in AnchorDesk.
-- The issuer URL in AnchorDesk matches the provider that issued the token.
-- The token allows access to the provider's userinfo endpoint, or the provider
-  supports introspection for this client.
-- The user exists and is active in AnchorDesk after SSO upsert.
+Authorization codes are single-use, short-lived, and PKCE-bound. A replayed
+code, mismatched `code_verifier`, unknown client, or changed redirect URI is
+rejected intentionally.
 
-### The account has the wrong permissions
+### MCP calls get 401 after OAuth succeeds
 
-MCP actions use the signed-in user's AnchorDesk role. A `readonly` user can read
-through MCP but cannot mutate tickets or send email. Give the user a technician
-or admin role if the connector needs write access.
+The access token is validated through AnchorDesk's bearer-token path. Confirm
+the generated API token has not expired or been revoked, and confirm the user is
+active.
+
+### The connector has the wrong permissions
+
+MCP actions use the approving user's AnchorDesk role. A `readonly` user can read
+through MCP but cannot mutate tickets or send email. Use a technician or admin
+account when the connector needs write access.

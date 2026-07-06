@@ -22,14 +22,14 @@ anchordesk is a local-first ticketing system. The PostgreSQL database is the sou
 │              ┌──────────────────────────┼─────────────────┐ │
 │              │      Integration adapters & pollers         │ │
 │              │  ┌────────────────┐  ┌───┴───────────────┐ │ │
-│              │  │ConnectWise     │  │ IMAP / SMTP       │ │ │
-│              │  │Provider        │  │ mail services     │ │ │
+│              │  │ConnectWise/Jira│  │ IMAP / SMTP       │ │ │
+│              │  │ticket sync     │  │ mail services     │ │ │
 │              │  └────────────────┘  └───────────────────┘ │ │
 │              └─────────────────────────────────────────────┘ │
 │                                                              │
 │                  ┌──────────────────────────────────────┐   │
 │                  │     Device providers & RMM runners    │   │
-│                  │  MeshCentral  │  Tactical RMM         │   │
+│                  │  netviz │ Tactical │ NinjaOne │ Datto │   │
 │                  └──────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -45,14 +45,19 @@ External integrations are defined by interfaces, not concrete implementations. T
 ```
 TicketProvider (interface)
 ├── ConnectWiseProvider    implements TicketProvider
+├── JiraProvider           implements TicketProvider
 └── YourProvider           implements TicketProvider (add yours)
 
 DeviceProvider (interface)
 ├── NetVizProvider         implements DeviceProvider
-└── TacticalRmmProvider    implements DeviceProvider
+├── TacticalRmmProvider    implements DeviceProvider
+├── NinjaOneProvider       implements DeviceProvider
+└── DattoRmmProvider       implements DeviceProvider
 
 ScriptRunner (interface)
-└── TacticalRmmRunner      implements ScriptRunner
+├── TacticalRmmRunner      implements ScriptRunner
+├── NinjaOneRunner         implements ScriptRunner
+└── DattoRmmRunner         implements ScriptRunner
 ```
 
 Adding a new integration means creating a new class — existing code does not change.
@@ -92,7 +97,7 @@ HTTP request
     │
     ▼
 Fastify onRequest hook
-    │ auth.ts — resolves session cookie OR OIDC bearer token
+    │ auth.ts — resolves session cookie OR bearer token
     │ sets request.user (with role) + request.actorSub
     │ enforces baseline RBAC (readonly cannot mutate)
     ▼
@@ -126,16 +131,20 @@ from **Admin → Authentication** (env vars seed the initial config on first boo
   (`https://login.microsoftonline.com/<tenant>/v2.0`), Authentik
   (`https://authentik.host/application/o/<slug>/`), Okta, or any OIDC IdP.
 - **MCP OAuth** — `/mcp/*` remains protected, but OAuth-capable clients can
-  discover `/.well-known/oauth-protected-resource`, sign in with the configured
-  OIDC issuer, and call MCP with the resulting bearer token. AnchorDesk is the
-  protected resource, not a separate OAuth authorization server.
+  discover `/.well-known/oauth-protected-resource` and
+  `/.well-known/oauth-authorization-server`, dynamically register at
+  `/oauth/register`, ask a signed-in user for consent at `/oauth/authorize`, and
+  exchange a PKCE-bound code at `/oauth/token`. The returned bearer is a freshly
+  minted personal access token for that user, so RBAC and audit attribution are
+  unchanged.
 - **SAML 2.0** — `@node-saml/node-saml` SP: AuthnRequest redirect, signed-assertion
   validation at the ACS endpoint, and SP metadata at `/auth/saml/metadata`.
 
-All three culminate in a local session. **RBAC** is enforced on every request:
-`readonly` can only read, `technician` can mutate tickets/devices, and admin-only
-surfaces (users, auth settings, probes, sync) require the `admin` role. Set
-`OIDC_DISABLED=true` to bypass auth entirely in local dev.
+Browser login methods culminate in a local session; API tokens and MCP OAuth
+bearers resolve to the owning user per request. **RBAC** is enforced on every
+request: `readonly` can only read, `technician` can mutate tickets/devices, and
+admin-only surfaces (users, auth settings, probes, sync) require the `admin`
+role. Set `OIDC_DISABLED=true` to bypass auth entirely in local dev.
 
 ---
 
@@ -172,5 +181,7 @@ api/client.ts — all fetch() calls go through here
 | 1.12.0 | My Day time day-spread, company-scoped device linking | **Done** |
 | 1.13.0 | Page-fill board (no Closed column, fall-off close), regex advanced search, denser ticket cockpit, idempotent IMAP ingest | **Done** |
 | 1.14.0 | NinjaOne + Datto RMM (device sync + scripts) and two-way ticket sync for ConnectWise + Jira Cloud — both alpha | **Done** |
-| 1.15.0 | OIDC protected-resource metadata for OAuth MCP clients | **Done** |
+| 1.15.0 | OAuth protected-resource metadata for hosted MCP clients | **Done** |
+| 1.16.0 | Built-in OAuth 2.0 authorization server for MCP with Dynamic Client Registration, consent, PKCE, and minted per-user API tokens | **Done** |
+| 1.17.0 | Rich-text ticket modal, separate rich note composer, bulk ticket updates, unified contact picker, and server-side HTML sanitizing | **Done** |
 | Roadmap | Postgres LISTEN/NOTIFY for live probe status | Planned |

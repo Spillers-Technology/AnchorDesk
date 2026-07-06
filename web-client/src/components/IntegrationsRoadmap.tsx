@@ -10,7 +10,7 @@ import DevicesIcon from "@mui/icons-material/Devices";
  * All targets expose public/official APIs, which is what makes them tractable.
  */
 
-type Status = "available" | "soon";
+type Status = "available" | "alpha" | "soon";
 interface Integration {
   name: string;
   status: Status;
@@ -19,21 +19,25 @@ interface Integration {
 
 const TICKET_SYNC: Integration[] = [
   { name: "ConnectWise Manage", status: "available" },
+  { name: "Jira Cloud", status: "alpha" },
   { name: "Autotask PSA", status: "soon" },
 ];
 
 const RMM_SYNC: Integration[] = [
   { name: "Tactical RMM", status: "available" },
-  { name: "Datto RMM", status: "soon" },
+  { name: "NinjaOne", status: "alpha" },
+  { name: "Datto RMM", status: "alpha" },
   { name: "ConnectWise Automate", status: "soon" },
 ];
 
 function StatusChip({ status }: { status: Status }) {
-  return status === "available" ? (
-    <Chip size="small" color="success" variant="outlined" label="Available" />
-  ) : (
-    <Chip size="small" color="default" variant="outlined" label="Coming soon" />
-  );
+  if (status === "available") {
+    return <Chip size="small" color="success" variant="outlined" label="Available" />;
+  }
+  if (status === "alpha") {
+    return <Chip size="small" color="warning" variant="outlined" label="Alpha" />;
+  }
+  return <Chip size="small" color="default" variant="outlined" label="Coming soon" />;
 }
 
 function Group({ title, icon, items }: { title: string; icon: React.ReactNode; items: Integration[] }) {
@@ -75,7 +79,7 @@ export default function IntegrationsRoadmap() {
         Integrations roadmap
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        AnchorDesk syncs over public, official APIs. Here's what's live and what's next.
+        AnchorDesk syncs over public, official APIs. Here's what's live, alpha, and next.
       </Typography>
 
       <Stack direction={{ xs: "column", sm: "row" }} spacing={3}>
