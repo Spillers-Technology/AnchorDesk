@@ -11,12 +11,16 @@ const baseUrl = process.env.ANCHORDESK_CAPTURE_BASE_URL || "http://127.0.0.1:517
 const debugCapture = process.env.ANCHORDESK_CAPTURE_DEBUG === "1";
 
 function loadPlaywright() {
+  // Accept either the full `playwright` (bundled Chromium) or the lighter
+  // `playwright-core` (no browser download — drive an installed browser via a
+  // channel; see PLAYWRIGHT_CHANNEL below). Both expose the same `chromium` API.
+  const base = process.env.PLAYWRIGHT_NODE_MODULES;
   const candidates = [
-    process.env.PLAYWRIGHT_NODE_MODULES
-      ? path.join(process.env.PLAYWRIGHT_NODE_MODULES, "playwright")
-      : null,
+    base ? path.join(base, "playwright") : null,
+    base ? path.join(base, "playwright-core") : null,
     path.join(repoRoot, "web-client", "node_modules", "playwright"),
     "playwright",
+    "playwright-core",
   ].filter(Boolean);
 
   for (const candidate of candidates) {
@@ -30,10 +34,14 @@ function loadPlaywright() {
   throw new Error(
     [
       "Playwright is required to capture product media.",
-      "Install it in a temp directory, then point PLAYWRIGHT_NODE_MODULES at that node_modules folder:",
+      "Option A — full package (downloads Chromium):",
       "  npm install --prefix %TEMP%\\anchordesk-playwright playwright",
-      "  $env:PLAYWRIGHT_NODE_MODULES=\"$env:TEMP\\anchordesk-playwright\\node_modules\"",
-      "Start the web client first: cd web-client; npm run dev",
+      "  set PLAYWRIGHT_NODE_MODULES=%TEMP%\\anchordesk-playwright\\node_modules",
+      "Option B — no download, drive installed Edge/Chrome:",
+      "  npm install --prefix %TEMP%\\anchordesk-playwright playwright-core",
+      "  set PLAYWRIGHT_NODE_MODULES=%TEMP%\\anchordesk-playwright\\node_modules",
+      "  set PLAYWRIGHT_CHANNEL=msedge",
+      "Start the web client first: cd web-client && npm run dev",
       "  node docs/scripts/capture-product-media.mjs",
     ].join("\n")
   );
@@ -690,6 +698,23 @@ async function handleApi(route) {
 
   if (method === "GET" && apiPath === "/companies") return json(route, companies);
 
+  match = apiPath.match(/^\/companies\/(\d+)\/tickets$/);
+  if (method === "GET" && match) {
+    const id = Number(match[1]);
+    const name = companies.find((c) => c.id === id)?.name;
+    return json(route, ticketRows.filter((t) => t.companyName === name));
+  }
+
+  match = apiPath.match(/^\/companies\/(\d+)\/devices$/);
+  if (method === "GET" && match) {
+    const id = Number(match[1]);
+    const name = companies.find((c) => c.id === id)?.name;
+    return json(route, devices.filter((d) => d.companyName === name));
+  }
+
+  match = apiPath.match(/^\/companies\/(\d+)\/time$/);
+  if (method === "GET" && match) return json(route, { minutes: 390 });
+
   match = apiPath.match(/^\/companies\/(\d+)$/);
   if (method === "GET" && match) {
     const company = companies.find((c) => c.id === Number(match[1]));
@@ -784,7 +809,11 @@ async function main() {
     console.log(`Using AnchorDesk web client at ${baseUrl}...`);
     await waitForServer();
     console.log("Launching Chromium...");
-    browser = await chromium.launch({ headless: true });
+    // PLAYWRIGHT_CHANNEL (e.g. "msedge"/"chrome") drives an installed browser so
+    // playwright-core works without a bundled-Chromium download.
+    const launchOpts = { headless: true };
+    if (process.env.PLAYWRIGHT_CHANNEL) launchOpts.channel = process.env.PLAYWRIGHT_CHANNEL;
+    browser = await chromium.launch(launchOpts);
     const page = await browser.newPage({ viewport: { width: 1440, height: 960 }, deviceScaleFactor: 1 });
     if (debugCapture) {
       page.on("console", (message) => console.log(`BROWSER ${message.type()}: ${message.text()}`));
@@ -830,6 +859,14 @@ async function main() {
     await openDrawer(page, "My Day");
     await page.getByText("Duration-only", { exact: false }).waitFor({ timeout: 20_000 });
     await page.screenshot({ path: path.join(outDir, "anchordesk-my-day.jpg"), type: "jpeg", quality: 90 });
+
+    console.log("Rendering Companies...");
+    await openDrawer(page, "Companies");
+    await page.getByText("ACME Manufacturing", { exact: false }).first().waitFor({ timeout: 20_000 });
+    await page.getByText("ACME Manufacturing", { exact: false }).first().click();
+    await page.getByText("Contacts", { exact: false }).first().waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: path.join(outDir, "anchordesk-companies.jpg"), type: "jpeg", quality: 90 });
 
     console.log("Rendering Network...");
     await openDrawer(page, "Network");
