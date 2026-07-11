@@ -6,11 +6,11 @@
 **A local-first ticketing platform for MSPs and IT teams — that also sees and acts on the machines behind the tickets.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/spilloid/AnchorDesk?color=6750A4)](https://github.com/spilloid/AnchorDesk/releases)
-[![Build images](https://github.com/spilloid/AnchorDesk/actions/workflows/publish-images.yml/badge.svg)](https://github.com/spilloid/AnchorDesk/actions/workflows/publish-images.yml)
+[![Release](https://img.shields.io/github/v/release/Spillers-Technology/AnchorDesk?color=6750A4)](https://github.com/Spillers-Technology/AnchorDesk/releases)
+[![Build images](https://github.com/Spillers-Technology/AnchorDesk/actions/workflows/publish-images.yml/badge.svg)](https://github.com/Spillers-Technology/AnchorDesk/actions/workflows/publish-images.yml)
 [![Stack](https://img.shields.io/badge/stack-React%20·%20Fastify%20·%20Prisma%20·%20PostgreSQL-555.svg)](#architecture)
 
-[**Website**](https://spilloid.github.io/AnchorDesk/) · [Quickstart](#quickstart) · [Architecture](#architecture) · [API](#api) · [Docs](docs/)
+[**Website**](https://spillers-technology.github.io/AnchorDesk/) · [Quickstart](#quickstart) · [Architecture](#architecture) · [API](#api) · [Docs](docs/)
 
 </div>
 
