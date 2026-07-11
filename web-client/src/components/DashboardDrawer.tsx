@@ -27,6 +27,7 @@ interface DashboardDrawerProps {
   setViewMode: (viewMode: ViewMode) => void;
   currentView?: ViewMode;
   isAdmin?: boolean;
+  legacyTableView?: boolean;
 }
 
 interface NavItem {
@@ -35,10 +36,12 @@ interface NavItem {
   icon: React.ReactNode;
 }
 
+// "Table" is the legacy view — only shown when the admin has enabled it, matching
+// the toolbar toggle. Filtered in the component from the legacyTableView flag.
 const TICKET_NAV: NavItem[] = [
+  { mode: "kanban", label: "Board", icon: <ViewKanbanIcon /> },
   { mode: "cards", label: "Cards", icon: <ViewModuleIcon /> },
   { mode: "table", label: "Table", icon: <TableRowsIcon /> },
-  { mode: "kanban", label: "Board", icon: <ViewKanbanIcon /> },
 ];
 
 const TIME_NAV: NavItem[] = [
@@ -51,11 +54,13 @@ const OPS_NAV: NavItem[] = [
   { mode: "sync", label: "Sync", icon: <SyncIcon /> },
 ];
 
-export default function DashboardDrawer({ drawerOpen, toggleDrawer, setViewMode, currentView, isAdmin }: DashboardDrawerProps) {
+export default function DashboardDrawer({ drawerOpen, toggleDrawer, setViewMode, currentView, isAdmin, legacyTableView }: DashboardDrawerProps) {
   const nav = (mode: ViewMode) => () => {
     setViewMode(mode);
     toggleDrawer();
   };
+
+  const ticketNav = TICKET_NAV.filter((it) => it.mode !== "table" || legacyTableView);
 
   const section = (label: string, items: NavItem[]) => (
     <List
@@ -86,7 +91,7 @@ export default function DashboardDrawer({ drawerOpen, toggleDrawer, setViewMode,
         </Box>
         <Divider />
 
-        {section("Tickets", TICKET_NAV)}
+        {section("Tickets", ticketNav)}
         <Divider sx={{ mx: 2 }} />
         {section("Time", TIME_NAV)}
         <Divider sx={{ mx: 2 }} />

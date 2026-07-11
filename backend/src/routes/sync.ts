@@ -142,6 +142,8 @@ export async function syncRoutes(server: FastifyInstance) {
       include: { provider: { select: { name: true, type: true } } },
     });
 
-    return reply.send(logs);
+    // SyncLog.id is a BigInt; the JSON serializer can't encode BigInt, so map it
+    // to a Number before sending (ids fit comfortably in a JS safe integer).
+    return reply.send(logs.map((log) => ({ ...log, id: Number(log.id) })));
   });
 }

@@ -286,7 +286,10 @@ export async function create(input: CreateTicketInput, actorSub: string) {
       summary: clamp(input.summary, 500),
       description: sanitizeTicketDescription(input.description),
       status: input.status ?? 'New',
-      priority: input.priority,
+      // Force a priority default here (not just in the create dialog) so tickets
+      // arriving from inbound email / API / sync are never left without one —
+      // a null priority renders as a blank chip that reads as "unset" everywhere.
+      priority: input.priority ?? 'Medium',
       companyName: clamp(companyName, 150),
       companyId: input.companyId ?? undefined,
       contactId: input.contactId ?? undefined,

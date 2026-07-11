@@ -198,7 +198,7 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
               {(company.contacts ?? []).map((c) => (
                 <Stack key={c.id} direction="row" alignItems="center" spacing={1}>
                   <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                    <Typography variant="body2" noWrap>{c.name}{c.isPrimary && <Chip size="small" label="primary" sx={{ ml: 1 }} />}</Typography>
+                    <Typography variant="body2" component="div" noWrap sx={{ display: "flex", alignItems: "center", gap: 1 }}>{c.name}{c.isPrimary && <Chip size="small" label="primary" />}</Typography>
                     <Typography variant="caption" color="text.secondary">{[c.title, c.email, c.phone].filter(Boolean).join(" · ")}</Typography>
                   </Box>
                   <IconButton size="small" onClick={() => api.deleteContact(c.id).then(load)}><DeleteIcon fontSize="small" /></IconButton>

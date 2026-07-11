@@ -11,6 +11,7 @@ import {
   Typography,
   Alert,
 } from "@mui/material";
+import AnchorIcon from "@mui/icons-material/Anchor";
 import * as api from "../api/client";
 
 type Step = "credentials" | "mfa" | "enroll";
@@ -83,8 +84,14 @@ export default function LoginView({ onAuthenticated }: { onAuthenticated: (u: ap
   return (
     <Centered>
       <Card sx={{ width: 420, maxWidth: "92vw" }} elevation={6}>
-        <CardContent>
-          <Typography variant="h5" gutterBottom>AnchorDesk</Typography>
+        <CardContent sx={{ p: 4 }}>
+          <Stack alignItems="center" spacing={1.25} sx={{ mb: 3 }}>
+            <Box sx={{ width: 52, height: 52, borderRadius: 2.5, bgcolor: "primary.main", color: "#fff", display: "grid", placeItems: "center" }}>
+              <AnchorIcon />
+            </Box>
+            <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: "-.01em" }}>AnchorDesk</Typography>
+            <Typography variant="body2" color="text.secondary">Local-first ticketing</Typography>
+          </Stack>
           {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
           {recovery ? (

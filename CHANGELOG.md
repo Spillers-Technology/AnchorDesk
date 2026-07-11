@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.18.0 — 2026-07-11 — Even Keel (minor)
+
+A UX quick-win pass from a full designer-grade audit of the live app: tickets now arrive complete, a couple of data-dependent bugs are gone, and the first-impression edges are polished.
+
+### Added
+
+- **Default priority enforcement.** Every ticket now gets a `Medium` priority default at the repository layer, so tickets created outside the New-ticket dialog — inbound email, API, and sync — are no longer persisted with a null priority that rendered as a blank "unset" chip. The dialog already defaulted; this closes the other ingestion paths.
+
+### Fixed
+
+- **Sync activity log 500.** `GET /sync/log` returned `500 "Do not know how to serialize a BigInt"` whenever log rows existed (`SyncLog.id` is a `BigInt`); the Sync view swallowed it and showed "No sync activity yet". The id is now serialized before send, so real sync history displays.
+- **New-ticket dialog label overlap.** The Contact and Assignee selects rendered their floating label on top of the value ("Nontact" / "Unassigneed"); the labels now sit correctly above the value.
+- **Login screen pinned to the top-left.** The sign-in card is now centered with the AnchorDesk anchor mark, wordmark, and a tagline. Root cause was a leftover Vite-starter `body { display:flex; place-items:center }` that pinned `#root` to the left app-wide.
+- **Companies list DOM-nesting warning.** A `Chip` (a `div`) nested inside a `<p>` in the contact list is resolved.
+
+### Changed
+
+- The nav drawer's **Table** item is now gated on the `legacyTableView` admin flag, matching the toolbar toggle (clicking it with the flag off no longer bounced back to the board), and **Board** leads the Tickets group.
+- The app bar shows the view name with the anchor mark instead of the repetitive `Dashboard - …` prefix.
+- **Docs capture harness** covers a new **Companies** screenshot, accepts `playwright-core` with a `PLAYWRIGHT_CHANNEL` (drive installed Edge/Chrome — no bundled-Chromium download), and ships a regeneration guide (`docs/scripts/README.md`).
+
+### Notes
+
+- No schema change.
+- Company enforcement (with an internal fallback company), inline contact editing, and per-user theme personalization are scoped from the same audit and tracked for follow-up releases.
+
+See [RELEASE_NOTES_v1.18.0.md](RELEASE_NOTES_v1.18.0.md) for the full release notes.
+
 ## 1.17.0 — 2026-07-05 — Fair Copy (minor)
 
 ### Added
