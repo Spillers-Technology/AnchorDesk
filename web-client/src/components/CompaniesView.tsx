@@ -18,9 +18,15 @@ import {
   Card,
   CardContent,
   InputAdornment,
+  Tooltip,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
+import CheckIcon from "@mui/icons-material/Check";
+import CloseIcon from "@mui/icons-material/Close";
+import StarIcon from "@mui/icons-material/Star";
+import StarBorderIcon from "@mui/icons-material/StarBorder";
 import SearchIcon from "@mui/icons-material/Search";
 import BusinessIcon from "@mui/icons-material/Business";
 import ComputerIcon from "@mui/icons-material/Computer";
@@ -196,13 +202,7 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
             <Typography variant="subtitle2" color="text.secondary" gutterBottom>Contacts ({company.contacts?.length ?? 0})</Typography>
             <Stack spacing={1} sx={{ mb: 1.5 }}>
               {(company.contacts ?? []).map((c) => (
-                <Stack key={c.id} direction="row" alignItems="center" spacing={1}>
-                  <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                    <Typography variant="body2" component="div" noWrap sx={{ display: "flex", alignItems: "center", gap: 1 }}>{c.name}{c.isPrimary && <Chip size="small" label="primary" />}</Typography>
-                    <Typography variant="caption" color="text.secondary">{[c.title, c.email, c.phone].filter(Boolean).join(" · ")}</Typography>
-                  </Box>
-                  <IconButton size="small" onClick={() => api.deleteContact(c.id).then(load)}><DeleteIcon fontSize="small" /></IconButton>
-                </Stack>
+                <ContactRow key={c.id} contact={c} contacts={company.contacts ?? []} onChanged={load} />
               ))}
               {(company.contacts ?? []).length === 0 && <Typography variant="body2" color="text.secondary">No contacts yet.</Typography>}
             </Stack>
@@ -250,6 +250,101 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
           </CardContent></Card>
         </Grid>
       </Grid>
+    </Stack>
+  );
+}
+
+function ContactRow({ contact, contacts, onChanged }: { contact: api.Contact; contacts: api.Contact[]; onChanged: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ name: contact.name, title: contact.title ?? "", email: contact.email ?? "", phone: contact.phone ?? "" });
+
+  const startEdit = () => {
+    setForm({ name: contact.name, title: contact.title ?? "", email: contact.email ?? "", phone: contact.phone ?? "" });
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (!form.name.trim()) return;
+    setBusy(true);
+    await api.updateContact(contact.id, {
+      name: form.name.trim(),
+      title: form.title.trim() || null,
+      email: form.email.trim() || null,
+      phone: form.phone.trim() || null,
+    }).catch(() => {});
+    setBusy(false);
+    setEditing(false);
+    onChanged();
+  };
+
+  const makePrimary = async () => {
+    setBusy(true);
+    const prev = contacts.find((c) => c.isPrimary && c.id !== contact.id);
+    await api.updateContact(contact.id, { isPrimary: true }).catch(() => {});
+    if (prev) await api.updateContact(prev.id, { isPrimary: false }).catch(() => {});
+    setBusy(false);
+    onChanged();
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    await api.deleteContact(contact.id).catch(() => {});
+    setBusy(false);
+    onChanged();
+  };
+
+  if (editing) {
+    return (
+      <Stack direction="row" alignItems="flex-start" spacing={1}>
+        <Stack spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
+          <Stack direction="row" spacing={1}>
+            <TextField size="small" label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+              onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }} fullWidth autoFocus />
+            <TextField size="small" label="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} fullWidth />
+          </Stack>
+          <Stack direction="row" spacing={1}>
+            <TextField size="small" label="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} fullWidth />
+            <TextField size="small" label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} fullWidth />
+          </Stack>
+        </Stack>
+        <Tooltip title="Save">
+          <span>
+            <IconButton size="small" color="primary" onClick={save} disabled={busy || !form.name.trim()}><CheckIcon fontSize="small" /></IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Cancel">
+          <IconButton size="small" onClick={() => setEditing(false)} disabled={busy}><CloseIcon fontSize="small" /></IconButton>
+        </Tooltip>
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack direction="row" alignItems="center" spacing={1}>
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+        <Typography variant="body2" component="div" noWrap sx={{ display: "flex", alignItems: "center", gap: 1 }}>{contact.name}{contact.isPrimary && <Chip size="small" label="primary" />}</Typography>
+        <Typography variant="caption" color="text.secondary">{[contact.title, contact.email, contact.phone].filter(Boolean).join(" · ")}</Typography>
+      </Box>
+      {contact.isPrimary ? (
+        <Tooltip title="Primary contact">
+          <span>
+            <IconButton size="small" color="warning" disabled><StarIcon fontSize="small" /></IconButton>
+          </span>
+        </Tooltip>
+      ) : (
+        <Tooltip title="Make primary">
+          <span>
+            <IconButton size="small" onClick={makePrimary} disabled={busy}><StarBorderIcon fontSize="small" /></IconButton>
+          </span>
+        </Tooltip>
+      )}
+      <Tooltip title="Edit">
+        <IconButton size="small" onClick={startEdit} disabled={busy}><EditIcon fontSize="small" /></IconButton>
+      </Tooltip>
+      <Tooltip title="Delete">
+        <IconButton size="small" onClick={remove} disabled={busy}><DeleteIcon fontSize="small" /></IconButton>
+      </Tooltip>
     </Stack>
   );
 }
