@@ -32,12 +32,12 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
   // Adopt the server-stored preference once the user resolves (source of truth
   // for that account); keep localStorage in sync so the next load is instant.
   useEffect(() => {
-    if (user && isThemeId(user.themePref) && user.themePref !== themeId) {
-      setThemeIdState(user.themePref);
-      localStorage.setItem(STORAGE_KEY, user.themePref);
-    }
+    if (!user || user.id === 0) return;
+    const preferred = isThemeId(user.themePref) ? user.themePref : DEFAULT_THEME_ID;
+    setThemeIdState(preferred);
+    localStorage.setItem(STORAGE_KEY, preferred);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.themePref]);
+  }, [user?.id, user?.themePref]);
 
   const setThemeId = useCallback((id: ThemeId) => {
     setThemeIdState(id);

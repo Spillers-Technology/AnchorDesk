@@ -88,7 +88,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   // board (overflowX:auto above) scrolls to reach later statuses.
                   flex: { xs: "0 0 280px", lg: "1 1 0" },
                   minWidth: { xs: 280, lg: 0 },
-                  bgcolor: snapshot.isDraggingOver ? "action.selected" : "grey.50",
+                  bgcolor: snapshot.isDraggingOver ? "action.selected" : "background.paper",
                   border: 1,
                   borderColor: "divider",
                   borderRadius: 2,

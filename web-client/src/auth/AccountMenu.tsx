@@ -379,7 +379,7 @@ function ManageMfaDialog({ onClose }: { onClose: () => void }) {
           {recovery ? (
             <>
               <Alert severity="warning">Save these one-time recovery codes. They won't be shown again.</Alert>
-              <Box sx={{ fontFamily: "monospace", p: 2, bgcolor: "grey.100", borderRadius: 1 }}>
+              <Box sx={{ fontFamily: "monospace", p: 2, bgcolor: "action.hover", borderRadius: 1 }}>
                 {recovery.map((c) => <div key={c}>{c}</div>)}
               </Box>
             </>

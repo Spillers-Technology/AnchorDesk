@@ -162,7 +162,7 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
   return (
     <Stack spacing={2}>
       <Stack direction="row" alignItems="center" spacing={1.5}>
-        <Box sx={{ width: 44, height: 44, borderRadius: 2, bgcolor: "primary.main", color: "#fff", display: "grid", placeItems: "center" }}>
+        <Box sx={{ width: 44, height: 44, borderRadius: 2, bgcolor: "primary.main", color: "primary.contrastText", display: "grid", placeItems: "center" }}>
           <BusinessIcon />
         </Box>
         <Typography variant="h5" sx={{ flexGrow: 1 }}>{company.name}</Typography>
@@ -202,7 +202,7 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
             <Typography variant="subtitle2" color="text.secondary" gutterBottom>Contacts ({company.contacts?.length ?? 0})</Typography>
             <Stack spacing={1} sx={{ mb: 1.5 }}>
               {(company.contacts ?? []).map((c) => (
-                <ContactRow key={c.id} contact={c} contacts={company.contacts ?? []} onChanged={load} />
+                <ContactRow key={c.id} contact={c} onChanged={load} />
               ))}
               {(company.contacts ?? []).length === 0 && <Typography variant="body2" color="text.secondary">No contacts yet.</Typography>}
             </Stack>
@@ -254,7 +254,7 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
   );
 }
 
-function ContactRow({ contact, contacts, onChanged }: { contact: api.Contact; contacts: api.Contact[]; onChanged: () => void }) {
+function ContactRow({ contact, onChanged }: { contact: api.Contact; onChanged: () => void }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ name: contact.name, title: contact.title ?? "", email: contact.email ?? "", phone: contact.phone ?? "" });

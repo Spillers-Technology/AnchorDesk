@@ -1,4 +1,6 @@
-import { createTheme, alpha, type Theme, type PaletteMode } from "@mui/material/styles";
+import { createTheme, alpha, type Theme } from "@mui/material/styles";
+
+type PaletteMode = "light" | "dark";
 
 /**
  * Theming system. AnchorDesk ships several selectable palettes (a per-user
@@ -147,7 +149,7 @@ export function buildTheme(id: ThemeId): Theme {
         styleOverrides: {
           root: {
             backgroundImage: "none",
-            boxShadow: `0 1px 0 ${alpha(p.mode === "dark" ? "#000" : "#000", 0.06)}`,
+            boxShadow: `0 1px 0 ${alpha("#000", 0.06)}`,
           },
         },
       },

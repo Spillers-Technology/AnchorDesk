@@ -70,10 +70,12 @@ function portNumbers(value: unknown): number[] {
 function enrich(input: CreateDeviceInput, current?: { hostname: string | null; macAddress: string | null; vendor: string | null; deviceType: string | null; openPorts: unknown }): CreateDeviceInput {
   const enriched = { ...input };
   const mac = input.macAddress ?? current?.macAddress;
-  const vendor = input.vendor ?? current?.vendor ?? (mac ? vendorForMac(mac) : '');
+  const suppliedVendor = input.vendor?.trim();
+  const existingVendor = current?.vendor?.trim();
+  const vendor = suppliedVendor || existingVendor || (mac ? vendorForMac(mac) : '');
   const ports = portNumbers(input.openPorts ?? current?.openPorts);
-  if (!input.vendor && !current?.vendor && vendor) enriched.vendor = vendor;
-  if (!input.deviceType && !current?.deviceType) {
+  if (!suppliedVendor && !existingVendor && vendor) enriched.vendor = vendor;
+  if (!input.deviceType?.trim() && !current?.deviceType?.trim()) {
     enriched.deviceType = classifyHost({ vendor, hostname: input.hostname ?? current?.hostname, openPorts: ports });
   }
   return enriched;

@@ -10,7 +10,7 @@
 // furnished to do so, subject to the conditions in the source repository's
 // LICENSE. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./NetworkMap.css";
 
 export type NetworkMapDevice = {

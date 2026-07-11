@@ -384,7 +384,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
         <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
           <Box sx={{ minWidth: 0 }}>
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-              <Chip size="small" label={`#${ticket.ticketnumber}`} sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "#fff", fontWeight: 700 }} />
+              <Chip size="small" label={`#${ticket.ticketnumber}`} sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "inherit", fontWeight: 700 }} />
               <SyncBadges
                 ticket={{
                   source,
@@ -416,12 +416,12 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
             <SaveStatus state={saveState} />
             {ticket.localId != null && (
               <Tooltip title="Download ticket (printable)">
-                <IconButton sx={{ color: "#fff" }} onClick={() => window.open(api.ticketExportUrl(ticket.localId!), "_blank")}>
+                <IconButton sx={{ color: "inherit" }} onClick={() => window.open(api.ticketExportUrl(ticket.localId!), "_blank")}>
                   <DownloadIcon />
                 </IconButton>
               </Tooltip>
             )}
-            <IconButton onClick={onClose} sx={{ color: "#fff" }}><Close /></IconButton>
+            <IconButton onClick={onClose} sx={{ color: "inherit" }}><Close /></IconButton>
           </Stack>
         </Stack>
       </Box>
@@ -1099,8 +1099,8 @@ function AttachmentsCard({
  *  edit is in flight, confirms briefly, or flags a failure. */
 function SaveStatus({ state }: { state: "idle" | "saving" | "saved" | "error" }) {
   if (state === "idle") return null;
-  const common = { color: "#fff", display: "flex", alignItems: "center", gap: 0.5, fontSize: 13 } as const;
-  if (state === "saving") return <Box sx={common}><CircularProgress size={14} sx={{ color: "#fff" }} /> Saving…</Box>;
+  const common = { color: "inherit", display: "flex", alignItems: "center", gap: 0.5, fontSize: 13 } as const;
+  if (state === "saving") return <Box sx={common}><CircularProgress size={14} color="inherit" /> Saving…</Box>;
   if (state === "saved") return <Box sx={common}><CheckCircleIcon sx={{ fontSize: 16 }} /> Saved</Box>;
   return <Box sx={{ ...common, color: "#ffd5d5" }}><ErrorOutlineIcon sx={{ fontSize: 16 }} /> Save failed</Box>;
 }

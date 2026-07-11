@@ -84,7 +84,7 @@ export default function DashboardDrawer({ drawerOpen, toggleDrawer, setViewMode,
       <Box sx={{ width: 252 }}>
         {/* Brand */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 2.5, py: 2 }}>
-          <Box sx={{ width: 34, height: 34, borderRadius: 2, bgcolor: "primary.main", color: "#fff", display: "grid", placeItems: "center" }}>
+          <Box sx={{ width: 34, height: 34, borderRadius: 2, bgcolor: "primary.main", color: "primary.contrastText", display: "grid", placeItems: "center" }}>
             <AnchorIcon fontSize="small" />
           </Box>
           <Typography variant="h6" sx={{ fontWeight: 700 }}>AnchorDesk</Typography>
