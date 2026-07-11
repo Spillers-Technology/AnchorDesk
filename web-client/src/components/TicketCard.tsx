@@ -3,9 +3,9 @@ import { Card, CardContent, Typography, Box, Chip, Stack, Checkbox, Tooltip } fr
 import BusinessIcon from "@mui/icons-material/Business";
 import PersonIcon from "@mui/icons-material/Person";
 import { Ticket } from "../interfaces";
-import { statusColor, priorityColor } from "../ticketVocab";
 import SlaChip from "./SlaChip";
 import SyncBadges from "./SyncBadges";
+import { PriorityChip, StatusChip } from "./TicketSignals";
 
 interface TicketCardProps {
   ticket: Ticket;
@@ -68,8 +68,8 @@ const TicketCard: React.FC<TicketCardProps> = ({
       )}
       <CardContent sx={{ flexGrow: 1, width: "100%" }}>
           <Stack direction="row" spacing={1} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
-            <Chip size="small" label={ticket.status} color={statusColor(ticket.status)} />
-            <Chip size="small" variant="outlined" label={ticket.priority || "Medium"} color={priorityColor(ticket.priority || "Medium")} />
+            <StatusChip status={ticket.status} />
+            <PriorityChip priority={ticket.priority || "Medium"} variant="outlined" />
             <SlaChip
               responseDueAt={ticket.responseDueAt}
               resolutionDueAt={ticket.resolutionDueAt}

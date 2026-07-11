@@ -188,6 +188,11 @@ export function setSignature(id: number, signatureHtml: string | null): Promise<
   return prisma.user.update({ where: { id }, data: { signatureHtml } });
 }
 
+/** Update a user's own UI theme preference (a palette id, validated by the caller). */
+export function setThemePref(id: number, themePref: string | null): Promise<User> {
+  return prisma.user.update({ where: { id }, data: { themePref } });
+}
+
 /** Active users who can own a ticket (admins + technicians). For the assignee picker. */
 export function listAssignable(): Promise<User[]> {
   return prisma.user.findMany({

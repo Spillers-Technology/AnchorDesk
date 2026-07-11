@@ -21,6 +21,7 @@ import {
   DEFAULT_STATUS,
   DEFAULT_PRIORITY,
 } from "../ticketVocab";
+import { PrioritySignal, StatusSignal } from "./TicketSignals";
 
 interface Props {
   open: boolean;
@@ -115,14 +116,14 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
           <Stack direction="row" spacing={2}>
             <FormControl fullWidth size="small">
               <InputLabel>Status</InputLabel>
-              <Select value={form.status} label="Status" onChange={(e) => setField("status", e.target.value)}>
-                {TICKET_STATUSES.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+              <Select value={form.status} label="Status" renderValue={(value) => <StatusSignal status={String(value)} />} onChange={(e) => setField("status", e.target.value)}>
+                {TICKET_STATUSES.map((s) => <MenuItem key={s} value={s}><StatusSignal status={s} /></MenuItem>)}
               </Select>
             </FormControl>
             <FormControl fullWidth size="small">
               <InputLabel>Priority</InputLabel>
-              <Select value={form.priority} label="Priority" onChange={(e) => setField("priority", e.target.value)}>
-                {TICKET_PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+              <Select value={form.priority} label="Priority" renderValue={(value) => <PrioritySignal priority={String(value)} />} onChange={(e) => setField("priority", e.target.value)}>
+                {TICKET_PRIORITIES.map((p) => <MenuItem key={p} value={p}><PrioritySignal priority={p} /></MenuItem>)}
               </Select>
             </FormControl>
           </Stack>
@@ -135,7 +136,14 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
               getOptionLabel={(c) => (typeof c === "string" ? c : c.name)}
               value={company}
               onChange={(_e, v) => pickCompany(v)}
-              renderInput={(params) => <TextField {...params} label="Company" placeholder="Search or type to add…" />}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Company"
+                  placeholder="Search or type to add…"
+                  helperText="Blank tickets go to SpillersTech"
+                />
+              )}
             />
             <FormControl fullWidth size="small" disabled={!company}>
               {/* shrink is forced because these selects use displayEmpty — without it

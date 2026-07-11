@@ -14,7 +14,7 @@ export const HTML_CONTENT_SX: SxProps<Theme> = {
   "& ul, & ol": { pl: 3, my: 1 },
   "& li": { my: 0.25 },
   "& blockquote": { borderLeft: 3, borderColor: "divider", pl: 1.5, ml: 0, my: 1, color: "text.secondary" },
-  "& pre": { whiteSpace: "pre-wrap", overflowX: "auto", bgcolor: "grey.100", p: 1, borderRadius: 1 },
+  "& pre": { whiteSpace: "pre-wrap", overflowX: "auto", bgcolor: "action.hover", p: 1, borderRadius: 1 },
   "& code": { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "0.9em" },
   "& table": { width: "100%", borderCollapse: "collapse", my: 1, display: "block", overflowX: "auto" },
   "& th, & td": { border: "1px solid", borderColor: "divider", px: 1, py: 0.75, textAlign: "left", verticalAlign: "top" },

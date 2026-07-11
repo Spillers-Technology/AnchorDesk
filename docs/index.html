@@ -319,6 +319,41 @@
     font-size: 0.94rem;
   }
 
+  .theme-deck {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .theme-card {
+    --tb: #f4f5f9; --tp: #ffffff; --ti: #1f2430; --tm: #5b6472; --ta: #4f46e5; --ts: #0ea5e9;
+    min-height: 180px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--tb);
+    color: var(--ti);
+    box-shadow: 0 8px 20px rgba(23, 32, 42, 0.08);
+  }
+  .theme-card[data-palette="default-dark"] { --tb:#0f1116; --tp:#181b24; --ti:#e7e9f2; --tm:#a5abbd; --ta:#818cf8; --ts:#38bdf8; }
+  .theme-card[data-palette="solarized-light"] { --tb:#fdf6e3; --tp:#fbf3df; --ti:#586e75; --tm:#657b83; --ta:#268bd2; --ts:#2aa198; }
+  .theme-card[data-palette="solarized-dark"] { --tb:#002b36; --tp:#073642; --ti:#93a1a1; --tm:#839496; --ta:#268bd2; --ts:#2aa198; }
+  .theme-card[data-palette="nord"] { --tb:#2e3440; --tp:#3b4252; --ti:#e5e9f0; --tm:#b8c0d0; --ta:#88c0d0; --ts:#81a1c1; }
+  .theme-card[data-palette="gruvbox"] { --tb:#282828; --tp:#32302f; --ti:#ebdbb2; --tm:#a89984; --ta:#83a598; --ts:#fe8019; }
+  .theme-card[data-palette="dracula"] { --tb:#282a36; --tp:#343746; --ti:#f8f8f2; --tm:#a6accd; --ta:#bd93f9; --ts:#ff79c6; }
+  .theme-bar { display:flex; align-items:center; gap:7px; padding:10px 12px; background:var(--ta); color:var(--tb); font-size:.76rem; font-weight:800; }
+  .theme-anchor { width:18px; height:18px; display:grid; place-items:center; border-radius:5px; background:var(--tp); color:var(--ta); }
+  .theme-body { display:grid; grid-template-columns:46px 1fr; min-height:140px; }
+  .theme-rail { border-right:1px solid color-mix(in srgb, var(--tm) 28%, transparent); padding:12px 10px; }
+  .theme-rail i { display:block; width:22px; height:4px; margin-bottom:10px; border-radius:4px; background:var(--tm); opacity:.55; }
+  .theme-content { padding:14px; }
+  .theme-content strong { display:block; margin-bottom:3px; color:var(--ti); }
+  .theme-content small { color:var(--tm); }
+  .theme-ticket { margin-top:14px; padding:10px; border:1px solid color-mix(in srgb, var(--tm) 28%, transparent); border-radius:7px; background:var(--tp); }
+  .theme-signals { display:flex; gap:6px; margin-bottom:8px; }
+  .theme-signals span { width:34px; height:6px; border-radius:8px; background:var(--ta); }
+  .theme-signals span+span { width:24px; background:var(--ts); }
+  .theme-line { width:82%; height:5px; border-radius:5px; background:var(--tm); opacity:.38; }
+
   .motion-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -586,6 +621,7 @@
     .integrations,
     .docs-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .shots,
+    .theme-deck,
     .motion-row,
     .how { grid-template-columns: 1fr; }
   }
@@ -662,7 +698,8 @@
   <div class="wrap topbar">
     <a class="brand" href="#top" aria-label="AnchorDesk home"><svg><use href="#logo"/></svg> AnchorDesk</a>
     <nav class="nav" aria-label="Primary">
-      <a href="#release">v1.17</a>
+      <a href="#release">v2.0</a>
+      <a href="#themes">Themes</a>
       <a href="#views">Views</a>
       <a href="#platform">Platform</a>
       <a href="#integrations">Integrations</a>
@@ -677,7 +714,7 @@
   <section class="hero" aria-labelledby="hero-title">
     <div class="wrap">
       <div class="hero-content">
-        <div class="release"><span></span> v1.17.0 Fair Copy - rich tickets, bulk updates, current app views</div>
+        <div class="release"><span></span> v2.0.0 Signal &amp; Spectrum — personal palettes and network intelligence</div>
         <h1 id="hero-title">AnchorDesk</h1>
         <p class="lead">A self-hosted ticketing and IT operations console where PostgreSQL is the source of truth, tickets know the machines behind them, and MCP/OAuth gives agents a first-class way in.</p>
         <div class="actions">
@@ -700,30 +737,49 @@
     <div class="wrap">
       <div class="section-head">
         <div class="kicker">Current release</div>
-        <h2>v1.17 brings the daily ticket surface up to speed.</h2>
-        <p>The newest work is focused on the parts techs touch all day: rich ticket text, a separate note composer, page-scoped bulk updates, and faster company/contact selection.</p>
+        <h2>v2.0 makes the whole workspace easier to read and trust.</h2>
+        <p>Personal palettes give each technician a comfortable visual home, while stronger company guarantees, clearer workflow signals, and richer device intelligence remove ambiguity from daily work.</p>
       </div>
       <div class="release-grid">
         <article class="tile">
-          <div class="status-line green"><i></i> Rich ticket modal</div>
-          <strong>Description, notes, and email now share one editor.</strong>
-          <p>Formatted HTML renders safely, plain text stays plain, and the visual/source toggle is available where rich text is edited.</p>
+          <div class="status-line green"><i></i> Personal workspace</div>
+          <strong>Seven complete palettes, saved per user.</strong>
+          <p>Light, dark, Solarized, Nord, Gruvbox, and Dracula choices apply immediately and return before the next session finishes loading.</p>
         </article>
         <article class="tile">
-          <div class="status-line sky"><i></i> Notes separated from mail</div>
-          <strong>Internal notes are first-class again.</strong>
-          <p>The activity card has its own rich note composer, and edited notes now persist instead of disappearing into a console log.</p>
+          <div class="status-line sky"><i></i> Network intelligence</div>
+          <strong>Devices identify themselves and form a real map.</strong>
+          <p>OUI vendors, port fingerprints, service names, clustered Canvas layout, zoom, pan, and linked tickets turn inventory into context.</p>
         </article>
         <article class="tile">
-          <div class="status-line amber"><i></i> Bulk updates</div>
-          <strong>Select visible tickets and update workflow fields.</strong>
-          <p>Cards, the board, and the legacy table can update status, priority, and assignee with optimistic feedback.</p>
+          <div class="status-line amber"><i></i> Complete customer flow</div>
+          <strong>Tickets, companies, contacts, and recipients stay connected.</strong>
+          <p>Every new ticket has a company, inbound domains resolve automatically, and primary contacts drive fresh email composition.</p>
         </article>
         <article class="tile">
-          <div class="status-line red"><i></i> Safer HTML</div>
-          <strong>Server-side sanitizing closes the loop.</strong>
-          <p>Descriptions and rich notes are sanitized on save, previews strip HTML, and printable exports preserve safe formatting.</p>
+          <div class="status-line red"><i></i> Workflow signals</div>
+          <strong>Status and priority no longer look interchangeable.</strong>
+          <p>Semantic dots and directional icons carry through cards, tables, and controls, while the activity rail reads in one sweep.</p>
         </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="themes" class="band">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">Now in multiple colors</div>
+        <h2>One workspace shape. Seven distinct atmospheres.</h2>
+        <p>Palette changes are personal, not cosmetic shortcuts: canvas, surfaces, text, dividers, accents, and semantic states are tuned together while layout stays familiar.</p>
+      </div>
+      <div class="theme-deck" aria-label="AnchorDesk theme palette previews">
+        <article class="theme-card" data-palette="default-light"><div class="theme-bar"><span class="theme-anchor">⚓</span> Default Light</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Bright watch</strong><small>Cool white · indigo</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+        <article class="theme-card" data-palette="default-dark"><div class="theme-bar"><span class="theme-anchor">⚓</span> Default Dark</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Night watch</strong><small>Slate · periwinkle</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+        <article class="theme-card" data-palette="solarized-light"><div class="theme-bar"><span class="theme-anchor">⚓</span> Solarized Light</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Paper chart</strong><small>Warm ivory · blue</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+        <article class="theme-card" data-palette="solarized-dark"><div class="theme-bar"><span class="theme-anchor">⚓</span> Solarized Dark</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Deep water</strong><small>Blue-black · cyan</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+        <article class="theme-card" data-palette="nord"><div class="theme-bar"><span class="theme-anchor">⚓</span> Nord</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Arctic bridge</strong><small>Frost · polar night</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+        <article class="theme-card" data-palette="gruvbox"><div class="theme-bar"><span class="theme-anchor">⚓</span> Gruvbox</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Signal room</strong><small>Charcoal · amber</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+        <article class="theme-card" data-palette="dracula"><div class="theme-bar"><span class="theme-anchor">⚓</span> Dracula</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>After hours</strong><small>Ink · violet · pink</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
       </div>
     </div>
   </section>
@@ -851,8 +907,8 @@ npm install
 npm run dev            <span class="c"># :5173</span>
 
 <span class="c"># Current images</span>
-ghcr.io/spillers-technology/anchordesk-backend:<span class="v">1.17.0</span>
-ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">1.17.0</span></pre>
+ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.0.0</span>
+ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.0.0</span></pre>
         </div>
       </div>
     </div>

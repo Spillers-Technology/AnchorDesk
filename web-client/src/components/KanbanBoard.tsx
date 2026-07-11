@@ -62,10 +62,20 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
 
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
-      {/* Columns flex to share the available width so the board always fills the
-          page — never a horizontal scrollbar. minWidth:0 lets them shrink past
-          their content (cards wrap/truncate) so even a narrow viewport fits. */}
-      <Box sx={{ display: "flex", gap: 2, pb: 1, width: "100%" }}>
+      {/* At lg+ columns flex to share the available width so the board fills the
+          page with no horizontal scrollbar (minWidth:0 lets them shrink past their
+          content). Below lg the fluid columns would squeeze past legibility and
+          clip the rightmost statuses, so we switch to fixed-width columns and let
+          the board scroll horizontally instead. */}
+      <Box
+        sx={{
+          display: "flex",
+          gap: 2,
+          pb: 1,
+          width: "100%",
+          overflowX: { xs: "auto", lg: "visible" },
+        }}
+      >
         {statuses.map((status) => (
           <Droppable droppableId={status} key={status}>
             {(provided, snapshot) => (
@@ -73,9 +83,12 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                 ref={provided.innerRef}
                 {...provided.droppableProps}
                 sx={{
-                  flex: "1 1 0",
-                  minWidth: 0,
-                  bgcolor: snapshot.isDraggingOver ? "action.selected" : "grey.50",
+                  // lg+: fluid columns that share the width and can shrink to 0.
+                  // Below lg: fixed ~280px columns so each stays legible and the
+                  // board (overflowX:auto above) scrolls to reach later statuses.
+                  flex: { xs: "0 0 280px", lg: "1 1 0" },
+                  minWidth: { xs: 280, lg: 0 },
+                  bgcolor: snapshot.isDraggingOver ? "action.selected" : "background.paper",
                   border: 1,
                   borderColor: "divider",
                   borderRadius: 2,

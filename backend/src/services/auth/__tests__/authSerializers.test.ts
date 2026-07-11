@@ -28,6 +28,7 @@ const baseUser: User = {
   totpEnabled: true,
   totpRecovery: ['hash1', 'hash2'],
   signatureHtml: null,
+  themePref: null,
   lastSeenAt: null,
   passwordChangedAt: null,
   createdAt: new Date(),

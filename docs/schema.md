@@ -94,6 +94,7 @@ Secrets (`password_hash`, `totp_secret`, `totp_recovery`) are never serialized t
 | `role` | ENUM | `admin`, `technician`, `readonly` — enforced by RBAC |
 | `is_active` | BOOL | deactivating kills live sessions |
 | `totp_secret` / `totp_enabled` / `totp_recovery` | VARCHAR / BOOL / JSON | TOTP MFA state (recovery codes stored as hashes) |
+| `theme_pref` | VARCHAR | Nullable per-user palette id; null uses Default Light |
 | `last_seen_at`, `created_at`, `updated_at` | DATETIME | |
 
 ### `sessions`

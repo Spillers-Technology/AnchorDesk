@@ -126,13 +126,28 @@ export interface ContactInput {
 }
 
 export async function createContact(input: ContactInput, actor: string): Promise<Contact> {
-  const contact = await prisma.contact.create({ data: input });
+  const contact = await prisma.$transaction(async (tx) => {
+    if (input.isPrimary) {
+      await tx.contact.updateMany({ where: { companyId: input.companyId, isPrimary: true }, data: { isPrimary: false } });
+    }
+    return tx.contact.create({ data: input });
+  });
   await audit.record({ entityType: 'contact', entityId: contact.id, action: 'create', changedBy: actor, newValue: { name: contact.name, companyId: contact.companyId } });
   return contact;
 }
 
 export async function updateContact(id: number, input: Partial<ContactInput>, actor: string): Promise<Contact> {
-  const contact = await prisma.contact.update({ where: { id }, data: input });
+  const contact = await prisma.$transaction(async (tx) => {
+    const current = await tx.contact.findUnique({ where: { id } });
+    if (!current) throw Object.assign(new Error('contact not found'), { statusCode: 404 });
+    if (input.isPrimary) {
+      await tx.contact.updateMany({
+        where: { companyId: input.companyId ?? current.companyId, isPrimary: true, id: { not: id } },
+        data: { isPrimary: false },
+      });
+    }
+    return tx.contact.update({ where: { id }, data: input });
+  });
   await audit.record({ entityType: 'contact', entityId: id, action: 'update', changedBy: actor, newValue: { name: contact.name } });
   return contact;
 }

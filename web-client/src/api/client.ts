@@ -56,6 +56,15 @@ export interface AuthUser {
   email: string | null;
   role: "admin" | "technician" | "readonly";
   authProvider: string;
+  themePref: string | null;
+}
+
+/** Persist the current user's UI theme preference (a palette id, or null to reset). */
+export function setMyTheme(themePref: string | null) {
+  return request<{ themePref: string | null }>("/auth/theme", {
+    method: "PUT",
+    body: JSON.stringify({ themePref }),
+  });
 }
 
 export interface LoginOptions {

@@ -1,33 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  Box,
-  Paper,
-  Typography,
-  Stack,
-  Chip,
-  CircularProgress,
-  Alert,
-  MenuItem,
-  TextField,
-  Divider,
-} from "@mui/material";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Box, Chip, CircularProgress, Divider, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 import * as api from "../api/client";
-import { statusColor as ticketStatusColor } from "../ticketVocab";
+import { serviceName } from "../deviceServices";
+import { NetworkMap, type NetworkMapDevice } from "./NetworkMap";
+import { StatusChip } from "./TicketSignals";
 
-interface LinkedTicket {
-  id: number;
-  title: string;
-  status: string;
-}
+interface LinkedTicket { id: number; title: string; status: string }
 
-/**
- * Network view — a port of NetViz's radial "firewall hierarchy" over
- * AnchorDesk's local Device inventory. A central node represents the
- * network/probe; devices orbit it, sized by open-port count and colored by
- * status. Click a node for details. Data comes from the local Device table
- * (populated by netviz probes, Tactical sync, or manual entry) — no live
- * NetViz instance required.
- */
 interface Device {
   id: number;
   hostname?: string | null;
@@ -35,13 +14,13 @@ interface Device {
   ipAddress?: string | null;
   macAddress?: string | null;
   vendor?: string | null;
-  os?: string | null;
   deviceType?: string | null;
-  openPorts?: number[] | null;
+  openPorts?: unknown;
   status: string;
   companyName?: string | null;
   source: string;
   probeId?: number | null;
+  firstSeenAt?: string | null;
   lastSeenAt?: string | null;
 }
 
@@ -53,78 +32,93 @@ interface Probe {
   cidr?: string | null;
 }
 
-const CENTER = { x: 560, y: 390 };
-const VIEW = { w: 1120, h: 780 };
+function portNumbers(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => typeof entry === "number" ? entry : Number((entry as { port?: unknown })?.port))
+    .filter((port) => Number.isInteger(port) && port > 0 && port <= 65535);
+}
 
-const statusColor = (s: string) =>
-  s === "online" ? "#2e7d32" : s === "offline" ? "#9e9e9e" : "#ed6c02";
+function toMapDevice(device: Device): NetworkMapDevice | null {
+  if (!device.ipAddress) return null;
+  const ports = portNumbers(device.openPorts);
+  return {
+    ip: device.ipAddress,
+    hostname: device.displayName || device.hostname || undefined,
+    mac_address: device.macAddress || undefined,
+    vendor: device.vendor || undefined,
+    alive: device.status === "online",
+    open_ports: ports.map((port) => ({ port, service: serviceName(port) })),
+    device_type: device.deviceType || "unknown",
+    first_seen: device.firstSeenAt || device.lastSeenAt || new Date(0).toISOString(),
+    last_updated: device.lastSeenAt || device.firstSeenAt || new Date(0).toISOString(),
+  };
+}
 
 export default function NetworkView({ initialCompany }: { initialCompany?: string }) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [probes, setProbes] = useState<Probe[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [group, setGroup] = useState<string>(initialCompany ? `company:${initialCompany}` : "all");
+  const [group, setGroup] = useState(initialCompany ? `company:${initialCompany}` : "all");
+  const [selected, setSelected] = useState<Device | null>(null);
+  const [deviceTickets, setDeviceTickets] = useState<LinkedTicket[]>([]);
 
   useEffect(() => {
     if (initialCompany) setGroup(`company:${initialCompany}`);
   }, [initialCompany]);
-  const [selected, setSelected] = useState<Device | null>(null);
-  const [hovered, setHovered] = useState<number | null>(null);
-  const [deviceTickets, setDeviceTickets] = useState<LinkedTicket[]>([]);
 
   useEffect(() => {
     Promise.all([api.listDevices({ pageSize: 500 }), api.listProbes()])
-      .then(([d, p]) => {
-        setDevices(d as Device[]);
-        setProbes(p as Probe[]);
+      .then(([deviceRows, probeRows]) => {
+        setDevices(deviceRows as Device[]);
+        setProbes(probeRows as Probe[]);
       })
-      .catch((e) => setError((e as Error).message))
+      .catch((reason) => setError((reason as Error).message))
       .finally(() => setLoading(false));
   }, []);
 
-  // Group options: each probe, plus companies that have devices.
-  const groups = useMemo(() => {
-    const companies = Array.from(
-      new Set(devices.map((d) => d.companyName).filter((c): c is string => !!c))
-    );
-    return { companies, probes };
-  }, [devices, probes]);
+  const groups = useMemo(() => ({
+    companies: Array.from(new Set(devices.map((device) => device.companyName).filter((name): name is string => !!name))),
+    probes,
+  }), [devices, probes]);
 
   const filtered = useMemo(() => {
-    if (group === "all") return devices;
     if (group.startsWith("probe:")) {
       const id = Number(group.slice(6));
-      return devices.filter((d) => d.probeId === id);
+      return devices.filter((device) => device.probeId === id);
     }
     if (group.startsWith("company:")) {
       const name = group.slice(8);
-      return devices.filter((d) => d.companyName === name);
+      return devices.filter((device) => device.companyName === name);
     }
     return devices;
   }, [devices, group]);
 
-  const layout = useMemo(() => radialLayout(filtered), [filtered]);
-  const centerLabel =
-    group.startsWith("probe:")
-      ? probes.find((p) => `probe:${p.id}` === group)?.name ?? "Network"
-      : group.startsWith("company:")
-      ? group.slice(8)
-      : "Network";
+  const mapped = useMemo(
+    () => filtered.map(toMapDevice).filter((device): device is NetworkMapDevice => device !== null),
+    [filtered],
+  );
 
-  const detailDevice = selected ?? layout[0]?.device ?? null;
+  const mapLabel = group.startsWith("probe:")
+    ? probes.find((probe) => `probe:${probe.id}` === group)?.cidr
+      || probes.find((probe) => `probe:${probe.id}` === group)?.name
+      || "Network"
+    : group.startsWith("company:") ? group.slice(8) : "All networks";
 
-  // Pull the tickets linked to the focused device (device → cases).
+  const selectDevice = useCallback((ip: string | null) => {
+    setSelected(ip ? filtered.find((device) => device.ipAddress === ip) ?? null : null);
+  }, [filtered]);
+
   useEffect(() => {
-    if (!detailDevice) {
+    if (!selected) {
       setDeviceTickets([]);
       return;
     }
-    api
-      .getDevice(detailDevice.id)
-      .then((d) => setDeviceTickets((((d as Record<string, unknown>).ticketLinks as { ticket: LinkedTicket }[]) ?? []).map((l) => l.ticket)))
+    api.getDevice(selected.id)
+      .then((row) => setDeviceTickets(((((row as Record<string, unknown>).ticketLinks as { ticket: LinkedTicket }[]) ?? []).map((link) => link.ticket))))
       .catch(() => setDeviceTickets([]));
-  }, [detailDevice?.id]);
+  }, [selected]);
 
   if (loading) return <CircularProgress />;
   if (error) return <Alert severity="error">{error}</Alert>;
@@ -132,216 +126,59 @@ export default function NetworkView({ initialCompany }: { initialCompany?: strin
   return (
     <Box>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }} flexWrap="wrap" gap={1}>
-        <Typography variant="h5">Network</Typography>
-        <TextField select size="small" label="View" value={group} onChange={(e) => setGroup(e.target.value)} sx={{ minWidth: 220 }}>
+        <Box>
+          <Typography variant="h5">Network</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Device type, open services, and availability at a glance
+          </Typography>
+        </Box>
+        <TextField select size="small" label="View" value={group} onChange={(event) => { setGroup(event.target.value); setSelected(null); }} sx={{ minWidth: 230 }}>
           <MenuItem value="all">All devices ({devices.length})</MenuItem>
           {groups.probes.length > 0 && <Divider />}
-          {groups.probes.map((p) => (
-            <MenuItem key={`probe:${p.id}`} value={`probe:${p.id}`}>Probe: {p.name}</MenuItem>
-          ))}
-          {groups.companies.map((c) => (
-            <MenuItem key={`company:${c}`} value={`company:${c}`}>Company: {c}</MenuItem>
-          ))}
+          {groups.probes.map((probe) => <MenuItem key={`probe:${probe.id}`} value={`probe:${probe.id}`}>Probe: {probe.name}</MenuItem>)}
+          {groups.companies.map((company) => <MenuItem key={`company:${company}`} value={`company:${company}`}>Company: {company}</MenuItem>)}
         </TextField>
       </Stack>
 
       {devices.length === 0 ? (
-        <Alert severity="info">
-          No devices yet. Register a netviz probe (Admin → Probes), sync from Tactical RMM, or add a device manually — they'll appear here as a network map.
-        </Alert>
+        <Alert severity="info">No devices yet. Register a netviz probe, sync an RMM, or add a device manually.</Alert>
+      ) : mapped.length === 0 ? (
+        <Alert severity="warning">The devices in this view do not have IP addresses, so they cannot be placed on the map.</Alert>
       ) : (
-        <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="stretch">
-          <Paper variant="outlined" sx={{ flex: 1, p: 1, position: "relative", bgcolor: "#0b1020", borderRadius: 2, height: { xs: 460, md: 660 } }}>
-            <svg viewBox={`0 0 ${VIEW.w} ${VIEW.h}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style={{ display: "block" }}>
-              {/* edges */}
-              {layout.map((n) => (
-                <line key={`e-${n.device.id}`} x1={CENTER.x} y1={CENTER.y} x2={n.x} y2={n.y} stroke="#27314f" strokeWidth={1} />
-              ))}
-              {/* center node */}
-              <g>
-                <circle cx={CENTER.x} cy={CENTER.y} r={38} fill="#1976d2" stroke="#90caf9" strokeWidth={2} />
-                <text x={CENTER.x} y={CENTER.y - 2} textAnchor="middle" fill="#fff" fontSize={13} fontWeight={700}>
-                  {centerLabel.length > 10 ? centerLabel.slice(0, 9) + "…" : centerLabel}
-                </text>
-                <text x={CENTER.x} y={CENTER.y + 14} textAnchor="middle" fill="#bbdefb" fontSize={11}>
-                  {filtered.length} hosts
-                </text>
-              </g>
-              {/* device nodes */}
-              {layout.map((n) => {
-                const isSel = selected?.id === n.device.id;
-                const isHover = hovered === n.device.id;
-                const r = n.size / 2;
-                return (
-                  <g
-                    key={n.device.id}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => setSelected(n.device)}
-                    onMouseEnter={() => setHovered(n.device.id)}
-                    onMouseLeave={() => setHovered((h) => (h === n.device.id ? null : h))}
-                  >
-                    {/* generous transparent hit target so small nodes are easy to click */}
-                    <circle cx={n.x} cy={n.y} r={r + 14} fill="transparent" />
-                    {(isSel || isHover) && (
-                      <circle cx={n.x} cy={n.y} r={r + 5} fill="none" stroke="#fff" strokeOpacity={isSel ? 0.9 : 0.45} strokeWidth={2} />
-                    )}
-                    <circle
-                      cx={n.x}
-                      cy={n.y}
-                      r={r}
-                      fill={statusColor(n.device.status)}
-                      stroke="#0b1020"
-                      strokeWidth={1.5}
-                      opacity={n.device.status === "offline" ? 0.6 : 1}
-                    >
-                      <title>{`${label(n.device)} — ${n.device.ipAddress ?? ""} (${n.device.status})`}</title>
-                    </circle>
-                    <text x={n.x} y={n.y + 4} textAnchor="middle" fill="#fff" fontSize={12} fontWeight={700} pointerEvents="none">
-                      {initial(n.device)}
-                    </text>
-                    {!!(n.device.openPorts?.length) && (
-                      <text x={n.x + r - 2} y={n.y - r + 2} textAnchor="middle" fill="#fff" fontSize={9} pointerEvents="none">
-                        {n.device.openPorts.length}
-                      </text>
-                    )}
-                    {(isSel || isHover) && (
-                      <text x={n.x} y={n.y + r + 14} textAnchor="middle" fill="#fff" fontSize={12} fontWeight={600} pointerEvents="none"
-                        style={{ paintOrder: "stroke", stroke: "#0b1020", strokeWidth: 3 }}>
-                        {shortLabel(n.device)}
-                      </text>
-                    )}
-                  </g>
-                );
-              })}
-            </svg>
-            <LegendOverlay />
-          </Paper>
-
-          <DeviceDetail device={detailDevice} probes={probes} tickets={deviceTickets} />
-        </Stack>
+        <>
+          <NetworkMap devices={mapped} cidr={mapLabel} onSelectDevice={selectDevice} />
+          {selected && (
+            <Paper variant="outlined" sx={{ mt: 2, p: 2 }}>
+              <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" gap={2}>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700}>{selected.displayName || selected.hostname || selected.ipAddress}</Typography>
+                  <Stack direction="row" spacing={1} sx={{ mt: 0.75 }}>
+                    <Chip size="small" label={selected.companyName || "Unassigned company"} />
+                    <Chip size="small" label={selected.source} variant="outlined" />
+                  </Stack>
+                </Box>
+                <Box sx={{ minWidth: { sm: 320 } }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Linked tickets {deviceTickets.length > 0 && `(${deviceTickets.length})`}
+                  </Typography>
+                  {deviceTickets.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">No linked tickets.</Typography>
+                  ) : (
+                    <Stack spacing={0.75}>
+                      {deviceTickets.map((ticket) => (
+                        <Stack key={ticket.id} direction="row" alignItems="center" spacing={1}>
+                          <StatusChip status={ticket.status} />
+                          <Typography variant="body2" noWrap>#{ticket.id} {ticket.title}</Typography>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  )}
+                </Box>
+              </Stack>
+            </Paper>
+          )}
+        </>
       )}
     </Box>
   );
-}
-
-function LegendOverlay() {
-  const items = [
-    { c: "#2e7d32", l: "online" },
-    { c: "#ed6c02", l: "unknown" },
-    { c: "#9e9e9e", l: "offline" },
-  ];
-  return (
-    <Box sx={{ position: "absolute", top: 8, left: 8, display: "flex", gap: 1.5 }}>
-      {items.map((i) => (
-        <Box key={i.l} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: i.c }} />
-          <Typography variant="caption" sx={{ color: "#cfd8ec" }}>{i.l}</Typography>
-        </Box>
-      ))}
-    </Box>
-  );
-}
-
-function DeviceDetail({ device, probes, tickets }: { device: Device | null; probes: Probe[]; tickets: LinkedTicket[] }) {
-  if (!device) return null;
-  const probe = probes.find((p) => p.id === device.probeId);
-  const rows: [string, string | number | null | undefined][] = [
-    ["IP", device.ipAddress],
-    ["Hostname", device.hostname],
-    ["MAC", device.macAddress],
-    ["Vendor", device.vendor],
-    ["OS", device.os],
-    ["Type", device.deviceType],
-    ["Open ports", device.openPorts?.length ? device.openPorts.join(", ") : "none"],
-    ["Company", device.companyName],
-    ["Source", device.source],
-    ["Probe", probe?.name],
-    ["Last seen", device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString() : "—"],
-  ];
-  return (
-    <Paper variant="outlined" sx={{ width: { xs: "100%", md: 320 }, p: 2 }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between">
-        <Typography variant="h6" noWrap>{label(device)}</Typography>
-        <Chip size="small" label={device.status} sx={{ bgcolor: statusColor(device.status), color: "#fff" }} />
-      </Stack>
-      <Divider sx={{ my: 1 }} />
-      <Stack spacing={0.75}>
-        {rows.map(([k, v]) => (
-          <Box key={k} sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
-            <Typography variant="body2" color="text.secondary">{k}</Typography>
-            <Typography variant="body2" sx={{ textAlign: "right", wordBreak: "break-all" }}>{v ?? "—"}</Typography>
-          </Box>
-        ))}
-      </Stack>
-
-      <Divider sx={{ my: 1.5 }} />
-      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-        Tickets {tickets.length > 0 && `(${tickets.length})`}
-      </Typography>
-      {tickets.length === 0 ? (
-        <Typography variant="body2" color="text.secondary">No linked tickets.</Typography>
-      ) : (
-        <Stack spacing={0.75}>
-          {tickets.map((t) => (
-            <Box key={t.id} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Chip size="small" label={t.status} color={ticketStatusColor(t.status)} />
-              <Typography variant="body2" noWrap title={t.title}>#{t.id} {t.title}</Typography>
-            </Box>
-          ))}
-        </Stack>
-      )}
-    </Paper>
-  );
-}
-
-// ─── helpers ────────────────────────────────────────────────────────────────
-
-function label(d: Device): string {
-  return d.displayName || d.hostname || d.ipAddress || `device ${d.id}`;
-}
-function shortLabel(d: Device): string {
-  const l = d.hostname || d.displayName || d.ipAddress || `device ${d.id}`;
-  return l.length > 14 ? `${l.slice(0, 13)}…` : l;
-}
-function initial(d: Device): string {
-  const t = (d.deviceType || label(d)).replace(/[^a-z0-9]/gi, "");
-  return (t[0] || "?").toUpperCase();
-}
-function deviceScore(d: Device): number {
-  return (d.openPorts?.length ?? 0) * 2 + (d.status === "online" ? 3 : 0) + (d.macAddress ? 1 : 0);
-}
-
-interface LayoutNode { device: Device; x: number; y: number; size: number }
-
-/**
- * Concentric-ring layout that actually spreads out: each ring holds a growing
- * number of nodes at a growing radius, so dozens of devices fan out evenly
- * instead of piling into the center. Slightly elliptical to use the wide canvas.
- */
-function radialLayout(devices: Device[]): LayoutNode[] {
-  const sorted = [...devices].sort((a, b) => deviceScore(b) - deviceScore(a));
-  const out: LayoutNode[] = [];
-  let i = 0;
-  let ring = 0;
-  while (i < sorted.length) {
-    const capacity = ring === 0 ? 8 : Math.floor(8 + ring * 7); // 8, 15, 22, 29…
-    const count = Math.min(capacity, sorted.length - i);
-    const radiusX = 150 + ring * 135;
-    const radiusY = 120 + ring * 108;
-    for (let j = 0; j < count; j++) {
-      const device = sorted[i + j];
-      // spread evenly around the ring; offset alternating rings so nodes don't align
-      const angle = (j / count) * Math.PI * 2 - Math.PI / 2 + (ring % 2 ? Math.PI / count : 0);
-      const size = Math.max(30, Math.min(54, 28 + (device.openPorts?.length ?? 0) * 4));
-      out.push({
-        device,
-        x: CENTER.x + Math.cos(angle) * radiusX,
-        y: CENTER.y + Math.sin(angle) * radiusY,
-        size,
-      });
-    }
-    i += count;
-    ring++;
-  }
-  return out;
 }

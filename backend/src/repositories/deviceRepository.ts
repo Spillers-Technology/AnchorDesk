@@ -1,6 +1,8 @@
 import { DeviceSource, Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
+import { classifyHost } from '../services/deviceClassify';
+import { vendorForMac } from '../services/oui';
 
 export interface DeviceListOptions {
   companyName?: string;
@@ -57,6 +59,28 @@ function toData(input: CreateDeviceInput) {
   };
 }
 
+function portNumbers(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => typeof entry === 'number' ? entry : Number((entry as { port?: unknown })?.port))
+    .filter((port) => Number.isInteger(port) && port > 0 && port <= 65535);
+}
+
+/** Fill missing intelligence without replacing values supplied by an RMM/user. */
+function enrich(input: CreateDeviceInput, current?: { hostname: string | null; macAddress: string | null; vendor: string | null; deviceType: string | null; openPorts: unknown }): CreateDeviceInput {
+  const enriched = { ...input };
+  const mac = input.macAddress ?? current?.macAddress;
+  const suppliedVendor = input.vendor?.trim();
+  const existingVendor = current?.vendor?.trim();
+  const vendor = suppliedVendor || existingVendor || (mac ? vendorForMac(mac) : '');
+  const ports = portNumbers(input.openPorts ?? current?.openPorts);
+  if (!suppliedVendor && !existingVendor && vendor) enriched.vendor = vendor;
+  if (!input.deviceType?.trim() && !current?.deviceType?.trim()) {
+    enriched.deviceType = classifyHost({ vendor, hostname: input.hostname ?? current?.hostname, openPorts: ports });
+  }
+  return enriched;
+}
+
 export async function list(opts: DeviceListOptions = {}) {
   const { page = 1, pageSize = 100, ...filters } = opts;
   const where: Prisma.DeviceWhereInput = {};
@@ -86,6 +110,7 @@ export async function getById(id: number) {
 }
 
 export async function create(input: CreateDeviceInput, actorSub: string) {
+  input = enrich(input);
   const device = await prisma.device.create({
     data: { ...toData(input), source: input.source ?? 'local' },
   });
@@ -105,7 +130,7 @@ export async function update(id: number, input: UpdateDeviceInput, actorSub: str
   const before = await prisma.device.findUnique({ where: { id } });
   if (!before) return null;
 
-  const device = await prisma.device.update({ where: { id }, data: toData(input) });
+  const device = await prisma.device.update({ where: { id }, data: toData(enrich(input, before)) });
 
   await audit.record({
     entityType: 'device',

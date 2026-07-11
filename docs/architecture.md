@@ -184,4 +184,5 @@ api/client.ts — all fetch() calls go through here
 | 1.15.0 | OAuth protected-resource metadata for hosted MCP clients | **Done** |
 | 1.16.0 | Built-in OAuth 2.0 authorization server for MCP with Dynamic Client Registration, consent, PKCE, and minted per-user API tokens | **Done** |
 | 1.17.0 | Rich-text ticket modal, separate rich note composer, bulk ticket updates, unified contact picker, and server-side HTML sanitizing | **Done** |
+| 2.0.0 | Per-user palettes, mandatory ticket-company resolution, contact/composer completion, workflow signifiers, and OUI-enriched Canvas network map | **Done** |
 | Roadmap | Postgres LISTEN/NOTIFY for live probe status | Planned |

@@ -34,8 +34,8 @@ export default function SyncBadges({ ticket, header = false }: SyncBadgesProps) 
             header
               ? {
                   bgcolor: "rgba(255,255,255,0.18)",
-                  color: "#fff",
-                  "& .MuiChip-icon": { color: "#fff" },
+                  color: "inherit",
+                  "& .MuiChip-icon": { color: "inherit" },
                 }
               : undefined
           }

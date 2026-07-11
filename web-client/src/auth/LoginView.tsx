@@ -86,7 +86,7 @@ export default function LoginView({ onAuthenticated }: { onAuthenticated: (u: ap
       <Card sx={{ width: 420, maxWidth: "92vw" }} elevation={6}>
         <CardContent sx={{ p: 4 }}>
           <Stack alignItems="center" spacing={1.25} sx={{ mb: 3 }}>
-            <Box sx={{ width: 52, height: 52, borderRadius: 2.5, bgcolor: "primary.main", color: "#fff", display: "grid", placeItems: "center" }}>
+            <Box sx={{ width: 52, height: 52, borderRadius: 2.5, bgcolor: "primary.main", color: "primary.contrastText", display: "grid", placeItems: "center" }}>
               <AnchorIcon />
             </Box>
             <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: "-.01em" }}>AnchorDesk</Typography>
@@ -100,7 +100,7 @@ export default function LoginView({ onAuthenticated }: { onAuthenticated: (u: ap
                 Save these recovery codes somewhere safe. Each works once if you lose your authenticator.
                 They will not be shown again.
               </Alert>
-              <Box sx={{ fontFamily: "monospace", p: 2, bgcolor: "grey.100", borderRadius: 1 }}>
+              <Box sx={{ fontFamily: "monospace", p: 2, bgcolor: "action.hover", borderRadius: 1 }}>
                 {recovery.map((c) => <div key={c}>{c}</div>)}
               </Box>
               <Button variant="contained" onClick={() => api.getMe().then((r) => onAuthenticated(r.user))}>

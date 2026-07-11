@@ -37,6 +37,7 @@ export interface AuthUser {
   email: string | null;
   role: UserRole;
   authProvider: string;
+  themePref: string | null;
 }
 
 declare module 'fastify' {
@@ -65,6 +66,7 @@ const DEV_ADMIN: AuthUser = {
   email: null,
   role: 'admin',
   authProvider: 'local',
+  themePref: null,
 };
 
 // ─── Bearer (OIDC access token) validation, for API clients ──────────────────
@@ -117,6 +119,7 @@ function toAuthUser(u: {
   email: string | null;
   role: UserRole;
   authProvider: string;
+  themePref?: string | null;
 }): AuthUser {
   return {
     id: u.id,
@@ -125,6 +128,7 @@ function toAuthUser(u: {
     email: u.email,
     role: u.role,
     authProvider: u.authProvider,
+    themePref: u.themePref ?? null,
   };
 }
 

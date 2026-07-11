@@ -23,6 +23,7 @@ import { currentStorage, buildKey } from './storage';
 import { sanitizeEmailHtml } from './mail/sanitizeHtml';
 import { ticketNumberFromSubject } from './mail/threading';
 import { clamp } from '../util/strings';
+import { findOrCreateCompanyForEmail } from './companyResolution';
 
 export interface PollResult {
   mailbox: string;
@@ -99,12 +100,17 @@ async function ingest(parsed: ParsedMail, mb: Mailbox, uid: number): Promise<'cr
     outcome = 'appended';
   } else {
     try {
+      const senderAddress = parsed.from?.value.find((entry) => entry.address)?.address;
+      const senderCompany = mb.companyName
+        ? null
+        : await findOrCreateCompanyForEmail(senderAddress ?? '', 'imap');
       const ticket = await ticketRepo.create(
         {
           title: clamp(subject, 255),
           summary: clamp(body, 200),
           description: body,
-          companyName: mb.companyName ?? undefined,
+          companyId: senderCompany?.id,
+          companyName: mb.companyName ?? senderCompany?.name,
           source: 'imap',
           externalId: messageId,
           externalProvider: 'imap',
