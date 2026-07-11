@@ -35,6 +35,12 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 > - **Sync operations** — provider create/delete/toggle/run is available in the Sync view, with reusable provenance badges on tickets.
 > - **Live Tactical panel** — `/devices/:id/live` fetches current Tactical agent state when a linked ticket opens.
 > - **Operational safety** — positive-integer route parsing rejects NaN IDs, integration settings seed from env, and SOPS supports deployment secrets.
+>
+> **As of 2.0.0 ("Signal & Spectrum"):** the application-design pass is complete across identity, data integrity, and device context.
+> - **Per-user appearance** — seven MUI palettes are selected from Account → Appearance, stored in `User.themePref`, and mirrored locally for immediate startup color.
+> - **Ticket/company guarantee** — repository creation resolves every ticket to a real Company; inbound IMAP can match/create by sender domain and otherwise uses `INTERNAL_COMPANY_NAME` (`SpillersTech`). Contact editing, atomic primary selection, and fresh-compose recipient defaults complete the customer flow.
+> - **Workflow legibility** — status dots and priority icons are shared across cards, tables, and selectors; activity uses a timeline rail; narrow Kanban boards scroll fixed-width columns.
+> - **Network intelligence** — bundled lazy OUI lookup plus port/vendor classification enriches device writes non-destructively. The MIT-licensed netviz Canvas map provides categorized clusters, labels, zoom/pan, hover/select, and linked-ticket context.
 
 Key design goals:
 - Excellent standalone ticketing experience first
@@ -215,6 +221,7 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | GET | `/auth/oidc/login` · `/auth/oidc/callback` | OIDC SSO handshake |
 | GET | `/auth/saml/login` · POST `/auth/saml/callback` · GET `/auth/saml/metadata` | SAML SSO |
 | GET | `/auth/me` · POST `/auth/logout` · POST `/auth/password` | Current user / logout / change own password |
+| PUT | `/auth/theme` | Save the current user's validated palette id |
 | GET/POST | `/auth/tokens` · DELETE `/auth/tokens/:id` | Self-service personal access tokens (list / mint / revoke) |
 | * | `/users`, `/users/:id`, `/users/:id/password` | Admin user CRUD (admin role) |
 | GET/PATCH | `/auth/settings` | Admin: view/edit auth config (admin role) |
@@ -275,7 +282,8 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | `backend/src/routes/tickets.ts` | CRUD + full-text search for local tickets |
 | `web-client/src/api/client.ts` | Frontend API client — all fetch calls go here |
 | `web-client/src/auth/` | `AuthContext`, `LoginView`, `AccountMenu` |
-| `web-client/src/components/NetworkView.tsx` | NetViz radial network map over Device data |
+| `backend/src/services/oui/` · `deviceClassify.ts` | Lazy OUI vendor lookup and non-destructive port/vendor device classification |
+| `web-client/src/components/NetworkView.tsx` · `NetworkMap.tsx` | AnchorDesk filtering/linked tickets around the netviz Canvas map |
 | `web-client/src/components/AdminView.tsx` | Admin: Users, Authentication, Sync, Probes, Devices, Mail |
 | `web-client/src/App.tsx` | Main React component, auth gating, state management |
 | `docs/architecture.md` | Architecture diagram and pattern rationale |

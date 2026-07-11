@@ -22,8 +22,12 @@
 
 What sets it apart from a plain helpdesk: each ticket can become an operations cockpit. Link the **devices** involved, inspect their source and status, run RMM scripts, send email, and keep the resulting activity on the ticket. Core changes are recorded in an **append-only audit log** with actor and before/after data.
 
-## What ships in v1.17.0
+## What ships in v2.0.0
 
+- **🎨 Seven personal palettes** — Default Light/Dark, Solarized Light/Dark, Nord, Gruvbox, and Dracula apply instantly from the account menu and follow each user.
+- **🧠 Device intelligence + Canvas map** — lazy OUI vendor resolution, service/port fingerprinting, non-destructive device classification, and the interactive netviz cluster map with zoom, pan, labels, and linked-ticket context.
+- **🏢 Complete company/contact flow** — every new ticket resolves to a real company, inbound email recognizes sender domains, contacts edit inline, primary selection is atomic, and fresh email chooses the right recipient.
+- **🚦 Faster workflow scanning** — status dots and priority icons carry meaning across cards, tables, and selectors; the ticket activity feed is a compact chronological rail.
 - **📝 Rich-text ticket cockpit** — descriptions, internal notes, and outbound email now share one rich editor with a visual/source-HTML toggle. Saved descriptions and rich notes are sanitized server-side; previews strip HTML; printable exports preserve safe formatting.
 - **🗒️ Notes are separate from email** — the activity card has its own rich note composer, and editing an existing note now persists.
 - **☑️ Bulk ticket updates** — select visible tickets from cards, Kanban, or the legacy table and update status, priority, and assignee in one page-scoped operation.
@@ -126,8 +130,8 @@ Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxie
 
 For the complete Compose stack, run `docker compose up --build`. Tagged release images are published as:
 
-- `ghcr.io/spillers-technology/anchordesk-backend:1.17.0`
-- `ghcr.io/spillers-technology/anchordesk-web-client:1.17.0`
+- `ghcr.io/spillers-technology/anchordesk-backend:2.0.0`
+- `ghcr.io/spillers-technology/anchordesk-web-client:2.0.0`
 
 ## Configuration
 

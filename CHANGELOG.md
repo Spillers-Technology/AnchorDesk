@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.0.0 — 2026-07-11 — Signal & Spectrum (major)
+
+AnchorDesk 2.0 completes the application-design milestones from the full live-product audit: personal visual identity, stronger data guarantees, clearer workflow signals, and a network view with real device intelligence.
+
+### Added
+
+- **Seven per-user palettes.** Default Light/Dark, Solarized Light/Dark, Nord, Gruvbox, and Dracula can be previewed and selected from Account → Appearance. Preferences apply immediately, persist on the user, and mirror locally for a flash-free next load.
+- **Network intelligence.** A bundled IEEE OUI registry plus friendly vendor overrides enrich MAC addresses; open ports identify services and device classes without overwriting RMM/user-supplied values.
+- **Interactive canvas network map.** The MIT-licensed netviz map brings clustered radial layout, labels, zoom/pan, hover details, category focus, availability rings, reduced-motion behavior, and port-weighted nodes while retaining AnchorDesk company/probe filtering and linked-ticket context.
+- **Inline contact editing and primary-contact selection** on company pages.
+
+### Changed
+
+- Every new ticket resolves to a real Company row. Explicit companies win, inbound email can derive a company from the sender domain, legacy names are promoted, and otherwise work lands in the configurable internal company (`SpillersTech` by default).
+- Fresh email composition prefills the linked contact, then the primary contact, then the first contact with an email address.
+- Status and priority now use distinct dot/icon signifiers across cards, tables, create/edit selectors, and bulk update. Redundant status/priority chips were removed from the ticket header.
+- The activity feed is a compact chronological rail; Kanban columns become horizontally scrollable below `lg`; contact primary changes are atomic.
+
+### Notes
+
+- Schema change: additive nullable `users.theme_pref`. Run `prisma db push` when upgrading.
+- The OUI registry is a bundled compressed data asset loaded lazily; no new runtime dependency is required.
+- Substantial netviz-derived files retain the Spillers-Technology MIT notice.
+
+See [RELEASE_NOTES_v2.0.0.md](RELEASE_NOTES_v2.0.0.md) for the full release notes.
+
 ## 1.18.0 — 2026-07-11 — Even Keel (minor)
 
 A UX quick-win pass from a full designer-grade audit of the live app: tickets now arrive complete, a couple of data-dependent bugs are gone, and the first-impression edges are polished.
