@@ -621,6 +621,7 @@
     }
   }
 </style>
+<link rel="stylesheet" href="assets/lightbox.css" />
 <!-- OpenReplay Tracking Code (replay.spillerstech.us) -->
 <script>
   var initOpts = {
@@ -736,23 +737,33 @@
       </div>
       <div class="shots">
         <figure class="shot wide">
-          <img src="assets/screenshots/anchordesk-board.jpg" alt="AnchorDesk Kanban board with ticket cards, SLA chips, sync badges, labels, and bulk update controls." />
+          <button class="lightbox-trigger" type="button" data-lightbox>
+            <img src="assets/screenshots/anchordesk-board.jpg" alt="AnchorDesk Kanban board with ticket cards, SLA chips, sync badges, labels, and bulk update controls." />
+          </button>
           <figcaption><strong>Clear Deck board</strong><span>Closed work stays out of the default flow, live work fills the page, and cards carry SLA, labels, source, and sync state.</span></figcaption>
         </figure>
         <figure class="shot">
-          <img src="assets/screenshots/anchordesk-ticket-modal.jpg" alt="AnchorDesk ticket modal showing rich description, activity notes, linked devices, attachments, and ticket metadata." />
+          <button class="lightbox-trigger" type="button" data-lightbox>
+            <img src="assets/screenshots/anchordesk-ticket-modal.jpg" alt="AnchorDesk ticket modal showing rich description, activity notes, linked devices, attachments, and ticket metadata." />
+          </button>
           <figcaption><strong>Ticket cockpit</strong><span>Rich description editing, separate notes and email, linked devices, RMM jobs, time, attachments, labels, and sync controls live in one modal.</span></figcaption>
         </figure>
         <figure class="shot">
-          <img src="assets/screenshots/anchordesk-my-day.jpg" alt="AnchorDesk My Day time view with placed time blocks, gap bands, duration-only entries, and day summary." />
+          <button class="lightbox-trigger" type="button" data-lightbox>
+            <img src="assets/screenshots/anchordesk-my-day.jpg" alt="AnchorDesk My Day time view with placed time blocks, gap bands, duration-only entries, and day summary." />
+          </button>
           <figcaption><strong>My Day</strong><span>Logged time sits on a vertical clock, overlap lanes stay readable, and gap bands make unlogged stretches obvious.</span></figcaption>
         </figure>
         <figure class="shot">
-          <img src="assets/screenshots/anchordesk-network.jpg" alt="AnchorDesk network map with radial device layout, status-colored nodes, and selected device details." />
+          <button class="lightbox-trigger" type="button" data-lightbox>
+            <img src="assets/screenshots/anchordesk-network.jpg" alt="AnchorDesk network map with radial device layout, status-colored nodes, and selected device details." />
+          </button>
           <figcaption><strong>Network map</strong><span>Devices from probes and RMM providers become a radial map, grouped by probe or company, with linked tickets visible on the focused device.</span></figcaption>
         </figure>
         <figure class="shot">
-          <img src="assets/screenshots/anchordesk-sync.jpg" alt="AnchorDesk sync management screen with ConnectWise and Jira providers, recent sync activity, and integrations roadmap." />
+          <button class="lightbox-trigger" type="button" data-lightbox>
+            <img src="assets/screenshots/anchordesk-sync.jpg" alt="AnchorDesk sync management screen with ConnectWise and Jira providers, recent sync activity, and integrations roadmap." />
+          </button>
           <figcaption><strong>Sync surface</strong><span>ConnectWise and Jira two-way providers share one operational view with recent activity, manual runs, and honest integration status.</span></figcaption>
         </figure>
       </div>
@@ -912,5 +923,6 @@ ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">1.17.0</span><
     </nav>
   </div>
 </footer>
+<script src="assets/lightbox.js"></script>
 </body>
 </html>

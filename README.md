@@ -195,7 +195,10 @@ The wire contract lives in [backend/src/providers/NetVizProvider.ts](backend/src
 
 ## Contributing
 
-Issues and PRs are welcome. New integrations should implement the relevant strategy interface and keep data access behind repositories; see [docs/providers.md](docs/providers.md).
+Issues and PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the local
+checks and pull-request expectations. New integrations should implement the
+relevant strategy interface and keep data access behind repositories; see
+[docs/providers.md](docs/providers.md).
 
 ## License
 
