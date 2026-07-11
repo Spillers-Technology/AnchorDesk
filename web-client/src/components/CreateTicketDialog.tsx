@@ -135,7 +135,14 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
               getOptionLabel={(c) => (typeof c === "string" ? c : c.name)}
               value={company}
               onChange={(_e, v) => pickCompany(v)}
-              renderInput={(params) => <TextField {...params} label="Company" placeholder="Search or type to add…" />}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Company"
+                  placeholder="Search or type to add…"
+                  helperText="Blank tickets go to SpillersTech"
+                />
+              )}
             />
             <FormControl fullWidth size="small" disabled={!company}>
               {/* shrink is forced because these selects use displayEmpty — without it

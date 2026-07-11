@@ -6,6 +6,7 @@ import { computeSlaFields } from '../services/sla';
 import { getTickets } from '../services/settingsService';
 import { sanitizeEmailHtml } from '../services/mail/sanitizeHtml';
 import { clamp } from '../util/strings';
+import { resolveTicketCompany } from '../services/companyResolution';
 
 export interface TicketListOptions {
   status?: string;
@@ -271,10 +272,12 @@ async function nextTicketNumber(): Promise<string> {
 }
 
 export async function create(input: CreateTicketInput, actorSub: string) {
-  // If linked to a Company, keep companyName in sync with the Company record.
-  const companyName = input.companyId ? await companyNameFor(input.companyId) : input.companyName;
+  // Every ticket belongs to a real Company row. Named legacy/sync inputs are
+  // promoted, while genuinely unclassified work falls back to the internal
+  // company so downstream company views, SLA rules, and contacts stay usable.
+  const company = await resolveTicketCompany(input, actorSub);
   // Score SLA at creation time; deadlines are anchored to "now" (= createdAt).
-  const sla = await computeSlaFields(input.priority, input.companyId, new Date());
+  const sla = await computeSlaFields(input.priority, company.id, new Date());
   // Externally-sourced tickets keep their provider's number; everything else
   // gets a generated, human-friendly number from the sequence.
   const ticketNumber = input.ticketNumber ?? (await nextTicketNumber());
@@ -290,8 +293,8 @@ export async function create(input: CreateTicketInput, actorSub: string) {
       // arriving from inbound email / API / sync are never left without one —
       // a null priority renders as a blank chip that reads as "unset" everywhere.
       priority: input.priority ?? 'Medium',
-      companyName: clamp(companyName, 150),
-      companyId: input.companyId ?? undefined,
+      companyName: clamp(company.name, 150),
+      companyId: company.id,
       contactId: input.contactId ?? undefined,
       assignee: clamp(input.assignee, 100),
       assigneeId: input.assigneeId,
@@ -331,9 +334,12 @@ export async function update(id: number, input: UpdateTicketInput, actorSub: str
     companyName: clamp(input.companyName, 150),
     assignee: clamp(input.assignee, 100),
   };
-  // Re-denormalize companyName when the company link changes.
+  // Re-denormalize companyName when the company link changes. Clearing a
+  // company means "move to internal", never "make this ticket an orphan".
   if (input.companyId !== undefined) {
-    data.companyName = input.companyId ? clamp(await companyNameFor(input.companyId), 150) : null;
+    const company = await resolveTicketCompany({ companyId: input.companyId }, actorSub);
+    data.companyId = company.id;
+    data.companyName = clamp(company.name, 150);
   }
 
   // Recompute SLA deadlines when priority or company changes, anchored to the
@@ -343,7 +349,7 @@ export async function update(id: number, input: UpdateTicketInput, actorSub: str
   if (priorityChanged || companyChanged) {
     const sla = await computeSlaFields(
       input.priority ?? before.priority,
-      input.companyId ?? before.companyId,
+      (data.companyId as number | undefined) ?? before.companyId,
       before.createdAt,
     );
     data.slaPolicyId = sla.slaPolicyId;
