@@ -23,6 +23,7 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import LockIcon from "@mui/icons-material/Lock";
 import SecurityIcon from "@mui/icons-material/Security";
 import DrawIcon from "@mui/icons-material/Draw";
+import PaletteIcon from "@mui/icons-material/Palette";
 import KeyIcon from "@mui/icons-material/Key";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
@@ -37,6 +38,8 @@ import {
 import { useAuth } from "./AuthContext";
 import * as api from "../api/client";
 import RichTextEditor from "../components/RichTextEditor";
+import { PALETTES, THEME_OPTIONS } from "../theme";
+import { useThemeMode } from "../theme/AppThemeProvider";
 
 export default function AccountMenu() {
   const { user, logout } = useAuth();
@@ -45,6 +48,7 @@ export default function AccountMenu() {
   const [mfaOpen, setMfaOpen] = useState(false);
   const [sigOpen, setSigOpen] = useState(false);
   const [tokOpen, setTokOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
 
   if (!user) return null;
   const close = () => setAnchor(null);
@@ -80,6 +84,10 @@ export default function AccountMenu() {
           <ListItemIcon><KeyIcon fontSize="small" /></ListItemIcon>
           API tokens
         </MenuItem>
+        <MenuItem onClick={() => { setThemeOpen(true); close(); }}>
+          <ListItemIcon><PaletteIcon fontSize="small" /></ListItemIcon>
+          Appearance
+        </MenuItem>
         <MenuItem onClick={() => { close(); logout(); }}>
           <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
           Sign out
@@ -96,7 +104,62 @@ export default function AccountMenu() {
       {mfaOpen && <ManageMfaDialog onClose={() => setMfaOpen(false)} />}
       {sigOpen && <SignatureDialog onClose={() => setSigOpen(false)} />}
       {tokOpen && <ApiTokensDialog onClose={() => setTokOpen(false)} />}
+      {themeOpen && <AppearanceDialog onClose={() => setThemeOpen(false)} />}
     </>
+  );
+}
+
+function AppearanceDialog({ onClose }: { onClose: () => void }) {
+  const { themeId, setThemeId } = useThemeMode();
+
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle>Appearance</DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Choose a palette for your AnchorDesk workspace. Your choice follows your account.
+        </Typography>
+        <Stack spacing={1}>
+          {THEME_OPTIONS.map((option) => {
+            const palette = PALETTES[option.id];
+            const selected = option.id === themeId;
+            return (
+              <Button
+                key={option.id}
+                variant={selected ? "contained" : "outlined"}
+                onClick={() => setThemeId(option.id)}
+                aria-pressed={selected}
+                sx={{ justifyContent: "flex-start", gap: 1.5, py: 1.25 }}
+              >
+                <Box
+                  aria-hidden
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, 12px)",
+                    gap: "2px",
+                    p: "3px",
+                    borderRadius: 1,
+                    bgcolor: palette.bgDefault,
+                    border: `1px solid ${palette.divider}`,
+                  }}
+                >
+                  {[palette.primary, palette.secondary, palette.success, palette.warning].map((color) => (
+                    <Box key={color} sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: color }} />
+                  ))}
+                </Box>
+                <Box sx={{ textAlign: "left" }}>
+                  <Typography component="span" variant="body2" fontWeight={700}>{option.label}</Typography>
+                  <Typography component="span" variant="caption" sx={{ display: "block", opacity: 0.75 }}>
+                    {option.mode === "dark" ? "Dark palette" : "Light palette"}
+                  </Typography>
+                </Box>
+              </Button>
+            );
+          })}
+        </Stack>
+      </DialogContent>
+      <DialogActions><Button onClick={onClose}>Done</Button></DialogActions>
+    </Dialog>
   );
 }
 

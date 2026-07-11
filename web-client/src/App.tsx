@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Box,
-  CssBaseline,
-  ThemeProvider,
   Toolbar,
   CircularProgress,
   Grid,
@@ -27,7 +25,6 @@ import {
   MenuItem,
   LinearProgress,
 } from "@mui/material";
-import { theme as defaultTheme } from "./theme";
 import DashboardAppBar from "./components/DashboardAppBar";
 import DashboardDrawer from "./components/DashboardDrawer";
 import TicketCard from "./components/TicketCard";
@@ -422,34 +419,26 @@ function App() {
 
   if (authLoading) {
     return (
-      <ThemeProvider theme={defaultTheme}>
-        <CssBaseline />
-        <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <CircularProgress />
-        </Box>
-      </ThemeProvider>
+      <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <CircularProgress />
+      </Box>
     );
   }
 
   if (!user) {
     return (
-      <ThemeProvider theme={defaultTheme}>
-        <CssBaseline />
-        <LoginView
-          onAuthenticated={(u) => {
-            setUser(u);
-            // Drop any ?authError=... left by an SSO redirect.
-            window.history.replaceState({}, "", window.location.pathname);
-          }}
-        />
-      </ThemeProvider>
+      <LoginView
+        onAuthenticated={(u) => {
+          setUser(u);
+          // Drop any ?authError=... left by an SSO redirect.
+          window.history.replaceState({}, "", window.location.pathname);
+        }}
+      />
     );
   }
 
   return (
-    <ThemeProvider theme={defaultTheme}>
       <Box sx={{ display: "flex", minHeight: "100vh" }}>
-        <CssBaseline />
         <DashboardAppBar
           drawerOpen={drawerOpen}
           toggleDrawer={() => setDrawerOpen(!drawerOpen)}
@@ -673,7 +662,6 @@ function App() {
           ) : undefined}
         </Snackbar>
       </Box>
-    </ThemeProvider>
   );
 }
 

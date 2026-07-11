@@ -21,6 +21,18 @@ import { sanitizeEmailHtml } from '../services/mail/sanitizeHtml';
 const OIDC_TX_COOKIE = 'mt_oidc_tx';
 const MFA_COOKIE = 'mt_mfa';
 
+// Known UI palette ids (mirrors web-client/src/theme.ts PALETTES). Used to
+// validate the /auth/theme preference so only real palette ids are persisted.
+const THEME_IDS = new Set([
+  'default-light',
+  'default-dark',
+  'solarized-light',
+  'solarized-dark',
+  'nord',
+  'gruvbox',
+  'dracula',
+]);
+
 type MfaScope = 'verify' | 'enroll';
 
 /** Identify the acting user from either a live session or a pre-session MFA cookie. */
@@ -195,6 +207,16 @@ export async function authRoutes(server: FastifyInstance) {
     const clean = signatureHtml ? sanitizeEmailHtml(signatureHtml) : null;
     await userRepo.setSignature(req.user.id, clean);
     return reply.send({ signatureHtml: clean ?? '' });
+  });
+
+  // Own UI theme preference (a palette id). Validated against the known set;
+  // null/unknown resets to the app default. The dev-admin (id 0) has no user row,
+  // so its choice is not persisted (the client still applies it locally).
+  server.put('/auth/theme', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { themePref } = (req.body ?? {}) as { themePref?: string | null };
+    const value = themePref && THEME_IDS.has(themePref) ? themePref : null;
+    if (req.user.id !== 0) await userRepo.setThemePref(req.user.id, value);
+    return reply.send({ themePref: value });
   });
 
   // Change own password (local accounts only).
