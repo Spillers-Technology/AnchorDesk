@@ -7,6 +7,7 @@ import {
   Box,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
+import AnchorIcon from "@mui/icons-material/Anchor";
 import AccountMenu from "../auth/AccountMenu";
 import NotificationBell from "./NotificationBell";
 
@@ -61,8 +62,9 @@ const DashboardAppBar: React.FC<DashboardAppBarProps> = ({
         >
           <MenuIcon />
         </IconButton>
+        <AnchorIcon fontSize="small" sx={{ mr: 1, opacity: 0.85 }} />
         <Typography variant="h6" noWrap>
-          Dashboard - {getTitle()}
+          {getTitle()}
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
         <NotificationBell onOpenTicket={onOpenTicket} />

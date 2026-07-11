@@ -138,8 +138,10 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
               renderInput={(params) => <TextField {...params} label="Company" placeholder="Search or type to add…" />}
             />
             <FormControl fullWidth size="small" disabled={!company}>
-              <InputLabel>Contact</InputLabel>
-              <Select value={contactId} label="Contact" displayEmpty
+              {/* shrink is forced because these selects use displayEmpty — without it
+                  the floating label overlaps the value ("Nontact"/"Unassigneed"). */}
+              <InputLabel shrink>Contact</InputLabel>
+              <Select value={contactId} label="Contact" displayEmpty notched
                 onChange={(e) => setContactId(e.target.value === "" ? "" : Number(e.target.value))}>
                 <MenuItem value="">None</MenuItem>
                 {contacts.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}{c.title ? ` · ${c.title}` : ""}</MenuItem>)}
@@ -147,8 +149,8 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
             </FormControl>
           </Stack>
           <FormControl fullWidth size="small">
-            <InputLabel>Assignee</InputLabel>
-            <Select value={form.assigneeId} label="Assignee" displayEmpty
+            <InputLabel shrink>Assignee</InputLabel>
+            <Select value={form.assigneeId} label="Assignee" displayEmpty notched
               onChange={(e) => setField("assigneeId", e.target.value === "" ? "" : Number(e.target.value))}>
               <MenuItem value="">Unassigned</MenuItem>
               {assignees.map((a) => <MenuItem key={a.id} value={a.id}>{a.displayName || a.username} · {a.role}</MenuItem>)}

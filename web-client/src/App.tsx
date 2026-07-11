@@ -463,6 +463,7 @@ function App() {
           setViewMode={setViewMode}
           currentView={viewMode}
           isAdmin={isAdmin}
+          legacyTableView={legacyTableView}
         />
 
         <Box component="main" sx={{ flexGrow: 1, p: 3, backgroundColor: "background.default" }}>
