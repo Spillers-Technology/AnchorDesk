@@ -37,6 +37,10 @@ backend/.env
 
 # Claude Code working memory — not for the public repo
 memory/
+.claude/
+
+# Local attachment/runtime storage
+backend/data/
 
 # Legacy proxy runtime data (held an RSA key + sqlite — purged from history)
 proxy/data/
