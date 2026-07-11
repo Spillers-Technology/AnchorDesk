@@ -106,14 +106,32 @@ const NotesSection: React.FC<NotesSectionProps> = ({
       {editError && <Alert severity="error" sx={{ mb: 1 }}>{editError}</Alert>}
 
       {notes.length > 0 ? (
-        <List disablePadding>
+        <List
+          disablePadding
+          sx={{
+            position: "relative",
+            "&:before": {
+              content: '""',
+              position: "absolute",
+              left: 7,
+              top: 12,
+              bottom: 12,
+              width: 2,
+              bgcolor: "divider",
+            },
+          }}
+        >
           {sortedNotes.map((note) =>
             note.type === "email" ? (
               <EmailBubble key={note.id} note={note} onReply={onReply} />
             ) : (
-              <ListItem key={note.id} divider alignItems="flex-start" sx={{ px: 0, py: 1.5 }}>
+              <ListItem
+                key={note.id}
+                alignItems="flex-start"
+                sx={{ pl: 3, pr: 0, py: 1.5, position: "relative", borderBottom: 1, borderColor: "divider", "&:before": { content: '""', position: "absolute", left: 2, top: 23, width: 12, height: 12, borderRadius: "50%", bgcolor: note.type === "timeEntry" ? "secondary.main" : "primary.main", border: 2, borderColor: "background.paper", zIndex: 1 } }}
+              >
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ width: "100%" }}>
-                  <Box sx={{ width: { sm: 220 }, flexShrink: 0 }}>
+                  <Box sx={{ width: { sm: 145 }, flexShrink: 0 }}>
                     <Typography variant="body2" sx={{ color: "text.secondary" }}>
                       {new Date(note.dateCreated).toLocaleTimeString()}{" "}
                       {new Date(note.dateCreated).toLocaleDateString()}
@@ -192,7 +210,7 @@ function EmailBubble({ note, onReply }: { note: Note; onReply?: (note: Note) => 
   const outbound = note.direction === "outbound";
 
   return (
-    <ListItem sx={{ display: "flex", justifyContent: outbound ? "flex-end" : "flex-start", px: 0 }}>
+    <ListItem sx={{ display: "flex", justifyContent: outbound ? "flex-end" : "flex-start", pl: 3, pr: 0, position: "relative", "&:before": { content: '""', position: "absolute", left: 2, top: 24, width: 12, height: 12, borderRadius: "50%", bgcolor: outbound ? "primary.main" : "info.main", border: 2, borderColor: "background.paper", zIndex: 1 } }}>
       <Paper
         variant="outlined"
         sx={{
@@ -200,8 +218,8 @@ function EmailBubble({ note, onReply }: { note: Note; onReply?: (note: Note) => 
           width: "fit-content",
           p: 1.5,
           borderRadius: 2,
-          bgcolor: outbound ? "primary.50" : "grey.50",
-          borderColor: outbound ? "primary.100" : "divider",
+          bgcolor: outbound ? "action.selected" : "action.hover",
+          borderColor: outbound ? "primary.main" : "divider",
         }}
         >
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>

@@ -47,7 +47,8 @@ import SlaChip from "./SlaChip";
 import SyncBadges from "./SyncBadges";
 import { SYNC_PROVIDER_LABELS } from "../syncBadges";
 import * as api from "../api/client";
-import { TICKET_STATUSES, TICKET_PRIORITIES, statusColor } from "../ticketVocab";
+import { TICKET_STATUSES, TICKET_PRIORITIES } from "../ticketVocab";
+import { PrioritySignal, StatusSignal } from "./TicketSignals";
 import { htmlToPlainText, isRichTextEmpty, toEditorHtml } from "../html";
 
 interface TicketDialogProps {
@@ -240,6 +241,10 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   };
 
   const selectedContact = contacts.find((c) => c.id === contactId) ?? null;
+  const defaultRecipient = selectedContact?.email
+    ?? contacts.find((contact) => contact.isPrimary && contact.email)?.email
+    ?? contacts.find((contact) => contact.email)?.email
+    ?? "";
 
   // Unified pick-or-create for the contact field, mirroring pickCompany: a chosen
   // Contact links it, a free-typed name matches an existing contact (case-
@@ -375,13 +380,11 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
       {/* Header band */}
-      <Box sx={{ background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 60%, #0ea5e9 100%)", color: "#fff", px: 3, py: 2 }}>
+      <Box sx={(theme) => ({ background: `linear-gradient(135deg, ${theme.palette.primary.dark} 0%, ${theme.palette.primary.main} 58%, ${theme.palette.secondary.main} 100%)`, color: theme.palette.primary.contrastText, px: 3, py: 2 })}>
         <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
           <Box sx={{ minWidth: 0 }}>
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
               <Chip size="small" label={`#${ticket.ticketnumber}`} sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "#fff", fontWeight: 700 }} />
-              <Chip size="small" label={status} color={statusColor(status)} />
-              <Chip size="small" variant="outlined" label={priority || "Medium"} sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.5)" }} />
               <SyncBadges
                 ticket={{
                   source,
@@ -456,7 +459,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                   <EmailActionButton
                     enabled={mailConfigured && ticket.localId != null}
                     disabledReason={ticket.localId == null ? "Save the ticket before sending email." : "Email is not configured."}
-                    onClick={() => setCompose({})}
+                    onClick={() => setCompose({ to: defaultRecipient })}
                   />
                 </Stack>
                 {ticket.localId != null && <AddNoteComposer onSave={createTicketNote} />}
@@ -485,12 +488,14 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                   {/* Status + priority share a row — both are short and read at a glance. */}
                   <Stack direction="row" spacing={1}>
                     <TextField select label="Status" size="small" fullWidth value={status}
+                      SelectProps={{ renderValue: (value) => <StatusSignal status={String(value)} /> }}
                       onChange={(e) => handleStatus(e.target.value)}>
-                      {TICKET_STATUSES.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                      {TICKET_STATUSES.map((s) => <MenuItem key={s} value={s}><StatusSignal status={s} /></MenuItem>)}
                     </TextField>
                     <TextField select label="Priority" size="small" fullWidth value={priority || "Medium"}
+                      SelectProps={{ renderValue: (value) => <PrioritySignal priority={String(value)} /> }}
                       onChange={(e) => handlePriority(e.target.value)}>
-                      {TICKET_PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+                      {TICKET_PRIORITIES.map((p) => <MenuItem key={p} value={p}><PrioritySignal priority={p} /></MenuItem>)}
                     </TextField>
                   </Stack>
                   <InlineEditableText

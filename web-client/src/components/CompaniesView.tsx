@@ -280,9 +280,7 @@ function ContactRow({ contact, contacts, onChanged }: { contact: api.Contact; co
 
   const makePrimary = async () => {
     setBusy(true);
-    const prev = contacts.find((c) => c.isPrimary && c.id !== contact.id);
     await api.updateContact(contact.id, { isPrimary: true }).catch(() => {});
-    if (prev) await api.updateContact(prev.id, { isPrimary: false }).catch(() => {});
     setBusy(false);
     onChanged();
   };

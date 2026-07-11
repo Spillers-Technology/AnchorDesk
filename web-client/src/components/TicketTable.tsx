@@ -3,6 +3,7 @@ import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { Ticket } from "../interfaces";
 import SlaChip from "./SlaChip";
 import SyncBadges from "./SyncBadges";
+import { PriorityChip, StatusChip } from "./TicketSignals";
 
 interface TicketTableProps {
   tickets: Ticket[];
@@ -32,8 +33,8 @@ const columns: GridColDef[] = [
     renderCell: (params) => `#${params.value}`,
   },
   { field: "ticketTitle", headerName: "Title", flex: 1, minWidth: 240 },
-  { field: "status", headerName: "Status", width: 130 },
-  { field: "priority", headerName: "Priority", width: 120 },
+  { field: "status", headerName: "Status", width: 150, renderCell: (params) => <StatusChip status={String(params.value)} /> },
+  { field: "priority", headerName: "Priority", width: 140, renderCell: (params) => <PriorityChip priority={String(params.value || "Medium")} variant="outlined" /> },
   {
     field: "sla",
     headerName: "SLA",

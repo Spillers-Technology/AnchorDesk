@@ -54,6 +54,7 @@ import SelectAllIcon from "@mui/icons-material/SelectAll";
 import ClearIcon from "@mui/icons-material/Clear";
 import EditNoteIcon from "@mui/icons-material/EditNote";
 import { TICKET_PRIORITIES, TICKET_STATUSES } from "./ticketVocab";
+import { PrioritySignal, StatusSignal } from "./components/TicketSignals";
 
 // Map local-DB ticket record to the component-facing Ticket interface.
 // The component interface uses CW-era field names; this adapter lets us keep
@@ -763,13 +764,13 @@ function BulkUpdateDialog({
           <TextField select label="Status" value={status} onChange={(event) => setStatus(event.target.value)} fullWidth disabled={busy}>
             <MenuItem value="">Leave unchanged</MenuItem>
             {TICKET_STATUSES.map((s) => (
-              <MenuItem key={s} value={s}>{s}</MenuItem>
+              <MenuItem key={s} value={s}><StatusSignal status={s} /></MenuItem>
             ))}
           </TextField>
           <TextField select label="Priority" value={priority} onChange={(event) => setPriority(event.target.value)} fullWidth disabled={busy}>
             <MenuItem value="">Leave unchanged</MenuItem>
             {TICKET_PRIORITIES.map((p) => (
-              <MenuItem key={p} value={p}>{p}</MenuItem>
+              <MenuItem key={p} value={p}><PrioritySignal priority={p} /></MenuItem>
             ))}
           </TextField>
           <TextField select label="Assignee" value={assignee} onChange={(event) => setAssignee(event.target.value)} fullWidth disabled={busy}>
