@@ -3,7 +3,7 @@
   "version": "2.1.0",
   "main": "dist/src/index.js",
   "scripts": {
-    "test": "jest",
+    "test": "jest --runInBand",
     "build": "tsc -p tsconfig.json --outDir dist",
     "start": "nodemon --transpile-only src/index.ts",
     "start:prod": "node dist/src/index.js"
