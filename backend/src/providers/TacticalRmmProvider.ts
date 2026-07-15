@@ -8,15 +8,22 @@
  * GoF pattern: Strategy (implements DeviceProvider)
  */
 
-import { DeviceProvider, ExternalDevice } from './DeviceProvider';
+import { DeviceProvider, ExternalDevice, normalizeDeviceBatch } from './DeviceProvider';
 import * as tactical from '../services/tacticalService';
 
 export class TacticalRmmProvider implements DeviceProvider {
   readonly name = 'tactical_rmm';
+  normalizationErrors: string[] = [];
 
   async fetchDevices(_since?: Date): Promise<ExternalDevice[]> {
     const agents = await tactical.listAgents();
-    return agents.map((a) => this.normalize(a as unknown as Record<string, unknown>));
+    const batch = normalizeDeviceBatch(
+      agents,
+      'Tactical RMM',
+      (agent) => this.normalize(agent as unknown as Record<string, unknown>),
+    );
+    this.normalizationErrors = batch.errors;
+    return batch.devices;
   }
 
   async getDevice(externalDeviceId: string): Promise<ExternalDevice | null> {
@@ -37,11 +44,13 @@ export class TacticalRmmProvider implements DeviceProvider {
       displayName: a.hostname,
       ipAddress: firstIp,
       vendor: a.make_model,
+      model: a.make_model,
+      serialNumber: a.serial_number,
       os: a.operating_system,
       deviceType: a.monitoring_type, // 'server' | 'workstation'
       status: normalizeStatus(a.status),
       companyName: a.client_name,
-      lastSeenAt: a.last_seen ? new Date(a.last_seen) : undefined,
+      lastSeenAt: validDate(a.last_seen),
       metadata: {
         plat: a.plat,
         siteName: a.site_name,
@@ -51,6 +60,12 @@ export class TacticalRmmProvider implements DeviceProvider {
       },
     };
   }
+}
+
+function validDate(value?: string): Date | undefined {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
 function normalizeStatus(status?: string): string {

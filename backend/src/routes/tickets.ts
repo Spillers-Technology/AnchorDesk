@@ -6,9 +6,38 @@ import * as twoWaySync from '../services/twoWaySync';
 import { renderTicketHtml } from '../services/ticketExport';
 import { sanitizeEmailHtml, htmlToText } from '../services/mail/sanitizeHtml';
 import { parseId } from '../util/ids';
+import { isPlainRecord } from '../util/objects';
+import { hasPrismaCode } from '../util/prismaErrors';
+import { CustomFieldValidationError } from '../services/customFields';
 
 interface IdParam { id: string }
 interface NoteIdParam { id: string; noteId: string }
+
+function positiveInteger(raw: string | undefined, fallback: number): number | null {
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function validateTicketInput(value: unknown, creating: boolean): string | null {
+  if (!isPlainRecord(value)) return 'request body must be an object';
+  if (creating && (typeof value.title !== 'string' || !value.title.trim())) return 'title is required';
+  const strings = ['title', 'summary', 'description', 'status', 'priority', 'companyName', 'assignee'] as const;
+  for (const field of strings) {
+    if (value[field] !== undefined && typeof value[field] !== 'string') return `${field} must be a string`;
+  }
+  for (const field of ['companyId', 'contactId', 'assigneeId', 'teamId'] as const) {
+    const input = value[field];
+    if (input !== undefined && input !== null
+        && (typeof input !== 'number' || !Number.isInteger(input) || input <= 0)) {
+      return `${field} must be a positive integer or null`;
+    }
+  }
+  if (value.customFields !== undefined && !isPlainRecord(value.customFields)) {
+    return 'customFields must be an object';
+  }
+  return null;
+}
 
 export async function ticketRoutes(server: FastifyInstance) {
   // List tickets with optional filtering + server-side pagination. Returns
@@ -16,19 +45,28 @@ export async function ticketRoutes(server: FastifyInstance) {
   // the whole table. pageSize is capped to keep one request bounded.
   server.get('/tickets', async (req: FastifyRequest, reply: FastifyReply) => {
     const query = req.query as Record<string, string>;
-    const pageSize = Math.min(query.pageSize ? parseInt(query.pageSize) : 50, 200);
+    const requestedPageSize = positiveInteger(query.pageSize, 50);
+    const page = positiveInteger(query.page, 1);
+    const labelId = query.labelId === undefined ? undefined : parseId(query.labelId);
+    const teamId = query.teamId === undefined ? undefined : parseId(query.teamId);
+    if (requestedPageSize === null || page === null) return reply.status(400).send({ error: 'page and pageSize must be positive integers' });
+    if (query.labelId !== undefined && labelId === null) return reply.status(400).send({ error: 'labelId must be a positive integer' });
+    if (query.teamId !== undefined && teamId === null) return reply.status(400).send({ error: 'teamId must be a positive integer' });
+    if (query.regex && query.regex.length > 500) return reply.status(400).send({ error: 'regex must be at most 500 characters' });
+    const pageSize = Math.min(requestedPageSize, 200);
     const result = await ticketRepo.listPaged({
       status: query.status,
       assignee: query.assignee,
       companyName: query.company,
       q: query.q,
       regex: query.regex,
-      labelId: query.labelId ? parseInt(query.labelId) : undefined,
+      labelId: labelId ?? undefined,
+      teamId: teamId ?? undefined,
       includeDeleted: query.includeDeleted === 'true',
       // Default working views hide closed tickets; opt in with includeClosed=true
       // (or by selecting a specific status, which always wins).
       includeClosed: query.includeClosed === 'true',
-      page: query.page ? parseInt(query.page) : 1,
+      page,
       pageSize,
     });
     return reply.send(result);
@@ -38,7 +76,10 @@ export async function ticketRoutes(server: FastifyInstance) {
   server.get('/tickets/search', async (req: FastifyRequest, reply: FastifyReply) => {
     const query = req.query as Record<string, string>;
     const q = query.q ?? '';
-    const limit = query.limit ? Math.min(parseInt(query.limit), 200) : 50;
+    const requestedLimit = positiveInteger(query.limit, 50);
+    if (requestedLimit === null) return reply.status(400).send({ error: 'limit must be a positive integer' });
+    if (q.length > 500) return reply.status(400).send({ error: 'q must be at most 500 characters' });
+    const limit = Math.min(requestedLimit, 200);
     return reply.send(await ticketRepo.search(q, limit));
   });
 
@@ -53,22 +94,34 @@ export async function ticketRoutes(server: FastifyInstance) {
 
   // Create ticket
   server.post('/tickets', async (req: FastifyRequest, reply: FastifyReply) => {
+    const validationError = validateTicketInput(req.body, true);
+    if (validationError) return reply.status(400).send({ error: validationError });
     const body = req.body as ticketRepo.CreateTicketInput;
-    if (!body?.title) return reply.status(400).send({ error: 'title is required' });
 
-    const ticket = await ticketRepo.create(body, req.actorSub);
-    return reply.status(201).send(ticket);
+    try {
+      const ticket = await ticketRepo.create(body, req.actorSub);
+      return reply.status(201).send(ticket);
+    } catch (error) {
+      if (error instanceof CustomFieldValidationError) return reply.status(400).send({ error: error.message });
+      if (hasPrismaCode(error, 'P2003')) return reply.status(400).send({ error: 'A referenced team, user, company, or contact does not exist' });
+      throw error;
+    }
   });
 
   // Update ticket fields
   server.patch('/tickets/:id', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
     const id = parseId(req.params.id);
     if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
-    const ticket = await ticketRepo.update(
-      id,
-      req.body as ticketRepo.UpdateTicketInput,
-      req.actorSub
-    );
+    const validationError = validateTicketInput(req.body, false);
+    if (validationError) return reply.status(400).send({ error: validationError });
+    let ticket;
+    try {
+      ticket = await ticketRepo.update(id, req.body as ticketRepo.UpdateTicketInput, req.actorSub);
+    } catch (error) {
+      if (error instanceof CustomFieldValidationError) return reply.status(400).send({ error: error.message });
+      if (hasPrismaCode(error, 'P2003')) return reply.status(400).send({ error: 'A referenced team, user, company, or contact does not exist' });
+      throw error;
+    }
     if (!ticket) return reply.status(404).send({ error: 'Ticket not found' });
 
     // Two-way sync: a local edit to an external ticket becomes pending, then we

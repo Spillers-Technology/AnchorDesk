@@ -4,18 +4,18 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>AnchorDesk - local-first ticketing and IT operations</title>
-<meta name="description" content="AnchorDesk is a self-hosted ticketing and IT operations platform with rich ticket workflows, email-to-ticket, device inventory, RMM actions, two-way sync, OAuth-ready MCP, and PostgreSQL as the local source of truth." />
+<meta name="description" content="AnchorDesk is a self-hosted, mobile-first ticketing and IT operations platform with team queues, custom fields, automation, email-to-ticket, multi-RMM device records, OAuth-ready MCP, and PostgreSQL as the local source of truth." />
 <meta name="theme-color" content="#4f46e5" />
 
 <meta property="og:type" content="website" />
 <meta property="og:title" content="AnchorDesk - local-first ticketing and IT operations" />
-<meta property="og:description" content="Self-hosted ticketing with current app screenshots: Kanban, rich ticket cockpit, My Day time view, network map, sync, RMM, and MCP OAuth." />
+<meta property="og:description" content="AnchorDesk 2.1 Pocket &amp; Anchor: mobile-first helpdesk workflows, team queues, custom fields, SLA automation, saved views, multi-RMM assets, and MCP OAuth." />
 <meta property="og:url" content="https://spillerstech.us/AnchorDesk/" />
 <meta property="og:image" content="https://spillerstech.us/AnchorDesk/assets/screenshots/anchordesk-board.jpg" />
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Roboto+Mono:wght@400;500&amp;display=swap" rel="stylesheet" />
 <link rel="icon" type="image/png" href="anchordesk-favicon.png" />
 
 <style>
@@ -698,7 +698,7 @@
   <div class="wrap topbar">
     <a class="brand" href="#top" aria-label="AnchorDesk home"><svg><use href="#logo"/></svg> AnchorDesk</a>
     <nav class="nav" aria-label="Primary">
-      <a href="#release">v2.0</a>
+      <a href="#release">v2.1</a>
       <a href="#themes">Themes</a>
       <a href="#views">Views</a>
       <a href="#platform">Platform</a>
@@ -714,9 +714,9 @@
   <section class="hero" aria-labelledby="hero-title">
     <div class="wrap">
       <div class="hero-content">
-        <div class="release"><span></span> v2.0.0 Signal &amp; Spectrum — personal palettes and network intelligence</div>
+        <div class="release"><span></span> v2.1.0 Pocket &amp; Anchor — field-ready workflows and configuration records</div>
         <h1 id="hero-title">AnchorDesk</h1>
-        <p class="lead">A self-hosted ticketing and IT operations console where PostgreSQL is the source of truth, tickets know the machines behind them, and MCP/OAuth gives agents a first-class way in.</p>
+        <p class="lead">A self-hosted, mobile-first service desk where PostgreSQL is the source of truth, teams and automation keep work moving, tickets know the machines behind them, and MCP/OAuth gives agents a first-class way in.</p>
         <div class="actions">
           <a class="btn primary" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Start self-hosting</a>
           <a class="btn secondary" href="#views">See current screens</a>
@@ -726,8 +726,8 @@
           <span>Fastify + Prisma</span>
           <span>PostgreSQL core</span>
           <span>IMAP + SMTP</span>
-          <span>RMM scripts</span>
-          <span>MCP OAuth</span>
+          <span>Multi-RMM assets</span>
+          <span>MCP workflows</span>
         </div>
       </div>
     </div>
@@ -737,29 +737,29 @@
     <div class="wrap">
       <div class="section-head">
         <div class="kicker">Current release</div>
-        <h2>v2.0 makes the whole workspace easier to read and trust.</h2>
-        <p>Personal palettes give each technician a comfortable visual home, while stronger company guarantees, clearer workflow signals, and richer device intelligence remove ambiguity from daily work.</p>
+        <h2>v2.1 brings the service desk into the field without leaving control behind.</h2>
+        <p>Pocket &amp; Anchor pairs a phone-ready workspace with team queues, configurable ticket data, event-driven escalation, saved views, and one durable asset record across RMMs.</p>
       </div>
       <div class="release-grid">
         <article class="tile">
-          <div class="status-line green"><i></i> Personal workspace</div>
-          <strong>Seven complete palettes, saved per user.</strong>
-          <p>Light, dark, Solarized, Nord, Gruvbox, and Dracula choices apply immediately and return before the next session finishes loading.</p>
+          <div class="status-line green"><i></i> Mobile-first field work</div>
+          <strong>The whole helpdesk fits a touch screen.</strong>
+          <p>Full-screen phone dialogs, compact layouts, visible touch actions, pinch zoom, and a five-device capture matrix keep every core view usable from 344px upward.</p>
         </article>
         <article class="tile">
-          <div class="status-line sky"><i></i> Network intelligence</div>
-          <strong>Devices identify themselves and form a real map.</strong>
-          <p>OUI vendors, port fingerprints, service names, clustered Canvas layout, zoom, pan, and linked tickets turn inventory into context.</p>
+          <div class="status-line sky"><i></i> Queues and custom fields</div>
+          <strong>Work follows your service-desk vocabulary.</strong>
+          <p>Teams route tickets independently of technicians, typed custom fields capture the right facts, and saved filters or personal board columns keep each workspace focused.</p>
         </article>
         <article class="tile">
-          <div class="status-line amber"><i></i> Complete customer flow</div>
-          <strong>Tickets, companies, contacts, and recipients stay connected.</strong>
-          <p>Every new ticket has a company, inbound domains resolve automatically, and primary contacts drive fresh email composition.</p>
+          <div class="status-line amber"><i></i> Automation and escalation</div>
+          <strong>SLA signals can move work, not just color it.</strong>
+          <p>Ticket, note, warning, and breach events can assign teams, change priority, label, annotate, and notify through the same audited live-update pipeline.</p>
         </article>
         <article class="tile">
-          <div class="status-line red"><i></i> Workflow signals</div>
-          <strong>Status and priority no longer look interchangeable.</strong>
-          <p>Semantic dots and directional icons carry through cards, tables, and controls, while the activity rail reads in one sweep.</p>
+          <div class="status-line red"><i></i> Multi-RMM configuration records</div>
+          <strong>One physical device keeps every provider identity.</strong>
+          <p>Asset and lifecycle fields stay local while Tactical, NinjaOne, Datto, and probes merge telemetry through provider-specific references for live views and scripts.</p>
         </article>
       </div>
     </div>
@@ -802,7 +802,7 @@
           <button class="lightbox-trigger" type="button" data-lightbox>
             <img src="assets/screenshots/anchordesk-ticket-modal.jpg" alt="AnchorDesk ticket modal showing rich description, activity notes, linked devices, attachments, and ticket metadata." />
           </button>
-          <figcaption><strong>Ticket cockpit</strong><span>Rich description editing, separate notes and email, linked devices, RMM jobs, time, attachments, labels, and sync controls live in one modal.</span></figcaption>
+          <figcaption><strong>Ticket cockpit</strong><span>Team routing, typed custom fields, rich descriptions, notes/email, linked multi-RMM devices, time, attachments, labels, and sync controls live in one modal.</span></figcaption>
         </figure>
         <figure class="shot">
           <button class="lightbox-trigger" type="button" data-lightbox>
@@ -814,7 +814,7 @@
           <button class="lightbox-trigger" type="button" data-lightbox>
             <img src="assets/screenshots/anchordesk-network.jpg" alt="AnchorDesk network map with radial device layout, status-colored nodes, and selected device details." />
           </button>
-          <figcaption><strong>Network map</strong><span>Devices from probes and RMM providers become a radial map, grouped by probe or company, with linked tickets visible on the focused device.</span></figcaption>
+          <figcaption><strong>Network map</strong><span>Provider observations merge into local configuration records and a radial map, grouped by probe or company, with linked tickets visible on the focused device.</span></figcaption>
         </figure>
         <figure class="shot">
           <button class="lightbox-trigger" type="button" data-lightbox>
@@ -863,15 +863,18 @@
         <p>AnchorDesk can run standalone, then attach the pieces of your MSP or IT stack as adapters.</p>
       </div>
       <div class="features">
-        <article class="feature"><em>Tickets</em><strong>Local-first ticketing</strong><p>Create, assign, filter, label, bulk update, and work tickets from card, board, and optional legacy table views.</p></article>
+        <article class="feature"><em>Tickets</em><strong>Local-first ticketing</strong><p>Create, route to teams, assign, capture typed custom fields, save filters, label, bulk update, and work tickets from card, board, and optional legacy table views.</p></article>
         <article class="feature"><em>Email</em><strong>Threaded IMAP and SMTP</strong><p>Poll multiple mailboxes, dedupe by Message-ID, tag subjects with public ticket numbers, and reply with identities, templates, signatures, Cc/Bcc, and inline images.</p></article>
-        <article class="feature"><em>Devices</em><strong>Inventory and network map</strong><p>Netviz probes and RMM syncs populate devices, which can be company-scoped and linked directly to the tickets they affect.</p></article>
-        <article class="feature"><em>RMM</em><strong>Run scripts from the ticket</strong><p>Tactical RMM, NinjaOne, and Datto adapters can sync devices and execute scripts or quick jobs, with output retained against the ticket.</p></article>
+        <article class="feature"><em>Devices</em><strong>Configuration records and network map</strong><p>Asset tag, serial, make/model, location, purchase/warranty dates, and notes stay local while probes and RMMs refresh operational context.</p></article>
+        <article class="feature"><em>RMM</em><strong>One device, multiple providers</strong><p>Tactical RMM, NinjaOne, and Datto identities merge onto one device; technicians select the provider for live snapshots, scripts, or quick jobs.</p></article>
         <article class="feature"><em>Sync</em><strong>Two-way PSA issue sync</strong><p>ConnectWise Manage and Jira Cloud can pull and push ticket state, hold conflicts, and ask a human to keep local or remote changes.</p></article>
         <article class="feature"><em>Identity</em><strong>SSO, MFA, RBAC, MCP OAuth</strong><p>Local accounts, OIDC, SAML, TOTP MFA, personal access tokens, and built-in OAuth for MCP all resolve to a real user and role.</p></article>
-        <article class="feature"><em>Realtime</em><strong>WebSockets and notifications</strong><p>Ticket lists, board cards, open modals, the notification bell, and SLA state update without refresh.</p></article>
+        <article class="feature"><em>Agents</em><strong>Workflow-complete MCP</strong><p>Authenticated agents can work tickets, notes, time, email, labels, teams, custom fields, saved views, ranked search, and audit history.</p></article>
+        <article class="feature"><em>Automation</em><strong>Rules and SLA escalation</strong><p>Ticket, note, SLA-warning, and breach events can update, route, label, annotate, or notify with actor-attributed history and a loop guard.</p></article>
+        <article class="feature"><em>Realtime</em><strong>WebSockets and notifications</strong><p>Ticket lists, board cards, open modals, the notification bell, SLA state, and automation results update without refresh.</p></article>
         <article class="feature"><em>Files</em><strong>Attachments and export</strong><p>Drag/drop files onto tickets, store bytes locally or in S3-compatible storage, and export a printable ticket with safe inline activity.</p></article>
-        <article class="feature"><em>Audit</em><strong>Actor-attributed history</strong><p>Managed changes append before/after values with the user and channel, including web, API token, and MCP activity.</p></article>
+        <article class="feature"><em>Audit</em><strong>Actor-attributed history</strong><p>Managed changes append before/after values with the user and channel, including web, API token, MCP, and named automation activity.</p></article>
+        <article class="feature"><em>Mobile</em><strong>Pocket-sized helpdesk</strong><p>Mobile-first by requirement: every view is verified at phone widths from 344px folded foldables to tablets — full-screen ticket cockpit and composer, touch Kanban, and a pinch-zoomable network map.</p></article>
       </div>
     </div>
   </section>
@@ -885,9 +888,9 @@
       <div class="how">
         <div class="steps">
           <div class="step"><div class="num">1</div><div><strong>Tickets land locally</strong><p>UI, IMAP, ConnectWise, Jira, and API-created tickets normalize into PostgreSQL.</p></div></div>
-          <div class="step"><div class="num">2</div><div><strong>Devices stay attached</strong><p>Probes and RMMs upsert device records, which can be linked to companies and tickets.</p></div></div>
-          <div class="step"><div class="num">3</div><div><strong>Work happens in context</strong><p>Technicians send mail, log time, run scripts, attach files, and reconcile sync conflicts without leaving the ticket.</p></div></div>
-          <div class="step"><div class="num">4</div><div><strong>Agents act as users</strong><p>MCP clients authenticate with personal tokens or AnchorDesk's built-in OAuth authorization server, so RBAC and audit attribution still apply.</p></div></div>
+          <div class="step"><div class="num">2</div><div><strong>Queues and rules move the work</strong><p>Teams, saved views, custom fields, and audited automation translate service-desk policy into the local workflow.</p></div></div>
+          <div class="step"><div class="num">3</div><div><strong>Device identities converge</strong><p>Provider references merge RMM and probe observations into one asset record linked to companies and tickets.</p></div></div>
+          <div class="step"><div class="num">4</div><div><strong>People and agents act in context</strong><p>Technicians and OAuth/PAT-authenticated MCP clients share RBAC, audit attribution, and the same ticket workflow primitives.</p></div></div>
         </div>
         <div class="codecard">
           <div class="codebar"><span></span><span></span><span></span></div>
@@ -897,18 +900,18 @@ docker compose up -d db adminer
 <span class="c"># Backend config and schema</span>
 cp backend/.env.example backend/.env
 cd backend
-npm install
+npm ci
 npx prisma db push
 npm start              <span class="c"># :8060</span>
 
 <span class="c"># Web client</span>
 cd ../web-client
-npm install
+npm ci
 npm run dev            <span class="c"># :5173</span>
 
 <span class="c"># Current images</span>
-ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.0.0</span>
-ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.0.0</span></pre>
+ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.1.0</span>
+ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.1.0</span></pre>
         </div>
       </div>
     </div>
@@ -945,7 +948,7 @@ ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.0.0</span></
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Quickstart<span>Local Compose, backend config, schema push, and web client.</span></a>
         <a class="doc-link" href="architecture.md">Architecture<span>Source-of-truth database, auth flow, adapters, repositories, and delivery status.</span></a>
         <a class="doc-link" href="mcp-auth.md">MCP Auth<span>Personal tokens and built-in OAuth authorization-code + PKCE flow.</span></a>
-        <a class="doc-link" href="providers.md">Providers<span>How to add a ticket sync provider or extend write-back behavior.</span></a>
+        <a class="doc-link" href="providers.md">Providers<span>How to add ticket sync providers and identity-safe device/RMM adapters.</span></a>
       </div>
     </div>
   </section>

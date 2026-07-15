@@ -40,6 +40,9 @@ async function syncProvider(
     result.durationMs = Date.now() - start;
     return result;
   }
+  if (provider.normalizationErrors?.length) {
+    result.errors.push(...provider.normalizationErrors);
+  }
 
   for (const ext of devices) {
     try {
@@ -52,6 +55,14 @@ async function syncProvider(
           ipAddress: ext.ipAddress,
           macAddress: ext.macAddress,
           vendor: ext.vendor,
+          assetTag: ext.assetTag,
+          serialNumber: ext.serialNumber,
+          manufacturer: ext.manufacturer,
+          model: ext.model,
+          location: ext.location,
+          purchaseDate: ext.purchaseDate,
+          warrantyExpiresAt: ext.warrantyExpiresAt,
+          notes: ext.notes,
           os: ext.os,
           deviceType: ext.deviceType,
           openPorts: ext.openPorts,

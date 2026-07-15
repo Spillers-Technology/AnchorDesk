@@ -22,8 +22,21 @@
 
 What sets it apart from a plain helpdesk: each ticket can become an operations cockpit. Link the **devices** involved, inspect their source and status, run RMM scripts, send email, and keep the resulting activity on the ticket. Core changes are recorded in an **append-only audit log** with actor and before/after data.
 
-## What ships in v2.0.0
+And it travels: the web client is **mobile-first**, so triaging the board, replying to a customer, or running a script from a phone in the field works as well as it does at a desk.
 
+<div align="center">
+<img width="360" alt="AnchorDesk Kanban board on a phone: full toolbar, SLA and label chips, and touch-visible card actions at 412px" src="docs/assets/screenshots/anchordesk-mobile-board.jpg" />
+</div>
+
+## What ships in v2.1.0
+
+- **📱 Mobile-first web client** — the board, ticket cockpit, email composer, and admin console are fully usable from a 344px folded foldable up through Pixel, iPhone, and Galaxy phones and tablets: dialogs go full-screen on phones, the network map pinch-zooms (with on-screen zoom buttons), touch affordances never hide behind hover, and a Playwright device matrix verifies every view at five viewports ([docs/mobile.md](docs/mobile.md)).
+- **👥 Team queues** — route work to a team independently of the individual assignee, manage membership in Admin, and filter tickets or drive automations by queue.
+- **🧩 Custom ticket fields** — admins define validated text, number, boolean, date, and select fields; values travel through the ticket dialog, REST API, automation conditions, audit trail, and MCP tools.
+- **⚙️ Automation + SLA escalation** — event rules react to ticket changes, notes, and SLA warnings/breaches, then update, route, label, annotate, or notify through the normal audited/live-update pipeline.
+- **🔖 Saved workspaces** — personal and admin-published shared views persist ticket filters, while each technician can choose and order the status columns on their Kanban board.
+- **🧰 Configuration records across RMMs** — lifecycle fields (asset tag, serial, make/model, location, purchase/warranty dates, and notes) stay local while provider-specific external references unify Tactical RMM, NinjaOne, Datto RMM, and probe observations of the same physical device.
+- **🤖 Broader MCP workflows** — authenticated agents can use labels, teams, custom fields, saved views, ranked search, and audit history in addition to ticket, note, time, and email operations.
 - **🎨 Seven personal palettes** — Default Light/Dark, Solarized Light/Dark, Nord, Gruvbox, and Dracula apply instantly from the account menu and follow each user.
 - **🧠 Device intelligence + Canvas map** — lazy OUI vendor resolution, service/port fingerprinting, non-destructive device classification, and the interactive netviz cluster map with zoom, pan, labels, and linked-ticket context.
 - **🏢 Complete company/contact flow** — every new ticket resolves to a real company, inbound email recognizes sender domains, contacts edit inline, primary selection is atomic, and fresh email chooses the right recipient.
@@ -45,8 +58,8 @@ The core platform also includes:
 - **🔎 Fuzzy search** — typo-tolerant Postgres `pg_trgm` search combined with full-text, reaching across priority, ticket number, and the conversation/timeline.
 - **📎 Attachments** — drag-and-drop files onto a ticket or attach them to an outgoing email; inbound email attachments are captured automatically. Bytes live on local disk or any **S3-compatible** store (AWS S3, MinIO, Cloudflare R2, Backblaze B2), selectable by env var or in **Admin → Integrations**.
 - **🔔 Live updates & notifications** — a WebSocket channel pushes ticket, note, and SLA changes in real time: lists, the Kanban board, and the open ticket update without a refresh, and a notification bell alerts you to assignments, customer replies, and SLA risk.
-- **⏰ SLA tracking** — per-priority / per-company response & resolution targets with live countdown chips (green → amber → red) on lists, cards, the board, and the ticket; breaches and at-risk tickets raise notifications.
-- **🎫 Local-first ticketing** — create and edit tickets, assign technicians, manage notes, filter views, and use card/table/Kanban layouts. The list is server-paginated with server-side search and filtering, so it scales past large ticket counts.
+- **⏰ SLA tracking** — per-priority / per-company response & resolution targets with live countdown chips (green → amber → red) on lists, cards, the board, and the ticket; warning/breach events can notify directly or drive escalation rules.
+- **🎫 Local-first ticketing** — create and edit tickets, route teams, assign technicians, manage custom fields and notes, save filtered views, and use card/table/Kanban layouts. The list is server-paginated with server-side search and filtering, so it scales past large ticket counts.
 - **🧰 Ticket cockpit** — one ticket view with status, priority, source, company & contact, assignee picker, activity timeline, time tracking, linked devices, script jobs, and email.
 - **🏢 Companies & contacts (CRM)** — first-class company and contact records, company pages, company-scoped tickets and devices, and inline contact creation from a ticket.
 - **⏱️ Time tracking** — log billable time as a quick duration or a start/stop window; entries total per ticket and are editable on the timeline.
@@ -54,11 +67,11 @@ The core platform also includes:
 - **📤 Ticket email** — compose sanitized **HTML** replies from inside a ticket with a rich-text editor; outbound mail sets threading headers so customer replies land back on the same ticket, rendered as an inbound/outbound conversation on the timeline.
 - **🧭 Admin console** — live ticket/device/probe/user/mailbox counts, recent activity, user and auth management, integration settings, mailbox management, inventory, and an audit-log viewer.
 - **🔐 Auth + RBAC** — local accounts, OIDC, and SAML 2.0 can run side by side. TOTP MFA is required by default for local accounts, with `admin`, `technician`, and `readonly` roles.
-- **🖥️ Device inventory + network map** — ingest devices from [netviz](#probes--devices), sync them from Tactical RMM, or add them manually; group the radial map by probe or company and link devices to tickets.
-- **⚡ RMM actions** — Tactical RMM, NinjaOne, and Datto RMM adapters can sync devices, expose live snapshots where available, run scripts or quick jobs, and retain job status/output.
+- **🖥️ Device inventory + network map** — ingest devices from [netviz](#probes--devices), sync them from multiple RMMs, or add them manually; retain local asset/lifecycle data, group the radial map by probe or company, and link devices to tickets.
+- **⚡ RMM actions** — Tactical RMM, NinjaOne, and Datto RMM adapters can share one device through provider-specific references, expose selectable live snapshots, run scripts or quick jobs through the chosen provider, and retain job status/output.
 - **🔄 Two-way ticket sync** — ConnectWise Manage and Jira Cloud can reconcile ticket status, priority, assignee, and notes in both directions. Conflicts are flagged and held until a human keeps local or remote changes. These outbound adapters are alpha until exercised against more live tenants.
 - **📝 Audit history** — ticket, note, device, user, mailbox, and other managed-record changes append actor-attributed history; admins can browse recent events across entities.
-- **🤖 MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) tools let authenticated agents list, read, create, and update tickets, add notes, log time, send ticket email, and inspect ticket history. Header-capable clients can use AnchorDesk personal access tokens; OAuth-capable clients such as ChatGPT can discover AnchorDesk's own authorization server, dynamically register, ask the user for consent, and receive a revocable per-user token.
+- **🤖 MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) tools let authenticated agents manage tickets, notes, time, email, labels, teams, custom fields, saved views, ranked search, and ticket history. Header-capable clients can use AnchorDesk personal access tokens; OAuth-capable clients such as ChatGPT can discover AnchorDesk's own authorization server, dynamically register, ask the user for consent, and receive a revocable per-user token.
 - **📦 Self-hosting included** — Docker Compose, Kubernetes manifests, and tagged backend/web images on GHCR.
 
 ## Architecture
@@ -73,9 +86,9 @@ backend (Fastify + TypeScript)
 PostgreSQL  ← source of truth (tickets, notes, audit, users, devices, mailboxes, script jobs)
      ▲
      │  adapters and pollers
-     ├── ConnectWiseProvider   (inbound tickets + notes)
+     ├── ConnectWise / Jira    (two-way tickets + notes)
      ├── NetVizProvider        (probe → device ingest)
-     ├── Tactical RMM          (device sync + script runner)
+     ├── Tactical / Ninja / Datto RMM (device sync + scripts)
      └── IMAP / SMTP           (email-to-ticket + outbound mail)
 ```
 
@@ -89,7 +102,7 @@ See [docs/architecture.md](docs/architecture.md) for the full diagram and ration
 
 ## Quickstart
 
-**Prerequisites:** Node.js 18+ and Docker with Compose.
+**Prerequisites:** Node.js 22 (the CI baseline) and Docker with Compose.
 
 Create a root `.env` for Compose:
 
@@ -115,7 +128,7 @@ cp backend/.env.example backend/.env
 
 # Install dependencies and push the schema
 cd backend
-npm install
+npm ci
 npx prisma db push
 ```
 
@@ -123,15 +136,15 @@ Run the backend and frontend in separate terminals:
 
 ```bash
 cd backend && npm start                       # :8060
-cd web-client && npm install && npm run dev   # :5173
+cd web-client && npm ci && npm run dev        # :5173
 ```
 
 Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxied to the backend. If you run the Vite dev server inside a container, set `BACKEND_ORIGIN=http://backend:8060`.
 
 For the complete Compose stack, run `docker compose up --build`. Tagged release images are published as:
 
-- `ghcr.io/spillers-technology/anchordesk-backend:2.0.0`
-- `ghcr.io/spillers-technology/anchordesk-web-client:2.0.0`
+- `ghcr.io/spillers-technology/anchordesk-backend:2.1.0`
+- `ghcr.io/spillers-technology/anchordesk-web-client:2.1.0`
 
 ## Configuration
 
@@ -163,8 +176,9 @@ Local tickets are the source of truth. Integrations ingest into or act on those 
 |---|---|
 | **Auth** | `POST /auth/login`, `/auth/mfa/*`, `/auth/oidc/*`, `/auth/saml/*`, `/oauth/*`, `GET /auth/me`, `POST /auth/logout` |
 | **Admin** | `/admin/overview`, `/admin/audit`, user CRUD, auth settings, integration settings, and mailbox CRUD/polling |
-| **Tickets** | `GET/POST /tickets` (paginated `{ items, total, page, pageSize }`), `GET /tickets/search?q=`, `GET/PATCH/DELETE /tickets/:id`, ticket history, notes, and `/tickets/:id/time` |
-| **Devices** | Device CRUD/history plus ticket link/unlink routes |
+| **Tickets** | `GET/POST /tickets` (paginated `{ items, total, page, pageSize }`; includes team filtering), `GET /tickets/search?q=`, `GET/PATCH/DELETE /tickets/:id`, ticket history, notes, and `/tickets/:id/time` |
+| **Workflow** | Team/membership CRUD under `/teams`; custom-field definitions under `/custom-fields`; admin rules under `/automations`; personal/shared filters under `/views`; per-user columns at `PUT /auth/kanban-columns` |
+| **Devices** | Device CRUD/history, `/devices/:id/external-refs`, provider-selectable `/devices/:id/live`, and ticket link/unlink routes |
 | **Probes** | `POST/PATCH /probes`, `POST /probe/heartbeat`, and `POST /probe/devices` |
 | **Scripts** | Tactical catalog, device sync, immediate/scheduled jobs, and job history |
 | **Mail** | SMTP status and `POST /tickets/:id/email`; IMAP polling is managed under `/mailboxes` |
@@ -185,16 +199,18 @@ See [docs/mcp-auth.md](docs/mcp-auth.md) for a step-by-step ChatGPT setup guide 
 
 ## Probes & devices
 
-A probe is a scanner deployed on a customer LAN that pushes discovered devices into AnchorDesk. The reference probe is [netviz](https://github.com/Spillers-Technology/netviz). An admin registers a probe from **Admin → Probes** (or `POST /probes`) and receives its API key once. A probe can be linked to a **company**, which then flows onto every device it discovers. The probe heartbeats and posts device records, which are upserted locally, displayed in the **Network** view, and available to link to tickets.
+A probe is a scanner deployed on a customer LAN that pushes discovered devices into AnchorDesk. The reference probe is [netviz](https://github.com/Spillers-Technology/netviz). An admin registers a probe from **Admin → Probes** (or `POST /probes`) and receives its API key once. A probe can be linked to a **company**, which then flows onto every device it discovers. The probe heartbeats and posts device records, which are merged into the local configuration record, displayed in the **Network** view, and available to link to tickets. Provider identities live in `DeviceExternalRef`; sync matches that identity first, then MAC, company-scoped serial, or hostname plus company, so multiple RMMs and probes can describe one physical device without duplicating it or overwriting local asset fields.
 
 The wire contract lives in [backend/src/providers/NetVizProvider.ts](backend/src/providers/NetVizProvider.ts).
 
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — patterns, request lifecycle, and auth
+- [docs/mobile.md](docs/mobile.md) — mobile-first support: device classes, touch rules, and the verification matrix
 - [docs/mcp-auth.md](docs/mcp-auth.md) — MCP personal-token and built-in OAuth setup
 - [docs/schema.md](docs/schema.md) — database schema
 - [docs/providers.md](docs/providers.md) — adding a sync provider
+- [RELEASE_NOTES_v2.1.0.md](RELEASE_NOTES_v2.1.0.md) — 2.1 upgrade and verification guide
 - [CLAUDE.md](CLAUDE.md) — developer reference
 
 ## Contributing

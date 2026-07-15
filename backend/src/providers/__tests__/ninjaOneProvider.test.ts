@@ -4,6 +4,13 @@
  * node-class collapsing. DB-free — normalize() is pure over the raw payload.
  */
 import { NinjaOneProvider } from '../NinjaOneProvider';
+import * as ninja from '../../services/ninjaService';
+
+jest.mock('../../services/ninjaService', () => ({
+  listOrganizations: jest.fn(),
+  listDevices: jest.fn(),
+  getDevice: jest.fn(),
+}));
 
 const provider = new NinjaOneProvider();
 
@@ -50,5 +57,24 @@ describe('NinjaOneProvider.normalize', () => {
 
   it('throws when the device has no id', () => {
     expect(() => provider.normalize({ systemName: 'ghost' })).toThrow();
+  });
+
+  it('skips a malformed inventory row without dropping valid siblings', async () => {
+    const mockedNinja = jest.mocked(ninja);
+    mockedNinja.listOrganizations.mockResolvedValue([{ id: 7, name: 'ACME' }]);
+    mockedNinja.listDevices.mockResolvedValue([
+      { id: 1, organizationId: 7, systemName: 'good-1' },
+      { id: undefined as unknown as number, systemName: 'bad' },
+      { id: 3, organizationId: 7, systemName: 'good-3' },
+    ]);
+
+    const resilientProvider = new NinjaOneProvider();
+    const fetched = await resilientProvider.fetchDevices();
+
+    expect(fetched.map((device) => device.externalId)).toEqual(['1', '3']);
+    expect(fetched.map((device) => device.companyName)).toEqual(['ACME', 'ACME']);
+    expect(resilientProvider.normalizationErrors).toEqual([
+      'NinjaOne record 2: NinjaOne device has no id',
+    ]);
   });
 });

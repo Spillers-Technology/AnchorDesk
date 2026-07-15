@@ -15,8 +15,8 @@ export class NinjaOneRunner implements ScriptRunner {
   readonly name = 'ninjaone';
 
   async run(invocation: ScriptInvocation): Promise<ScriptResult> {
-    const scriptId = parseInt(invocation.script, 10);
-    if (Number.isNaN(scriptId)) {
+    const scriptId = Number(invocation.script);
+    if (!Number.isInteger(scriptId) || scriptId <= 0) {
       throw new Error(`NinjaOne script ref must be a numeric script id, got "${invocation.script}"`);
     }
 
@@ -27,8 +27,8 @@ export class NinjaOneRunner implements ScriptRunner {
 
     return {
       invocationId: `${invocation.externalDeviceId}:${scriptId}:${Date.now()}`,
-      status: 'success',
-      output: `Queued on NinjaOne — output is available in the NinjaOne console.\n${ack}`.trim(),
+      status: 'queued',
+      output: `Accepted by NinjaOne; completion status and output are available in the NinjaOne console.\n${ack}`.trim(),
     };
   }
 }

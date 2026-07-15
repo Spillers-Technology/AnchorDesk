@@ -15,7 +15,7 @@
 # Iterate:
 #   make redeploy  # build + push + rollout restart (images auto-pulled)
 
-REGISTRY   ?= ghcr.io/spilloid
+REGISTRY   ?= ghcr.io/spillers-technology
 TAG        ?= latest
 NS         ?= anchordesk
 BACKEND_IMG = $(REGISTRY)/anchordesk-backend:$(TAG)

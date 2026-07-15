@@ -2,8 +2,6 @@
 
 Developer reference for working with this codebase. Keep this document updated as the project evolves.
 
-> **Local tooling note:** the GitHub CLI is installed at `C:\Program Files\GitHub CLI\gh.exe` (not on the Git Bash PATH — invoke it by full path, e.g. `"/c/Program Files/GitHub CLI/gh.exe"`). It's authenticated as `spilloid`. Note the token currently lacks `write:packages`, so pushing images to ghcr.io needs a PAT with that scope (or `gh auth refresh -s write:packages`).
-
 ---
 
 ## What this is
@@ -41,10 +39,21 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 > - **Ticket/company guarantee** — repository creation resolves every ticket to a real Company; inbound IMAP can match/create by sender domain and otherwise uses `INTERNAL_COMPANY_NAME` (`SpillersTech`). Contact editing, atomic primary selection, and fresh-compose recipient defaults complete the customer flow.
 > - **Workflow legibility** — status dots and priority icons are shared across cards, tables, and selectors; activity uses a timeline rail; narrow Kanban boards scroll fixed-width columns.
 > - **Network intelligence** — bundled lazy OUI lookup plus port/vendor classification enriches device writes non-destructively. The MIT-licensed netviz Canvas map provides categorized clusters, labels, zoom/pan, hover/select, and linked-ticket context.
+>
+> **As of 2.1.0 ("Pocket & Anchor"):** the web client is **mobile-first**, and the helpdesk gains the queue, configuration, and automation primitives identified by the Zammad/Autotask/JSM audit.
+> - **Responsive foundation** — `buildTheme()` adds phone-width dialog chrome + `responsiveFontSizes`; `theme/useIsPhone.ts` (`breakpoints.down("sm")`) drives `fullScreen` on TicketDialog, the email composer, CreateTicketDialog, and RunScriptDialog; App shell padding/toolbar compact at `xs`; `main` carries `minWidth: 0` so Kanban scrolls inside it instead of stretching the page.
+> - **Touch affordances** — the Kanban close button is visible under `@media (hover: none)`; the network map gained two-finger pinch-zoom (with `pointercancel` handling) and on-screen `+/−/reset` buttons.
+> - **Verification harness** — `docs/scripts/mock-api.mjs` (shared mock API) + `docs/scripts/capture-mobile-media.mjs` screenshot the core views and 2.1 workflow/admin dialogs across 5 touch device profiles (344–717px) against the Vite dev server with no backend; output is gitignored under `docs/assets/screenshots/mobile/`. A vitest guard asserts the core dialogs render full-screen at phone width.
+> - **Configurable operations** — `Team`/`TeamMember` add queue routing; `CustomFieldDef` validates JSON-backed ticket fields; `SavedView` stores personal/admin-shared filters; `User.kanbanColumns` stores the ordered board vocabulary. Admin CRUD lives under `/teams`, `/custom-fields`, `/automations`, and `/views` (views are owner-scoped; shared publishing is admin-only).
+> - **Automation + escalation** — `automationService` observes ticket/note/SLA events. All-of conditions cover normal fields, labels, `custom.<key>`, and SLA context; actions update/assign/tag/note/notify through existing repositories. `automation:<rule>` attribution both audits actions and prevents rule loops.
+> - **Configuration records** — devices add asset/lifecycle fields and `DeviceExternalRef`, so multiple RMM/probe identities resolve to one physical record. Sync matches provider ref → MAC → company-scoped serial → hostname+company, preserves locally maintained asset data, and lets live/script routes select the provider; legacy external columns remain the primary back-compat reference.
+> - **MCP parity** — ticket tools accept team/custom-field data and the server exposes labels, teams, custom-field definitions, saved views, ranked search, and ticket history under the connection user's normal RBAC/audit identity.
+> - **The rule** — every view must stay usable on a 360px touch screen; UI changes are screenshot-verified at phone widths before merge, and new views must be added to the capture script. See `docs/mobile.md`.
 
 Key design goals:
 - Excellent standalone ticketing experience first
 - Sync to/from external platforms second
+- **Mobile-first web client — every view must remain usable on a 360px-wide touch screen (hard requirement; see [docs/mobile.md](docs/mobile.md))**
 - Strong SOLID + GoF patterns at integration boundaries
 - Full audit log on every mutation (revision history)
 
@@ -78,12 +87,18 @@ GoF patterns in use:
 - **Registry** — `src/rmm/registry.ts` maps a device-source key (`tactical_rmm` / `ninjaone` / `datto_rmm`) to an `RmmAdapter` bundling its config-check + `DeviceProvider` + script catalogue + live snapshot
 
 ### Multi-RMM (Tactical / NinjaOne / Datto)
-Devices + scripts flow through two Strategy families keyed by device source:
+Devices + scripts flow through two Strategy families keyed by provider:
 `DeviceProvider` (sync) and `ScriptRunner` (scripts), with `rmm/registry.ts` as the
 single lookup the routes use instead of hard-coding a platform. `/rmm/status`
 reports every RMM's `configured`/`hasScriptCatalog`; `/scripts?provider=` and
 `POST /devices/sync?provider=` select the RMM (both default to Tactical for
-back-compat); `/devices/:id/live` reads `device.source`. NinjaOne and Datto both
+back-compat); `/devices/:id/live?provider=` and script-run bodies can select one
+of a device's external references. `DeviceExternalRef` retains each provider's
+external id while the legacy device columns mirror the primary source. External
+sync resolves by provider reference, then MAC, company-scoped serial, or
+hostname+company, so
+one physical configuration record can merge telemetry from several RMMs without
+losing local asset fields. NinjaOne and Datto both
 authenticate with cached OAuth2 tokens (`ninjaService` client-credentials,
 `dattoService` password grant against the fixed `public-client`). Datto script runs
 are asynchronous **quick jobs** (queue a component UID, poll the job) and Datto
@@ -127,7 +142,7 @@ yet exercised end to end.
 ## Local dev setup
 
 ### Prerequisites
-- Node.js ≥ 18, npm
+- Node.js 22 (CI baseline), npm
 - Docker + Docker Compose
 
 ### 1. Start the database
@@ -222,6 +237,7 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | GET | `/auth/saml/login` · POST `/auth/saml/callback` · GET `/auth/saml/metadata` | SAML SSO |
 | GET | `/auth/me` · POST `/auth/logout` · POST `/auth/password` | Current user / logout / change own password |
 | PUT | `/auth/theme` | Save the current user's validated palette id |
+| PUT | `/auth/kanban-columns` | Save/reset the current user's ordered board statuses |
 | GET/POST | `/auth/tokens` · DELETE `/auth/tokens/:id` | Self-service personal access tokens (list / mint / revoke) |
 | * | `/users`, `/users/:id`, `/users/:id/password` | Admin user CRUD (admin role) |
 | GET/PATCH | `/auth/settings` | Admin: view/edit auth config (admin role) |
@@ -230,7 +246,7 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/tickets` | List tickets — **paged** `{ items, total, page, pageSize }` (filters: status, assignee, company, q, page, pageSize) |
+| GET | `/tickets` | List tickets — **paged** `{ items, total, page, pageSize }` (filters include status, assignee, company, label, team, q, closed visibility, page, pageSize) |
 | GET | `/tickets/search?q=` | **Postgres full-text search** (ranked) |
 | GET | `/tickets/:id` | Get one ticket with notes |
 | POST | `/tickets` | Create ticket |
@@ -244,6 +260,18 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | GET | `/tickets/:id/time` · POST | Total logged minutes / log time (duration **or** `start`+`stop`) |
 | POST | `/tickets/:id/email` | Send HTML email from the ticket — sanitized, threaded, recorded as an `email` note |
 | GET | `/mail/status` | SMTP config status for the composer (no credentials) |
+
+### Teams, fields, automation, and views (2.1.0)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/teams` · `/teams/:id` | Authenticated team/membership lookup for queues and pickers |
+| POST/PATCH/DELETE | `/teams/*` | Admin team CRUD and membership management |
+| GET | `/custom-fields` | Active definitions; `includeArchived=true` is available to admins |
+| POST/PATCH/DELETE | `/custom-fields/*` | Admin definition management; deletion archives to preserve ticket data |
+| GET/POST/PATCH/DELETE | `/automations/*` | Admin event-rule management, including SLA escalation rules |
+| GET/POST/PATCH/DELETE | `/views/*` | Own plus shared saved filters; only admins may publish/edit shared views |
+| GET/POST/DELETE | `/devices/:id/external-refs/*` | Provider identities attached to one physical device |
 
 ### ConnectWise passthrough (requires CWM_* env vars)
 
@@ -269,6 +297,9 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | `backend/src/repositories/noteRepository.ts` | All note DB operations + audit recording |
 | `backend/src/repositories/auditRepository.ts` | Audit log write + query |
 | `backend/src/repositories/userRepository.ts` | User CRUD + SSO upsert + TOTP helpers (secrets never serialized) |
+| `backend/src/repositories/teamRepository.ts` · `customFieldRepository.ts` · `savedViewRepository.ts` | Team queues, custom-field definitions, and owner-scoped saved filters |
+| `backend/src/services/automation/` · `automationRepository.ts` | Pure rule evaluation + event-driven, audited actions and SLA escalation |
+| `backend/src/repositories/deviceRepository.ts` | Local asset record, provider-reference identity/merge, and ticket links |
 | `backend/src/middleware/auth.ts` | Unified session + bearer auth, RBAC (`requireRole`) |
 | `backend/src/services/auth/` | `password`, `sessions`, `oidcService`, `samlService`, `totp`, `authConfig`, `bootstrap` |
 | `backend/src/routes/auth.ts` | Login flows (local/OIDC/SAML), MFA, logout, self-service |
@@ -284,11 +315,11 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | `web-client/src/auth/` | `AuthContext`, `LoginView`, `AccountMenu` |
 | `backend/src/services/oui/` · `deviceClassify.ts` | Lazy OUI vendor lookup and non-destructive port/vendor device classification |
 | `web-client/src/components/NetworkView.tsx` · `NetworkMap.tsx` | AnchorDesk filtering/linked tickets around the netviz Canvas map |
-| `web-client/src/components/AdminView.tsx` | Admin: Users, Authentication, Sync, Probes, Devices, Mail |
+| `web-client/src/components/AdminView.tsx` | Admin: Users, Authentication, Teams, Custom Fields, Automations, Sync, Probes, Devices, Mail |
 | `web-client/src/App.tsx` | Main React component, auth gating, state management |
 | `docs/architecture.md` | Architecture diagram and pattern rationale |
 | `docs/schema.md` | Database schema documentation |
-| `docs/providers.md` | How to add a new TicketProvider |
+| `docs/providers.md` | How to add ticket providers and device/RMM adapters |
 
 ---
 
@@ -307,14 +338,28 @@ Short version:
 ## Running tests
 
 ```bash
-# Backend
-cd backend && npm test
+# Backend (Node.js 22, matching CI)
+cd backend
+npm ci
+npx prisma validate
+npx prisma generate
+npm test
+npm run build
 
 # Frontend
-cd web-client && npm test
+cd ../web-client
+npm ci
+npm test
+npm run lint
+npm run build
 ```
 
-Backend tests use **ts-jest** (`backend/jest.config.js`). The security-critical auth primitives are covered in `backend/src/services/auth/__tests__/` (password hashing, TOTP, recovery codes) plus the NetViz normalizer and the auth serializers/guards — all DB-free unit tests. New DB-touching tests should target the repositories/routes.
+Backend tests use **ts-jest** (`backend/jest.config.js`). The security-critical
+auth primitives are covered in `backend/src/services/auth/__tests__/` (password
+hashing, TOTP, recovery codes) plus provider normalization, custom-field
+validation, automation evaluation, and auth serializers/guards. New DB-touching
+tests should target the repositories/routes. UI changes also run the mocked
+desktop drive and mobile screenshot matrix described in `docs/mobile.md`.
 
 ---
 

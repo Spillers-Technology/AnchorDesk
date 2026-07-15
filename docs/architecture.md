@@ -23,7 +23,7 @@ anchordesk is a local-first ticketing system. The PostgreSQL database is the sou
 │              │      Integration adapters & pollers         │ │
 │              │  ┌────────────────┐  ┌───┴───────────────┐ │ │
 │              │  │ConnectWise/Jira│  │ IMAP / SMTP       │ │ │
-│              │  │ticket sync     │  │ mail services     │ │ │
+│              │  │two-way sync    │  │ mail services     │ │ │
 │              │  └────────────────┘  └───────────────────┘ │ │
 │              └─────────────────────────────────────────────┘ │
 │                                                              │
@@ -67,19 +67,32 @@ Adding a new integration means creating a new class — existing code does not c
 Routes never call Prisma directly. All database operations go through repositories:
 
 ```
-ticketRepository.ts — create, list, getById, update, remove, upsertExternal
-noteRepository.ts   — create, listForTicket, update, remove
-auditRepository.ts  — record (write), getHistory (read)
+ticketRepository.ts      — create/list/update, team + custom-field persistence
+noteRepository.ts        — create, listForTicket, update, remove
+deviceRepository.ts      — configuration record + provider-reference merge
+teamRepository.ts        — queue CRUD and membership
+customFieldRepository.ts — field definitions
+automationRepository.ts  — rule persistence and run counters
+savedViewRepository.ts   — owner/shared filter sets
+auditRepository.ts       — record (write), getHistory (read)
 ```
 
 Repositories are also responsible for recording audit events. Every mutation that goes through a repository automatically appends an audit log entry.
 
-### Observer (audit log as event stream)
+### Observer — audit, live updates, and automation
 
 The `audit_log` table is an append-only event log. Every state change (create/update/delete/sync) writes a before/after snapshot to this table. This provides:
 - Full revision history on any ticket
 - Attribution (who changed what and when)
 - An audit trail for compliance purposes
+
+The in-process event bus is a separate live observer channel. Repositories
+publish ticket/note changes and the SLA scheduler publishes warning/breach
+events; the WebSocket hub, notification service, and 2.1 automation engine each
+subscribe. Automation actions return through the repositories, so they are
+audited and broadcast exactly like human actions. An `automation:<rule>` actor
+prefix is the loop guard: generated events update clients but do not run rules
+again.
 
 ### Factory — provider instantiation
 
@@ -87,6 +100,21 @@ The sync service instantiates providers from the `sync_providers` table using a
 factory function. The factory reads `type` from the row and returns the correct
 `TicketProvider` implementation. Provider instances are managed through the Sync
 view and `/sync/providers` routes.
+
+### Configuration-record identity — devices across RMMs
+
+`Device` is the durable local asset/configuration record. A
+`DeviceExternalRef` child keeps the external id for each RMM or probe that can
+observe the same physical machine. Ingest resolves an exact provider reference
+first, then falls back to MAC, company-scoped serial number, or hostname plus
+company. This
+keeps one local device for ticket links and asset/lifecycle data while still
+allowing live lookups and scripts to select Tactical RMM, NinjaOne, or Datto RMM.
+
+Provider telemetry may fill canonical operational fields, but locally maintained
+asset tag, make/model, location, purchase/warranty dates, and notes are not
+blindly replaced. The legacy external-provider/id fields mirror the primary
+reference for backward compatibility.
 
 ---
 
@@ -106,8 +134,10 @@ Route handler (routes/tickets.ts)
     │ validates input, extracts params
     ▼
 Repository (repositories/ticketRepository.ts)
+    │ validates custom fields / resolves team + SLA data
     │ Prisma query
     │ auditRepository.record() — before/after snapshot
+    │ eventBus.publish() — live UI + notifications + automation
     ▼
 PostgreSQL
     │
@@ -143,8 +173,10 @@ from **Admin → Authentication** (env vars seed the initial config on first boo
 Browser login methods culminate in a local session; API tokens and MCP OAuth
 bearers resolve to the owning user per request. **RBAC** is enforced on every
 request: `readonly` can only read, `technician` can mutate tickets/devices, and
-admin-only surfaces (users, auth settings, probes, sync) require the `admin`
-role. Set `OIDC_DISABLED=true` to bypass auth entirely in local dev.
+admin-only surfaces (users, auth settings, teams, custom-field definitions,
+automation, probes, and sync) require the `admin` role. Shared saved views may
+only be published by admins. Set `OIDC_DISABLED=true` to bypass auth entirely in
+local dev.
 
 ---
 
@@ -185,4 +217,5 @@ api/client.ts — all fetch() calls go through here
 | 1.16.0 | Built-in OAuth 2.0 authorization server for MCP with Dynamic Client Registration, consent, PKCE, and minted per-user API tokens | **Done** |
 | 1.17.0 | Rich-text ticket modal, separate rich note composer, bulk ticket updates, unified contact picker, and server-side HTML sanitizing | **Done** |
 | 2.0.0 | Per-user palettes, mandatory ticket-company resolution, contact/composer completion, workflow signifiers, and OUI-enriched Canvas network map | **Done** |
+| 2.1.0 | Mobile-first UI, team queues, custom fields, automation/SLA escalation, saved views/Kanban preferences, expanded MCP tools, and multi-RMM configuration records | **Done** |
 | Roadmap | Postgres LISTEN/NOTIFY for live probe status | Planned |

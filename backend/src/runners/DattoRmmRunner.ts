@@ -2,7 +2,8 @@
  * DattoRmmRunner — ScriptRunner backed by Datto RMM quick jobs.
  *
  * Datto runs a "component" as an asynchronous quick job (no wait mode), so run()
- * queues the job and polls its status a bounded number of times before returning.
+ * returns the provider acknowledgement. AnchorDesk persists its job UID and the
+ * scheduler polls getResult(); it never re-submits the component to check status.
  * The script ref is the component's UID (copied from the component page in Datto
  * RMM — Datto exposes no component catalogue over the API). Positional args are
  * not passed: Datto components take named variables, which this lean runner does
@@ -14,11 +15,15 @@
 import { ScriptRunner, ScriptInvocation, ScriptResult } from './ScriptRunner';
 import * as datto from '../services/dattoService';
 
-const POLL_ATTEMPTS = 20;
-const POLL_INTERVAL_MS = 3000;
-const TERMINAL = new Set(['completed', 'succeeded', 'success', 'failed', 'error', 'cancelled', 'canceled', 'stopped']);
+const SUCCESS = new Set(['completed', 'succeeded', 'success']);
+const FAILURE = new Set(['failed', 'error', 'cancelled', 'canceled', 'stopped']);
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export function dattoResultStatus(status: unknown): ScriptResult['status'] {
+  const normalized = String(status ?? 'active').toLowerCase();
+  if (SUCCESS.has(normalized)) return 'success';
+  if (FAILURE.has(normalized)) return 'error';
+  return 'running';
+}
 
 export class DattoRmmRunner implements ScriptRunner {
   readonly name = 'datto_rmm';
@@ -32,38 +37,19 @@ export class DattoRmmRunner implements ScriptRunner {
       jobName: 'AnchorDesk Quick Job',
     });
 
-    let status = 'active';
-    for (let i = 0; i < POLL_ATTEMPTS; i++) {
-      await sleep(POLL_INTERVAL_MS);
-      try {
-        const job = await datto.getJob(jobUid);
-        status = String(job.status ?? status).toLowerCase();
-        if (TERMINAL.has(status)) break;
-      } catch {
-        // transient poll failure — keep trying until attempts run out
-      }
-    }
-
-    const failed = status === 'failed' || status === 'error' || status === 'cancelled' || status === 'canceled';
-    const settled = TERMINAL.has(status);
-
     return {
       invocationId: jobUid,
-      status: failed ? 'error' : settled ? 'success' : 'running',
-      output: settled
-        ? `Datto RMM quick job ${jobUid} finished with status "${status}". Full output is in Datto RMM.`
-        : `Datto RMM quick job ${jobUid} queued (still "${status}" after polling). Check Datto RMM for the result.`,
+      status: 'queued',
+      output: `Datto RMM quick job ${jobUid} queued. AnchorDesk will poll Datto for the terminal result.`,
     };
   }
 
   async getResult(invocationId: string): Promise<ScriptResult> {
     const job = await datto.getJob(invocationId);
     const status = String(job.status ?? 'active').toLowerCase();
-    const failed = status === 'failed' || status === 'error';
-    const settled = TERMINAL.has(status);
     return {
       invocationId,
-      status: failed ? 'error' : settled ? 'success' : 'running',
+      status: dattoResultStatus(status),
       output: `Datto RMM quick job ${invocationId}: ${status}`,
     };
   }

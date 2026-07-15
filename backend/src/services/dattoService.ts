@@ -108,6 +108,9 @@ export interface DattoDevice {
   uid: string;
   hostname?: string;
   description?: string;
+  manufacturer?: string;
+  model?: string;
+  serialNumber?: string;
   intIpAddress?: string;
   extIpAddress?: string;
   operatingSystem?: string;

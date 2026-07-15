@@ -1,4 +1,6 @@
 import { prisma } from '../db/prisma';
+import * as audit from './auditRepository';
+import { publish } from '../services/realtime/eventBus';
 
 export interface LabelInput {
   name: string;
@@ -22,14 +24,38 @@ export function remove(id: number) {
 }
 
 /** Idempotently tag a ticket with a label. */
-export function applyToTicket(ticketId: number, labelId: number) {
-  return prisma.ticketLabel.upsert({
+export async function applyToTicket(ticketId: number, labelId: number, actorSub?: string) {
+  const link = await prisma.ticketLabel.upsert({
     where: { ticketId_labelId: { ticketId, labelId } },
     create: { ticketId, labelId },
     update: {},
   });
+  if (actorSub) {
+    await audit.record({
+      entityType: 'ticket',
+      entityId: ticketId,
+      action: 'update',
+      changedBy: actorSub,
+      newValue: { labelAdded: labelId },
+    });
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (ticket) publish({ type: 'ticket.updated', ticketId, ticket, actor: actorSub, changes: { labelAdded: labelId } });
+  }
+  return link;
 }
 
-export function removeFromTicket(ticketId: number, labelId: number) {
-  return prisma.ticketLabel.deleteMany({ where: { ticketId, labelId } });
+export async function removeFromTicket(ticketId: number, labelId: number, actorSub?: string) {
+  const result = await prisma.ticketLabel.deleteMany({ where: { ticketId, labelId } });
+  if (actorSub && result.count > 0) {
+    await audit.record({
+      entityType: 'ticket',
+      entityId: ticketId,
+      action: 'update',
+      changedBy: actorSub,
+      newValue: { labelRemoved: labelId },
+    });
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (ticket) publish({ type: 'ticket.updated', ticketId, ticket, actor: actorSub, changes: { labelRemoved: labelId } });
+  }
+  return result;
 }

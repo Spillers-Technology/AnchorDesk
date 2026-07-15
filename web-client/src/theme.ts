@@ -1,4 +1,4 @@
-import { createTheme, alpha, type Theme } from "@mui/material/styles";
+import { createTheme, alpha, responsiveFontSizes, type Theme } from "@mui/material/styles";
 
 type PaletteMode = "light" | "dark";
 
@@ -108,7 +108,11 @@ export function isThemeId(v: unknown): v is ThemeId {
 
 export function buildTheme(id: ThemeId): Theme {
   const p = PALETTES[id] ?? PALETTES[DEFAULT_THEME_ID];
-  return createTheme({
+  // Two-pass build: the first pass exists so component overrides can reference
+  // theme.breakpoints. Mobile is a first-class target (see docs/mobile.md) —
+  // dialog chrome and typography scale down globally here; per-view layout
+  // decisions stay in the components via sx breakpoints / useIsPhone.
+  const base = createTheme({
     palette: {
       mode: p.mode,
       primary: { main: p.primary },
@@ -171,10 +175,43 @@ export function buildTheme(id: ThemeId): Theme {
           },
         },
       },
-      MuiDialog: { styleOverrides: { paper: { borderRadius: 16 } } },
       MuiTextField: { defaultProps: { size: "small" } },
     },
   });
+  const theme = createTheme(base, {
+    components: {
+      MuiDialog: {
+        styleOverrides: {
+          paper: {
+            borderRadius: 16,
+            [base.breakpoints.down("sm")]: {
+              margin: 8,
+              width: "calc(100% - 16px)",
+              maxHeight: "calc(100% - 16px)",
+            },
+            "&.MuiDialog-paperFullScreen": {
+              borderRadius: 0,
+              margin: 0,
+              width: "100%",
+              maxHeight: "100%",
+            },
+          },
+        },
+      },
+      MuiDialogTitle: {
+        styleOverrides: {
+          root: { [base.breakpoints.down("sm")]: { padding: "12px 16px" } },
+        },
+      },
+      MuiDialogContent: {
+        styleOverrides: {
+          root: { [base.breakpoints.down("sm")]: { padding: 12 } },
+        },
+      },
+    },
+  });
+  // Scale headings down below desktop widths; body sizes are untouched.
+  return responsiveFontSizes(theme, { factor: 2 });
 }
 
 /** Back-compat default export (default-light) for any non-themed entry points. */

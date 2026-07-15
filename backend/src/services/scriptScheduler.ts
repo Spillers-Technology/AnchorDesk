@@ -9,7 +9,7 @@
 
 import { FastifyBaseLogger } from 'fastify';
 import * as scriptJobRepo from '../repositories/scriptJobRepository';
-import { execute } from './scriptService';
+import { execute, refresh } from './scriptService';
 
 const POLL_INTERVAL_MS = 60_000;
 let timer: NodeJS.Timeout | null = null;
@@ -20,6 +20,13 @@ async function tick(log: FastifyBaseLogger) {
     for (const job of due) {
       log.info(`scriptScheduler: running due job ${job.id} (device ${job.deviceId})`);
       await execute(job.id).catch((err) => log.error(`scriptScheduler job ${job.id} failed: ${err}`));
+    }
+    // Refresh provider-acknowledged async runs (notably Datto) by invocation id.
+    // This path can only poll; it never calls run() and therefore cannot duplicate
+    // a remote execution after a restart or overlapping scheduler tick.
+    const running = await scriptJobRepo.runningJobs();
+    for (const job of running) {
+      await refresh(job.id).catch((err) => log.error(`scriptScheduler refresh ${job.id} failed: ${err}`));
     }
   } catch (err) {
     log.error(`scriptScheduler tick failed: ${err}`);

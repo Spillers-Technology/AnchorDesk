@@ -8,15 +8,22 @@
  * GoF pattern: Strategy (implements DeviceProvider)
  */
 
-import { DeviceProvider, ExternalDevice } from './DeviceProvider';
+import { DeviceProvider, ExternalDevice, normalizeDeviceBatch } from './DeviceProvider';
 import * as datto from '../services/dattoService';
 
 export class DattoRmmProvider implements DeviceProvider {
   readonly name = 'datto_rmm';
+  normalizationErrors: string[] = [];
 
   async fetchDevices(_since?: Date): Promise<ExternalDevice[]> {
     const devices = await datto.listDevices();
-    return devices.map((d) => this.normalize(d as unknown as Record<string, unknown>));
+    const batch = normalizeDeviceBatch(
+      devices,
+      'Datto RMM',
+      (device) => this.normalize(device as unknown as Record<string, unknown>),
+    );
+    this.normalizationErrors = batch.errors;
+    return batch.devices;
   }
 
   async getDevice(externalDeviceId: string): Promise<ExternalDevice | null> {
@@ -36,6 +43,10 @@ export class DattoRmmProvider implements DeviceProvider {
       hostname: name,
       displayName: d.description || name,
       ipAddress: d.intIpAddress,
+      vendor: d.manufacturer,
+      manufacturer: d.manufacturer,
+      model: d.model,
+      serialNumber: d.serialNumber,
       os: d.operatingSystem,
       deviceType: mapCategory(d.deviceType?.category),
       status: d.online === true ? 'online' : d.online === false ? 'offline' : 'unknown',
@@ -62,7 +73,11 @@ function mapCategory(category?: string): string | undefined {
 /** Datto lastSeen may be epoch millis or an ISO string. */
 function parseLastSeen(value?: number | string): Date | undefined {
   if (value == null) return undefined;
-  if (typeof value === 'number') return new Date(value);
+  if (typeof value === 'number') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  }
   const asNum = Number(value);
-  return Number.isFinite(asNum) ? new Date(asNum) : new Date(value);
+  const parsed = Number.isFinite(asNum) ? new Date(asNum) : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }

@@ -1,4 +1,4 @@
-name: Fastify Jest Tests
+name: Backend checks
 
 on:
   push:
@@ -7,6 +7,9 @@ on:
 jobs:
   build:
     runs-on: arc-org
+    # Prisma validate/generate resolves the datasource URL but does not connect.
+    env:
+      DATABASE_URL: postgresql://anchordesk:anchordesk@127.0.0.1:5432/anchordesk
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -14,20 +17,24 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "18" # Specify the version of Node.js you are using
-
-      - name: Cache node modules
-        uses: actions/cache@v4
-        with:
-          path: web-client/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('web-client/**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
         working-directory: backend
-        run: npm install
+        run: npm ci
+
+      - name: Validate schema and generate Prisma client
+        working-directory: backend
+        run: |
+          npx prisma validate
+          npx prisma generate
 
       - name: Run Jest tests
         working-directory: backend
-        run: npm run test
+        run: npm test
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build

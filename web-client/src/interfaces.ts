@@ -48,6 +48,9 @@ export interface Ticket {
   ticketSummary: string;
   ticketTitle: string;
   assignee?: string;
+  teamId?: number | null;
+  team?: { id: number; name: string } | null;
+  customFields?: Record<string, unknown>;
   technician: Technician | null;
   priority: string;
   timeEntries: TimeEntry[];

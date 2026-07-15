@@ -119,7 +119,7 @@ async function ingest(parsed: ParsedMail, mb: Mailbox, uid: number): Promise<'cr
       );
       ticketId = ticket.id;
       // Tag the new ticket with this mailbox's label (catchall vs help@ vs personal).
-      if (mb.labelId) await labelRepo.applyToTicket(ticket.id, mb.labelId).catch(() => {});
+      if (mb.labelId) await labelRepo.applyToTicket(ticket.id, mb.labelId, 'imap').catch(() => {});
       outcome = 'created';
     } catch (err) {
       // Belt-and-suspenders for the (external_id, external_provider) unique index:

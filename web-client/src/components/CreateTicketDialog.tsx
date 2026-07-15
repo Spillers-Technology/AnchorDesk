@@ -13,6 +13,10 @@ import {
   TextField,
   Alert,
   Autocomplete,
+  Checkbox,
+  FormControlLabel,
+  Typography,
+  Divider,
 } from "@mui/material";
 import * as api from "../api/client";
 import {
@@ -22,6 +26,7 @@ import {
   DEFAULT_PRIORITY,
 } from "../ticketVocab";
 import { PrioritySignal, StatusSignal } from "./TicketSignals";
+import { useIsPhone } from "../theme/useIsPhone";
 
 interface Props {
   open: boolean;
@@ -37,12 +42,17 @@ const emptyForm = {
   priority: DEFAULT_PRIORITY as string,
   companyName: "",
   assigneeId: "" as number | "",
+  teamId: "" as number | "",
 };
 
 export default function CreateTicketDialog({ open, onClose, onCreated }: Props) {
+  const isPhone = useIsPhone();
   const [form, setForm] = useState({ ...emptyForm });
   const [assignees, setAssignees] = useState<api.Assignee[]>([]);
   const [companies, setCompanies] = useState<api.Company[]>([]);
+  const [teams, setTeams] = useState<api.Team[]>([]);
+  const [customFieldDefs, setCustomFieldDefs] = useState<api.CustomFieldDef[]>([]);
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [company, setCompany] = useState<api.Company | null>(null);
   const [contacts, setContacts] = useState<api.Contact[]>([]);
   const [contactId, setContactId] = useState<number | "">("");
@@ -53,6 +63,8 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
     if (!open) return;
     api.listAssignees().then(setAssignees).catch(() => setAssignees([]));
     api.listCompanies().then(setCompanies).catch(() => setCompanies([]));
+    api.listTeams().then(setTeams).catch(() => setTeams([]));
+    api.listCustomFields().then(setCustomFieldDefs).catch(() => setCustomFieldDefs([]));
   }, [open]);
 
   const pickCompany = async (value: api.Company | string | null) => {
@@ -76,6 +88,14 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
       setError("Title is required");
       return;
     }
+    const missing = customFieldDefs.find((def) => {
+      const value = customFields[def.key];
+      return def.required && (value === undefined || value === null || value === "");
+    });
+    if (missing) {
+      setError(`${missing.label} is required`);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -91,10 +111,13 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
         contactId: contactId === "" ? undefined : contactId,
         assigneeId: form.assigneeId === "" ? undefined : form.assigneeId,
         assignee: assignee ? assignee.displayName || assignee.username : undefined,
+        teamId: form.teamId === "" ? undefined : form.teamId,
+        customFields,
         source: "local",
       });
       setForm({ ...emptyForm });
       setCompany(null); setContacts([]); setContactId("");
+      setCustomFields({});
       onCreated();
       onClose();
     } catch (err) {
@@ -105,7 +128,7 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={isPhone}>
       <DialogTitle>New ticket</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
@@ -164,6 +187,27 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
               {assignees.map((a) => <MenuItem key={a.id} value={a.id}>{a.displayName || a.username} · {a.role}</MenuItem>)}
             </Select>
           </FormControl>
+          <FormControl fullWidth size="small">
+            <InputLabel shrink>Team / queue</InputLabel>
+            <Select value={form.teamId} label="Team / queue" displayEmpty notched
+              onChange={(e) => setField("teamId", e.target.value === "" ? "" : Number(e.target.value))}>
+              <MenuItem value="">No team</MenuItem>
+              {teams.map((team) => <MenuItem key={team.id} value={team.id}>{team.name}</MenuItem>)}
+            </Select>
+          </FormControl>
+          {customFieldDefs.length > 0 && (
+            <>
+              <Divider><Typography variant="caption" color="text.secondary">custom fields</Typography></Divider>
+              {customFieldDefs.map((def) => (
+                <CreateCustomFieldControl
+                  key={def.id}
+                  def={def}
+                  value={customFields[def.key]}
+                  onChange={(value) => setCustomFields((current) => ({ ...current, [def.key]: value }))}
+                />
+              ))}
+            </>
+          )}
         </Stack>
       </DialogContent>
       <DialogActions>
@@ -173,5 +217,37 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+function CreateCustomFieldControl({
+  def,
+  value,
+  onChange,
+}: {
+  def: api.CustomFieldDef;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  if (def.type === "boolean") {
+    return <FormControlLabel control={<Checkbox checked={value === true} onChange={(event) => onChange(event.target.checked)} />} label={`${def.label}${def.required ? " *" : ""}`} />;
+  }
+  if (def.type === "select") {
+    return (
+      <TextField select label={def.label} required={def.required} value={value == null ? "" : String(value)} onChange={(event) => onChange(event.target.value)}>
+        {!def.required && <MenuItem value="">None</MenuItem>}
+        {(def.options ?? []).map((option) => <MenuItem key={option} value={option}>{option}</MenuItem>)}
+      </TextField>
+    );
+  }
+  return (
+    <TextField
+      label={def.label}
+      required={def.required}
+      type={def.type === "number" ? "number" : def.type === "date" ? "date" : "text"}
+      value={value == null ? "" : String(value)}
+      onChange={(event) => onChange(def.type === "number" && event.target.value !== "" ? Number(event.target.value) : event.target.value)}
+      InputLabelProps={def.type === "date" ? { shrink: true } : undefined}
+    />
   );
 }

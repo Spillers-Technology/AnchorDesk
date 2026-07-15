@@ -1,4 +1,4 @@
-name: Vite Vitest Runs
+name: Web client checks
 
 on:
   push:
@@ -14,20 +14,22 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "18" # Specify the version of Node.js you are using
-
-      - name: Cache node modules
-        uses: actions/cache@v4
-        with:
-          path: web-client/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('web-client/**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web-client/package-lock.json
 
       - name: Install dependencies
         working-directory: web-client
-        run: npm install
+        run: npm ci
 
-      - name: Run Vite Tests
+      - name: Run Vitest tests
         working-directory: web-client
-        run: npm run test
+        run: npm test
+
+      - name: Lint web client
+        working-directory: web-client
+        run: npm run lint
+
+      - name: Build web client
+        working-directory: web-client
+        run: npm run build

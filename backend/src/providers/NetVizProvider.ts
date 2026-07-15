@@ -71,6 +71,7 @@ export class NetVizProvider implements DeviceProvider {
       ipAddress: ip,
       macAddress: mac,
       vendor: r.vendor ?? r.manufacturer,
+      manufacturer: r.manufacturer ?? r.vendor,
       os: r.os,
       deviceType: r.deviceType ?? r.classification,
       openPorts: normalizePorts(r.openPorts ?? r.ports),

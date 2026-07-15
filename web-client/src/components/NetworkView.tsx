@@ -116,7 +116,10 @@ export default function NetworkView({ initialCompany }: { initialCompany?: strin
       return;
     }
     api.getDevice(selected.id)
-      .then((row) => setDeviceTickets(((((row as Record<string, unknown>).ticketLinks as { ticket: LinkedTicket }[]) ?? []).map((link) => link.ticket))))
+      .then((row) => {
+        const links = (row as unknown as { ticketLinks?: { ticket: LinkedTicket }[] }).ticketLinks ?? [];
+        setDeviceTickets(links.map((link) => link.ticket));
+      })
       .catch(() => setDeviceTickets([]));
   }, [selected]);
 
@@ -132,7 +135,7 @@ export default function NetworkView({ initialCompany }: { initialCompany?: strin
             Device type, open services, and availability at a glance
           </Typography>
         </Box>
-        <TextField select size="small" label="View" value={group} onChange={(event) => { setGroup(event.target.value); setSelected(null); }} sx={{ minWidth: 230 }}>
+        <TextField select size="small" label="View" value={group} onChange={(event) => { setGroup(event.target.value); setSelected(null); }} sx={{ minWidth: { xs: "100%", sm: 230 } }}>
           <MenuItem value="all">All devices ({devices.length})</MenuItem>
           {groups.probes.length > 0 && <Divider />}
           {groups.probes.map((probe) => <MenuItem key={`probe:${probe.id}`} value={`probe:${probe.id}`}>Probe: {probe.name}</MenuItem>)}

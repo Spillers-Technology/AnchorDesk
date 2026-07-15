@@ -24,10 +24,13 @@ export async function record(opts: {
 
 /** Fetch the full history for a single entity (most recent first). */
 export async function getHistory(entityType: string, entityId: number) {
-  return prisma.auditLog.findMany({
+  const rows = await prisma.auditLog.findMany({
     where: { entityType, entityId },
     orderBy: { occurredAt: 'desc' },
   });
+  // AuditLog uses a BigInt primary key. Project it once at the repository
+  // boundary so REST, device history, and MCP JSON serialization cannot 500.
+  return rows.map((row) => ({ ...row, id: row.id.toString() }));
 }
 
 /** Recent audit events across all entities, for the admin audit-log viewer. */

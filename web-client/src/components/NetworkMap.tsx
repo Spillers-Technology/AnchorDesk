@@ -207,6 +207,21 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
     viewRef.current = { scale, x: width / 2, y: height / 2 };
   }
 
+  // Touch equivalent of wheel zoom (docs/mobile.md): the +/− overlay buttons
+  // reuse the same anchored-zoom math, centered on the canvas.
+  function zoomAtCenter(factor: number) {
+    const view = viewRef.current;
+    const { width, height } = sizeRef.current;
+    if (width === 0) return;
+    const px = width / 2;
+    const py = height / 2;
+    const next = clamp(view.scale * factor, MIN_SCALE, MAX_SCALE);
+    const applied = next / view.scale;
+    view.x = px - (px - view.x) * applied;
+    view.y = py - (py - view.y) * applied;
+    view.scale = next;
+  }
+
   // Canvas sizing, input handlers, and the render loop live outside React
   // state so frames never re-render the component tree.
   useEffect(() => {
@@ -272,8 +287,26 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
       view.scale = next;
     }
 
+    // Two-finger pinch zoom. Pointer Events deliver each touch separately, so
+    // track live pointers here; a second finger cancels the pan-drag and the
+    // whole touch sequence stops counting as a tap-select.
+    const activePointers = new Map<number, { x: number; y: number }>();
+    let pinch: { dist: number; scale: number } | null = null;
+    let pinched = false;
+
     function onPointerDown(event: PointerEvent) {
       canvas!.setPointerCapture(event.pointerId);
+      activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (activePointers.size === 2) {
+        const [a, b] = [...activePointers.values()];
+        pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), scale: viewRef.current.scale };
+        pinched = true;
+        dragRef.current = null;
+        hoverRef.current = "";
+        setTooltip(null);
+        return;
+      }
+      pinch = null;
       dragRef.current = {
         startX: event.clientX,
         startY: event.clientY,
@@ -284,6 +317,25 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
     }
 
     function onPointerMove(event: PointerEvent) {
+      if (activePointers.has(event.pointerId)) {
+        activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      }
+      if (pinch && activePointers.size >= 2) {
+        const [a, b] = [...activePointers.values()];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (dist < 1) return;
+        // Same anchored-zoom math as onWheel, anchored at the pinch midpoint.
+        const view = viewRef.current;
+        const next = clamp(pinch.scale * (dist / pinch.dist), MIN_SCALE, MAX_SCALE);
+        const rect = canvas!.getBoundingClientRect();
+        const mx = (a.x + b.x) / 2 - rect.left;
+        const my = (a.y + b.y) / 2 - rect.top;
+        const applied = next / view.scale;
+        view.x = mx - (mx - view.x) * applied;
+        view.y = my - (my - view.y) * applied;
+        view.scale = next;
+        return;
+      }
       const drag = dragRef.current;
       if (drag) {
         const dx = event.clientX - drag.startX;
@@ -309,11 +361,28 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
     }
 
     function onPointerUp(event: PointerEvent) {
+      activePointers.delete(event.pointerId);
+      if (activePointers.size < 2) pinch = null;
+      if (pinched) {
+        // Lifting a pinch finger is the end of a zoom gesture, not a tap.
+        if (activePointers.size === 0) pinched = false;
+        dragRef.current = null;
+        return;
+      }
       const drag = dragRef.current;
       dragRef.current = null;
       if (drag?.moved) return;
       const node = nodeAt(event.clientX, event.clientY);
       setSelectedIP(node && node.device.ip !== selectedRef.current ? node.device.ip : "");
+    }
+
+    function onPointerCancel(event: PointerEvent) {
+      // The OS cancels touch gestures routinely; without this the map wedges
+      // in pinch state.
+      activePointers.delete(event.pointerId);
+      if (activePointers.size < 2) pinch = null;
+      if (activePointers.size === 0) pinched = false;
+      dragRef.current = null;
     }
 
     function onDoubleClick() {
@@ -329,6 +398,7 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointercancel", onPointerCancel);
     canvas.addEventListener("pointerleave", onLeave);
     canvas.addEventListener("dblclick", onDoubleClick);
 
@@ -504,6 +574,7 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointercancel", onPointerCancel);
       canvas.removeEventListener("pointerleave", onLeave);
       canvas.removeEventListener("dblclick", onDoubleClick);
     };
@@ -529,11 +600,16 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
             </button>
           ))}
         </div>
-        <span className="mapHint">scroll to zoom · drag to pan · double-click to reset</span>
+        <span className="mapHint">scroll or pinch to zoom · drag to pan · double-click to reset</span>
       </div>
 
       <div className="mapCanvas" ref={containerRef}>
         <canvas ref={canvasRef} role="img" aria-label="Radial map of devices grouped by type around the LAN gateway" />
+        <div className="mapZoomBtns" aria-label="Map zoom controls">
+          <button aria-label="Zoom in" onClick={() => zoomAtCenter(1.25)}>+</button>
+          <button aria-label="Zoom out" onClick={() => zoomAtCenter(1 / 1.25)}>−</button>
+          <button aria-label="Reset view" onClick={() => fitView()}>⤢</button>
+        </div>
         {tooltipDevice && tooltip && (
           <div
             className="mapTooltip"
