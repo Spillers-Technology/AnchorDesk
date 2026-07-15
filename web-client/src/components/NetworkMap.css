@@ -3,18 +3,21 @@
 .mapToolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; border-bottom:1px solid var(--map-border, #d7dde5); background:#f6f8fa; }
 .legend { display:flex; flex-wrap:wrap; gap:6px; }
 .legendChip { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 9px; border:1px solid #d7dde5; border-radius:999px; background:#fff; color:#526170; font:600 12px/1 system-ui,sans-serif; cursor:pointer; }
-.legendChip:hover { border-color:#8aa0b8; background:#eef5ff; }
+@media (hover:hover) { .legendChip:hover { border-color:#8aa0b8; background:#eef5ff; } }
 .legendChip.focused { border-color:#0b5cab; background:#e5f1ff; color:#0b5cab; }
 .legendSwatch { width:10px; height:10px; border-radius:50%; }
 .mapHint { color:#64748b; font-size:12px; white-space:nowrap; }
 .mapCanvas { position:relative; height:clamp(420px,58vh,620px); }
 .mapCanvas canvas { display:block; width:100%; height:100%; touch-action:none; }
+.mapZoomBtns { position:absolute; right:10px; bottom:10px; z-index:4; display:grid; gap:6px; }
+.mapZoomBtns button { width:40px; height:40px; padding:0; border:1px solid #b8c3cf; border-radius:8px; background:rgba(255,255,255,.95); color:#1a242e; font:700 18px/1 system-ui,sans-serif; cursor:pointer; box-shadow:0 1px 3px rgba(16,24,40,.15); }
+@media (hover:hover) { .mapZoomBtns button:hover { border-color:#8aa0b8; background:#eef5ff; } }
 .mapTooltip { position:absolute; z-index:5; display:grid; gap:2px; max-width:240px; padding:8px 10px; border:1px solid #d7dde5; border-radius:8px; background:rgba(255,255,255,.97); color:#1a242e; box-shadow:0 8px 24px rgba(16,24,40,.18); pointer-events:none; font-size:12px; }
 .mapTooltip strong { font-size:13px; }
 .mapTooltip span { color:#64748b; }
 .mapDetail { display:grid; gap:10px; padding:12px; border-top:1px solid #d7dde5; background:#f6f8fa; color:#1a242e; }
 .mapDetailHead { display:flex; align-items:center; gap:10px; }
-.mapDetailHead button { margin-left:auto; min-height:28px; border:1px solid #b8c3cf; border-radius:6px; background:#fff; cursor:pointer; }
+.mapDetailHead button { margin-left:auto; min-height:28px; padding:4px 10px; border:1px solid #b8c3cf; border-radius:6px; background:#fff; color:#1a242e; font:600 12px/1 system-ui,sans-serif; cursor:pointer; }
 .mapDetail dl { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:8px; margin:0; }
 .mapDetail dl>div { display:grid; gap:2px; padding:8px; border-radius:6px; background:#fff; }
 .mapDetail dt { color:#64748b; font-size:12px; }

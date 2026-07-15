@@ -9,8 +9,13 @@
 import { ScriptJob } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import { createScriptRunner } from '../runners';
+import type { ScriptResult } from '../runners/ScriptRunner';
 import * as scriptJobRepo from '../repositories/scriptJobRepository';
 import * as noteRepo from '../repositories/noteRepository';
+import { terminalStatusForResult } from './scriptResult';
+
+const RUNNABLE_PROVIDERS = ['tactical_rmm', 'ninjaone', 'datto_rmm'];
+const MAX_STORED_OUTPUT = 1_000_000;
 
 /**
  * Record a finished script job on its ticket's timeline so the run + output live
@@ -35,6 +40,8 @@ async function appendJobLog(job: ScriptJob): Promise<void> {
 
 export interface RunScriptRequest {
   deviceId: number;
+  /** Which linked RMM to use when a device has more than one external ref. */
+  provider?: string;
   script: string;
   scriptName?: string;
   args?: string[];
@@ -43,22 +50,86 @@ export interface RunScriptRequest {
   scheduledFor?: Date;
 }
 
+function validateTimeout(timeout: number | undefined): void {
+  if (timeout === undefined) return;
+  if (!Number.isInteger(timeout) || timeout < 1 || timeout > 3_600) {
+    throw new Error('timeout must be an integer between 1 and 3600 seconds');
+  }
+}
+
+async function finishJob(
+  jobId: number,
+  status: 'success' | 'error',
+  output: string,
+  exitCode?: number,
+  invocationId?: string,
+) {
+  const finished = await scriptJobRepo.markFinished(
+    jobId,
+    status,
+    output.slice(0, MAX_STORED_OUTPUT),
+    exitCode,
+    invocationId,
+  );
+  if (finished.transitioned) await appendJobLog(finished.job);
+  return finished.job;
+}
+
+async function persistRunnerResult(jobId: number, result: ScriptResult) {
+  const terminal = terminalStatusForResult(result);
+  if (terminal) {
+    return finishJob(jobId, terminal, result.output ?? '', result.exitCode, result.invocationId);
+  }
+  const invocationId = result.invocationId?.trim();
+  if (!invocationId) throw new Error('Runner returned a nonterminal result without an invocation id');
+  return scriptJobRepo.markProgress(jobId, invocationId, (result.output ?? '').slice(0, MAX_STORED_OUTPUT));
+}
+
 /** Create a job and, unless scheduled for later, run it immediately. */
 export async function runOrSchedule(req: RunScriptRequest, actorSub: string) {
-  const device = await prisma.device.findUnique({ where: { id: req.deviceId } });
+  validateTimeout(req.timeout);
+  if (!req.script?.trim()) throw new Error('script is required');
+  if (req.scheduledFor && Number.isNaN(req.scheduledFor.getTime())) throw new Error('scheduledFor must be a valid date');
+  const device = await prisma.device.findUnique({
+    where: { id: req.deviceId },
+    include: { externalRefs: { orderBy: { id: 'asc' } } },
+  });
   if (!device) throw new Error(`Device ${req.deviceId} not found`);
-  if (!device.externalId || !device.externalProvider) {
+  const runnableRefs = device.externalRefs.filter((ref) =>
+    RUNNABLE_PROVIDERS.includes(ref.provider),
+  );
+  const requestedProvider = req.provider?.trim();
+  const selected = requestedProvider
+    ? runnableRefs.find((ref) => ref.provider === requestedProvider)
+    : runnableRefs.find((ref) => ref.provider === device.externalProvider) ?? runnableRefs[0];
+  const legacyMatchesRequest = !!requestedProvider
+    && requestedProvider === device.externalProvider
+    && !!device.externalId
+    && RUNNABLE_PROVIDERS.includes(requestedProvider);
+  if (requestedProvider && !selected && !legacyMatchesRequest) {
+    throw new Error(`Device ${device.id} is not linked to RMM provider "${requestedProvider}"`);
+  }
+  const runner = selected?.provider
+    ?? (requestedProvider && legacyMatchesRequest ? requestedProvider : device.externalProvider);
+  const externalId = selected?.externalId
+    ?? (runner === device.externalProvider ? device.externalId : null);
+  if (!externalId || !runner || !RUNNABLE_PROVIDERS.includes(runner)) {
     throw new Error('Device is not linked to an RMM — scripts require a device synced from an RMM');
+  }
+  if (req.timeout !== undefined && runner !== 'tactical_rmm') {
+    throw new Error(`timeout is not supported by ${runner}`);
   }
 
   const job = await scriptJobRepo.create(
     {
       deviceId: device.id,
       ticketId: req.ticketId,
-      runner: device.externalProvider,
+      runner,
+      externalDeviceId: externalId,
       scriptRef: req.script,
       scriptName: req.scriptName,
       args: req.args,
+      timeoutSeconds: req.timeout,
       scheduledFor: req.scheduledFor,
     },
     actorSub
@@ -74,35 +145,57 @@ export async function runOrSchedule(req: RunScriptRequest, actorSub: string) {
 
 /** Execute a queued job now. Used by both immediate runs and the scheduler. */
 export async function execute(jobId: number) {
-  const job = await scriptJobRepo.getById(jobId);
-  if (!job) throw new Error(`Script job ${jobId} not found`);
-
-  const device = await prisma.device.findUnique({ where: { id: job.deviceId } });
-  if (!device?.externalId) {
-    return scriptJobRepo.markFinished(jobId, 'error', 'Device has no external RMM id', 1);
+  // The queued -> running compare-and-set is the idempotency boundary. A losing
+  // caller returns the current row and must never invoke the external runner.
+  const claimed = await scriptJobRepo.claimQueued(jobId);
+  if (!claimed) {
+    const current = await scriptJobRepo.getById(jobId);
+    if (!current) throw new Error(`Script job ${jobId} not found`);
+    return current;
   }
+  const job = claimed;
 
-  await scriptJobRepo.markRunning(jobId);
+  const device = await prisma.device.findUnique({
+    where: { id: job.deviceId },
+    include: { externalRefs: true },
+  });
+  const ref = job.externalDeviceId
+    ? undefined
+    : device?.externalRefs.find((candidate) => candidate.provider === job.runner);
+  // 2.1.0+ jobs pin their provider-specific target when queued. The fallback
+  // keeps jobs created before that additive column was introduced runnable.
+  const externalId = job.externalDeviceId ?? ref?.externalId
+    ?? (device?.externalProvider === job.runner ? device.externalId : null);
+  if (!device || !externalId) {
+    return finishJob(jobId, 'error', 'Device has no external RMM id', 1);
+  }
 
   try {
     const runner = createScriptRunner(job.runner);
     const result = await runner.run({
       deviceId: device.id,
-      externalDeviceId: device.externalId,
+      externalDeviceId: externalId,
       script: job.scriptRef,
       args: (job.args as string[] | null) ?? undefined,
+      timeout: job.timeoutSeconds ?? undefined,
     });
-    const finished = await scriptJobRepo.markFinished(
-      jobId,
-      result.status === 'error' ? 'error' : 'success',
-      result.output ?? '',
-      result.exitCode
-    );
-    await appendJobLog(finished);
-    return finished;
+    return persistRunnerResult(jobId, result);
   } catch (err) {
-    const finished = await scriptJobRepo.markFinished(jobId, 'error', (err as Error).message, 1);
-    await appendJobLog(finished);
-    return finished;
+    return finishJob(jobId, 'error', (err as Error).message, 1);
   }
+}
+
+/** Poll a provider-acknowledged asynchronous job without ever re-executing it. */
+export async function refresh(jobId: number) {
+  const job = await scriptJobRepo.getById(jobId);
+  if (!job) throw new Error(`Script job ${jobId} not found`);
+  if (job.status !== 'running' || !job.invocationId) return job;
+
+  const runner = createScriptRunner(job.runner);
+  if (!runner.getResult) return job;
+  const result = await runner.getResult(job.invocationId);
+  return persistRunnerResult(job.id, {
+    ...result,
+    invocationId: result.invocationId || job.invocationId,
+  });
 }

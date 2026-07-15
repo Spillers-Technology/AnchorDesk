@@ -16,8 +16,8 @@ export class TacticalRmmRunner implements ScriptRunner {
   readonly name = 'tactical_rmm';
 
   async run(invocation: ScriptInvocation): Promise<ScriptResult> {
-    const scriptPk = parseInt(invocation.script, 10);
-    if (Number.isNaN(scriptPk)) {
+    const scriptPk = Number(invocation.script);
+    if (!Number.isInteger(scriptPk) || scriptPk <= 0) {
       throw new Error(`Tactical script ref must be a numeric pk, got "${invocation.script}"`);
     }
 

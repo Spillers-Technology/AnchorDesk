@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { requireRole } from '../middleware/auth';
+import { parseId } from '../util/ids';
 import * as labelRepo from '../repositories/labelRepository';
 
 interface IdParam { id: string }
@@ -28,13 +29,19 @@ export async function labelRoutes(server: FastifyInstance) {
 
   // Tag / untag a ticket (technicians + admins).
   server.post<{ Params: IdParam }>('/tickets/:id/labels', async (req, reply) => {
+    const ticketId = parseId(req.params.id);
     const { labelId } = (req.body ?? {}) as { labelId?: number };
-    if (!labelId) return reply.status(400).send({ error: 'labelId is required' });
-    await labelRepo.applyToTicket(parseInt(req.params.id), labelId);
+    if (ticketId === null || !Number.isInteger(labelId) || Number(labelId) <= 0) {
+      return reply.status(400).send({ error: 'ticket id and a positive integer labelId are required' });
+    }
+    await labelRepo.applyToTicket(ticketId, labelId as number, req.actorSub);
     return reply.status(201).send({ ok: true });
   });
   server.delete<{ Params: TicketLabelParams }>('/tickets/:id/labels/:labelId', async (req, reply) => {
-    await labelRepo.removeFromTicket(parseInt(req.params.id), parseInt(req.params.labelId));
+    const ticketId = parseId(req.params.id);
+    const labelId = parseId(req.params.labelId);
+    if (ticketId === null || labelId === null) return reply.status(400).send({ error: 'invalid ticket or label id' });
+    await labelRepo.removeFromTicket(ticketId, labelId, req.actorSub);
     return reply.status(204).send();
   });
 }

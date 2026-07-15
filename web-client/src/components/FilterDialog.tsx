@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import * as api from "../api/client";
 import { TICKET_STATUSES } from "../ticketVocab";
 import type { TicketFilterCriteria } from "../App";
+import { useIsPhone } from "../theme/useIsPhone";
 
 interface FilterDialogProps {
   open: boolean;
@@ -34,15 +35,18 @@ interface FilterDialogProps {
  * closed tickets (hidden from working views by default).
  */
 const FilterDialog: React.FC<FilterDialogProps> = ({ open, onClose, value, applyFilters }) => {
+  const isPhone = useIsPhone();
   const [status, setStatus] = useState(value.status ?? "");
   const [company, setCompany] = useState(value.company ?? "");
   const [assignee, setAssignee] = useState(value.assignee ?? "");
   const [labelId, setLabelId] = useState<number | "">(value.labelId ?? "");
+  const [teamId, setTeamId] = useState<number | "">(value.teamId ?? "");
   const [regex, setRegex] = useState(value.regex ?? "");
   const [includeClosed, setIncludeClosed] = useState(value.includeClosed ?? false);
   const [companies, setCompanies] = useState<string[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
   const [labels, setLabels] = useState<api.Label[]>([]);
+  const [teams, setTeams] = useState<api.Team[]>([]);
 
   // Re-sync local fields whenever the dialog opens with the active criteria.
   useEffect(() => {
@@ -51,11 +55,13 @@ const FilterDialog: React.FC<FilterDialogProps> = ({ open, onClose, value, apply
     setCompany(value.company ?? "");
     setAssignee(value.assignee ?? "");
     setLabelId(value.labelId ?? "");
+    setTeamId(value.teamId ?? "");
     setRegex(value.regex ?? "");
     setIncludeClosed(value.includeClosed ?? false);
     api.listCompanies().then((cs) => setCompanies(cs.map((c) => c.name))).catch(() => setCompanies([]));
     api.listAssignees().then((as) => setAssignees(as.map((a) => a.displayName || a.username))).catch(() => setAssignees([]));
     api.listLabels().then(setLabels).catch(() => setLabels([]));
+    api.listTeams().then(setTeams).catch(() => setTeams([]));
   }, [open, value]);
 
   // A regex is only valid if it compiles; flag a bad one before it round-trips.
@@ -69,16 +75,17 @@ const FilterDialog: React.FC<FilterDialogProps> = ({ open, onClose, value, apply
     company: company || undefined,
     assignee: assignee || undefined,
     labelId: labelId === "" ? undefined : labelId,
+    teamId: teamId === "" ? undefined : teamId,
     regex: regex.trim() || undefined,
     includeClosed: includeClosed || undefined,
   });
   const clear = () => {
-    setStatus(""); setCompany(""); setAssignee(""); setLabelId(""); setRegex(""); setIncludeClosed(false);
+    setStatus(""); setCompany(""); setAssignee(""); setLabelId(""); setTeamId(""); setRegex(""); setIncludeClosed(false);
     applyFilters({});
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={isPhone}>
       <DialogTitle>Advanced search</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
@@ -130,6 +137,13 @@ const FilterDialog: React.FC<FilterDialogProps> = ({ open, onClose, value, apply
             value={labels.find((l) => l.id === labelId) ?? null}
             onChange={(_e, v) => setLabelId(v ? v.id : "")}
             renderInput={(params) => <TextField {...params} label="Label" />}
+          />
+          <Autocomplete
+            options={teams}
+            getOptionLabel={(team) => team.name}
+            value={teams.find((team) => team.id === teamId) ?? null}
+            onChange={(_e, team) => setTeamId(team?.id ?? "")}
+            renderInput={(params) => <TextField {...params} label="Team / queue" />}
           />
 
           <FormControlLabel

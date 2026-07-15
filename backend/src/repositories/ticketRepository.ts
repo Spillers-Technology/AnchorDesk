@@ -7,6 +7,7 @@ import { getTickets } from '../services/settingsService';
 import { sanitizeEmailHtml } from '../services/mail/sanitizeHtml';
 import { clamp } from '../util/strings';
 import { resolveTicketCompany } from '../services/companyResolution';
+import { mergeCustomFields } from '../services/customFields';
 
 export interface TicketListOptions {
   status?: string;
@@ -19,6 +20,8 @@ export interface TicketListOptions {
   regex?: string;
   /** Filter to tickets carrying a given label id. */
   labelId?: number;
+  /** Filter to tickets routed to a given team (queue). */
+  teamId?: number;
   /** Exclude soft-deleted tickets (status = 'Deleted'). Default true. */
   includeDeleted?: boolean;
   /** Include closed tickets. When explicitly false, status 'Closed' is hidden so
@@ -38,6 +41,7 @@ function buildWhere(filters: Omit<TicketListOptions, 'page' | 'pageSize'>): Pris
   if (filters.companyName) where.companyName = { contains: filters.companyName };
   if (filters.source) where.source = filters.source;
   if (filters.labelId) where.labels = { some: { labelId: filters.labelId } };
+  if (filters.teamId) where.teamId = filters.teamId;
   // A regex filter resolves to a concrete id set upstream (Prisma has no POSIX
   // regex operator); an empty set must match nothing, not everything.
   if (filters.idIn) where.id = { in: filters.idIn.length ? filters.idIn : [-1] };
@@ -109,6 +113,9 @@ export interface CreateTicketInput {
   contactId?: number | null;
   assignee?: string;
   assigneeId?: number;
+  teamId?: number | null;
+  /** Partial custom-field value map; validated against CustomFieldDef. */
+  customFields?: Record<string, unknown>;
   source?: TicketSource;
   ticketNumber?: string;
   externalId?: string;
@@ -126,6 +133,9 @@ export interface UpdateTicketInput {
   contactId?: number | null;
   assignee?: string;
   assigneeId?: number | null;
+  teamId?: number | null;
+  /** Partial custom-field value map; merged into the stored map (null clears a key). */
+  customFields?: Record<string, unknown>;
   closedAt?: Date | null;
 }
 
@@ -150,7 +160,7 @@ export async function list(opts: TicketListOptions = {}) {
     orderBy: { createdAt: 'desc' },
     skip: (page - 1) * pageSize,
     take: pageSize,
-    include: { assigneeUser: true, labels: { include: { label: true } } },
+    include: { assigneeUser: true, team: true, labels: { include: { label: true } } },
   });
 }
 
@@ -180,6 +190,7 @@ export async function getById(id: number) {
     where: { id },
     include: {
       assigneeUser: true,
+      team: true,
       company: true,
       contact: true,
       notes: { orderBy: { createdAt: 'desc' } },
@@ -248,7 +259,7 @@ export async function search(q: string, limit = 50) {
   // Re-hydrate full records, preserving rank order.
   const tickets = await prisma.ticket.findMany({
     where: { id: { in: ids } },
-    include: { assigneeUser: true, labels: { include: { label: true } } },
+    include: { assigneeUser: true, team: true, labels: { include: { label: true } } },
   });
   const byId = new Map(tickets.map((t) => [t.id, t]));
   return ids.map((id) => byId.get(id)).filter(Boolean);
@@ -281,6 +292,9 @@ export async function create(input: CreateTicketInput, actorSub: string) {
   // Externally-sourced tickets keep their provider's number; everything else
   // gets a generated, human-friendly number from the sequence.
   const ticketNumber = input.ticketNumber ?? (await nextTicketNumber());
+  const customFields = input.customFields !== undefined
+    ? await mergeCustomFields(null, input.customFields)
+    : null;
   const ticket = await prisma.ticket.create({
     data: {
       // Clamp bounded VarChar columns so wild inbound email subjects/Message-IDs
@@ -298,6 +312,10 @@ export async function create(input: CreateTicketInput, actorSub: string) {
       contactId: input.contactId ?? undefined,
       assignee: clamp(input.assignee, 100),
       assigneeId: input.assigneeId,
+      teamId: input.teamId ?? undefined,
+      customFields: customFields && Object.keys(customFields).length
+        ? customFields as Prisma.InputJsonValue
+        : undefined,
       source: input.source ?? 'local',
       ticketNumber: clamp(ticketNumber, 50),
       externalId: clamp(input.externalId, 255),
@@ -325,7 +343,19 @@ export async function update(id: number, input: UpdateTicketInput, actorSub: str
   if (!before) return null;
 
   const data: Prisma.TicketUncheckedUpdateInput = {
-    ...input,
+    // Explicitly pick writable fields. Request bodies are runtime data, so
+    // spreading them here would let unknown Prisma fields bypass the API surface.
+    companyId: input.companyId,
+    contactId: input.contactId,
+    assigneeId: input.assigneeId,
+    teamId: input.teamId,
+    closedAt: input.closedAt,
+    // Custom fields merge per-key into the stored map (null clears a key) and
+    // are validated against the definitions — never a raw spread.
+    customFields:
+      input.customFields !== undefined
+        ? ((await mergeCustomFields(before.customFields, input.customFields)) as Prisma.InputJsonValue)
+        : undefined,
     title: clamp(input.title, 255),
     summary: clamp(input.summary, 500),
     description: sanitizeTicketDescription(input.description),

@@ -57,6 +57,8 @@ export interface AuthUser {
   role: "admin" | "technician" | "readonly";
   authProvider: string;
   themePref: string | null;
+  /** Ordered Kanban statuses selected by this user; null uses the default board. */
+  kanbanColumns: string[] | null;
 }
 
 /** Persist the current user's UI theme preference (a palette id, or null to reset). */
@@ -64,6 +66,14 @@ export function setMyTheme(themePref: string | null) {
   return request<{ themePref: string | null }>("/auth/theme", {
     method: "PUT",
     body: JSON.stringify({ themePref }),
+  });
+}
+
+/** Persist the current user's ordered Kanban column selection. */
+export function setMyKanbanColumns(kanbanColumns: string[] | null) {
+  return request<{ kanbanColumns: string[] | null }>("/auth/kanban-columns", {
+    method: "PUT",
+    body: JSON.stringify({ kanbanColumns }),
   });
 }
 
@@ -180,6 +190,150 @@ export interface Assignee {
 /** Active admins + technicians, for the ticket assignee picker. */
 export function listAssignees() {
   return request<Assignee[]>("/assignees");
+}
+
+// ─── Teams / queues ───────────────────────────────────────────────────
+
+export interface TeamMember {
+  teamId: number;
+  userId: number;
+  user: Pick<ManagedUser, "id" | "username" | "displayName" | "role">;
+}
+
+export interface Team {
+  id: number;
+  name: string;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+  members: TeamMember[];
+  _count?: { tickets: number };
+}
+
+export function listTeams() {
+  return request<Team[]>("/teams");
+}
+export function createTeam(data: { name: string; description?: string | null }) {
+  return request<Team>("/teams", { method: "POST", body: JSON.stringify(data) });
+}
+export function updateTeam(id: number, data: { name?: string; description?: string | null }) {
+  return request<Team>(`/teams/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+export function deleteTeam(id: number) {
+  return request<void>(`/teams/${id}`, { method: "DELETE" });
+}
+export function addTeamMember(teamId: number, userId: number) {
+  return request<Team>(`/teams/${teamId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ userId }),
+  });
+}
+export function removeTeamMember(teamId: number, userId: number) {
+  return request<Team>(`/teams/${teamId}/members/${userId}`, { method: "DELETE" });
+}
+
+// ─── Custom ticket fields ──────────────────────────────────────────────
+
+export type CustomFieldType = "text" | "number" | "boolean" | "date" | "select";
+
+export interface CustomFieldDef {
+  id: number;
+  key: string;
+  label: string;
+  type: CustomFieldType;
+  options: string[] | null;
+  required: boolean;
+  sortOrder: number;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CustomFieldDefInput = Pick<CustomFieldDef, "key" | "label" | "type"> &
+  Partial<Pick<CustomFieldDef, "options" | "required" | "sortOrder" | "archived">>;
+
+export function listCustomFields(includeArchived = false) {
+  const query = includeArchived ? "?includeArchived=true" : "";
+  return request<CustomFieldDef[]>(`/custom-fields${query}`);
+}
+export function createCustomField(data: CustomFieldDefInput) {
+  return request<CustomFieldDef>("/custom-fields", { method: "POST", body: JSON.stringify(data) });
+}
+export function updateCustomField(id: number, data: Partial<Omit<CustomFieldDefInput, "key" | "type">>) {
+  return request<CustomFieldDef>(`/custom-fields/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+export function deleteCustomField(id: number) {
+  return request<void>(`/custom-fields/${id}`, { method: "DELETE" });
+}
+
+// ─── Automation rules ───────────────────────────────────────────────────
+
+export type AutomationTrigger = "ticket_created" | "ticket_updated" | "note_added" | "sla_at_risk" | "sla_breached";
+export type AutomationConditionOp = "eq" | "neq" | "contains" | "in" | "gte" | "lte" | "set" | "unset";
+export interface AutomationCondition { field: string; op: AutomationConditionOp; value?: unknown }
+export type AutomationAction = Record<string, unknown> & { type: string };
+export interface AutomationRule {
+  id: number;
+  name: string;
+  enabled: boolean;
+  trigger: AutomationTrigger;
+  conditions: AutomationCondition[];
+  actions: AutomationAction[];
+  runCount: number;
+  lastRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export type AutomationRuleInput = Pick<AutomationRule, "name" | "trigger" | "conditions" | "actions"> &
+  Partial<Pick<AutomationRule, "enabled">>;
+
+export function listAutomations() {
+  return request<AutomationRule[]>("/automations");
+}
+export function createAutomation(data: AutomationRuleInput) {
+  return request<AutomationRule>("/automations", { method: "POST", body: JSON.stringify(data) });
+}
+export function updateAutomation(id: number, data: Partial<AutomationRuleInput>) {
+  return request<AutomationRule>(`/automations/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+export function deleteAutomation(id: number) {
+  return request<void>(`/automations/${id}`, { method: "DELETE" });
+}
+
+// ─── Saved views ───────────────────────────────────────────────────────
+
+export interface SavedViewFilters {
+  status?: string;
+  assignee?: string;
+  company?: string;
+  q?: string;
+  regex?: string;
+  labelId?: number;
+  teamId?: number;
+  includeClosed?: boolean;
+}
+export interface SavedView {
+  id: number;
+  userId: number | null;
+  name: string;
+  filters: SavedViewFilters;
+  shared: boolean;
+  sortOrder: number;
+  createdAt: string;
+}
+export type SavedViewInput = Pick<SavedView, "name" | "filters"> & Partial<Pick<SavedView, "shared" | "sortOrder">>;
+
+export function listSavedViews() {
+  return request<SavedView[]>("/views");
+}
+export function createSavedView(data: SavedViewInput) {
+  return request<SavedView>("/views", { method: "POST", body: JSON.stringify(data) });
+}
+export function updateSavedView(id: number, data: Partial<SavedViewInput>) {
+  return request<SavedView>(`/views/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+export function deleteSavedView(id: number) {
+  return request<void>(`/views/${id}`, { method: "DELETE" });
 }
 
 export function createUser(data: {
@@ -363,6 +517,7 @@ export interface TicketFilters {
   /** POSIX regex matched server-side across ticket text. */
   regex?: string;
   labelId?: number;
+  teamId?: number;
   /** Include closed tickets (default false hides them from working views). */
   includeClosed?: boolean;
   page?: number;
@@ -596,6 +751,50 @@ export interface DeviceFilters {
   pageSize?: number;
 }
 
+export interface DeviceExternalRef {
+  id: number;
+  deviceId: number;
+  provider: string;
+  externalId: string;
+  metadata?: Record<string, unknown> | null;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Device {
+  id: number;
+  hostname: string | null;
+  displayName: string | null;
+  ipAddress: string | null;
+  macAddress: string | null;
+  vendor: string | null;
+  os: string | null;
+  deviceType: string | null;
+  status: string;
+  companyName: string | null;
+  companyId: number | null;
+  source: string;
+  probeId: number | null;
+  externalId: string | null;
+  externalProvider: string | null;
+  assetTag: string | null;
+  serialNumber: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  location: string | null;
+  purchaseDate: string | null;
+  warrantyExpiresAt: string | null;
+  notes: string | null;
+  metadata?: Record<string, unknown> | null;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  externalRefs: DeviceExternalRef[];
+}
+
 export function listDevices(filters: DeviceFilters = {}) {
   const params = new URLSearchParams(
     Object.fromEntries(
@@ -604,11 +803,11 @@ export function listDevices(filters: DeviceFilters = {}) {
         .map(([k, v]) => [k, String(v)])
     )
   );
-  return request<unknown[]>(`/devices?${params}`);
+  return request<Device[]>(`/devices?${params}`);
 }
 
 export function getDevice(id: number) {
-  return request<unknown>(`/devices/${id}`);
+  return request<Device>(`/devices/${id}`);
 }
 
 /** Live snapshot pulled from whichever RMM owns the device. Fields beyond the
@@ -635,24 +834,43 @@ export interface RmmLiveData {
 /** @deprecated use RmmLiveData — kept as an alias so existing imports compile. */
 export type TacticalLiveData = RmmLiveData;
 
-export function getDeviceLive(id: number) {
-  return request<RmmLiveData>(`/devices/${id}/live`);
+export function getDeviceLive(id: number, provider?: string) {
+  const query = provider ? `?provider=${encodeURIComponent(provider)}` : "";
+  return request<RmmLiveData>(`/devices/${id}/live${query}`);
 }
 
-export function createDevice(data: Record<string, unknown>) {
-  return request<unknown>('/devices', { method: 'POST', body: JSON.stringify(data) });
+export function createDevice(data: Partial<Device>) {
+  return request<Device>('/devices', { method: 'POST', body: JSON.stringify(data) });
 }
 
-export function updateDevice(id: number, data: Record<string, unknown>) {
-  return request<unknown>(`/devices/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+export function updateDevice(id: number, data: Partial<Device>) {
+  return request<Device>(`/devices/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
 }
 
 export function deleteDevice(id: number) {
   return request<void>(`/devices/${id}`, { method: 'DELETE' });
 }
 
+export function listDeviceExternalRefs(deviceId: number) {
+  return request<DeviceExternalRef[]>(`/devices/${deviceId}/external-refs`);
+}
+
+export function addDeviceExternalRef(
+  deviceId: number,
+  data: { provider: string; externalId: string; metadata?: Record<string, unknown> }
+) {
+  return request<DeviceExternalRef>(`/devices/${deviceId}/external-refs`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteDeviceExternalRef(deviceId: number, refId: number) {
+  return request<void>(`/devices/${deviceId}/external-refs/${refId}`, { method: "DELETE" });
+}
+
 export function listTicketDevices(ticketId: number) {
-  return request<unknown[]>(`/tickets/${ticketId}/devices`);
+  return request<Device[]>(`/tickets/${ticketId}/devices`);
 }
 
 export function linkDevice(ticketId: number, deviceId: number) {
@@ -918,7 +1136,7 @@ export function syncDevices(provider?: string) {
 
 export function runDeviceScript(
   deviceId: number,
-  data: { script: string | number; scriptName?: string; args?: string[]; timeout?: number; ticketId?: number; scheduledFor?: string }
+  data: { script: string | number; scriptName?: string; args?: string[]; timeout?: number; ticketId?: number; scheduledFor?: string; provider?: string }
 ) {
   return request<unknown>(`/devices/${deviceId}/run-script`, {
     method: 'POST',

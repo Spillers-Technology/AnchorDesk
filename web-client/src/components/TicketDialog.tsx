@@ -50,6 +50,7 @@ import * as api from "../api/client";
 import { TICKET_STATUSES, TICKET_PRIORITIES } from "../ticketVocab";
 import { PrioritySignal, StatusSignal } from "./TicketSignals";
 import { htmlToPlainText, isRichTextEmpty, toEditorHtml } from "../html";
+import { useIsPhone } from "../theme/useIsPhone";
 
 interface TicketDialogProps {
   ticket: Ticket;
@@ -70,6 +71,7 @@ interface ComposePrefill {
 }
 
 const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, notes, currentUser, onUpdated, onNotesChanged }) => {
+  const isPhone = useIsPhone();
   const [title, setTitle] = useState(ticket.ticketTitle);
   const [priority, setPriority] = useState(ticket.priority);
   const [companyName, setCompanyName] = useState(ticket.company.CompanyName);
@@ -83,6 +85,10 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   const [compose, setCompose] = useState<ComposePrefill | null>(null);
   const [assignees, setAssignees] = useState<api.Assignee[]>([]);
   const [assigneeId, setAssigneeId] = useState<number | "">("");
+  const [teams, setTeams] = useState<api.Team[]>([]);
+  const [teamId, setTeamId] = useState<number | "">("");
+  const [customFieldDefs, setCustomFieldDefs] = useState<api.CustomFieldDef[]>([]);
+  const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
   const [allDevices, setAllDevices] = useState<any[]>([]);
   const [addDevice, setAddDevice] = useState<any | null>(null);
   const [showAllDevices, setShowAllDevices] = useState(false);
@@ -95,7 +101,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   const [attachments, setAttachments] = useState<api.Attachment[]>([]);
   const [allLabels, setAllLabels] = useState<api.Label[]>([]);
   const [liveDevices, setLiveDevices] = useState<
-    Record<number, { loading: boolean; data?: api.RmmLiveData; error?: string }>
+    Record<string, { loading: boolean; data?: api.RmmLiveData; error?: string }>
   >({});
 
   const reloadAttachments = useCallback(() => {
@@ -105,7 +111,15 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
 
   const reloadFull = useCallback(() => {
     if (ticket.localId == null) return;
-    api.getTicket(ticket.localId).then((t) => setFull(t as any)).catch(() => {});
+    api.getTicket(ticket.localId).then((t) => {
+      const next = t as Record<string, any>;
+      setFull(next);
+      setCustomValues(
+        next.customFields && typeof next.customFields === "object" && !Array.isArray(next.customFields)
+          ? next.customFields
+          : {}
+      );
+    }).catch(() => {});
   }, [ticket.localId]);
 
   // Two-way sync: reconcile now, or resolve a held conflict by picking a side.
@@ -148,15 +162,16 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     await api.untagTicket(ticket.localId, labelId).then(reloadFull).catch(() => {});
   };
 
-  const loadDeviceLive = useCallback(async (deviceId: number) => {
-    setLiveDevices((prev) => ({ ...prev, [deviceId]: { loading: true } }));
+  const loadDeviceLive = useCallback(async (deviceId: number, provider?: string) => {
+    const key = `${deviceId}:${provider ?? "primary"}`;
+    setLiveDevices((prev) => ({ ...prev, [key]: { loading: true } }));
     try {
-      const data = await api.getDeviceLive(deviceId);
-      setLiveDevices((prev) => ({ ...prev, [deviceId]: { loading: false, data } }));
+      const data = await api.getDeviceLive(deviceId, provider);
+      setLiveDevices((prev) => ({ ...prev, [key]: { loading: false, data } }));
     } catch (err) {
       setLiveDevices((prev) => ({
         ...prev,
-        [deviceId]: { loading: false, error: (err as Error).message },
+        [key]: { loading: false, error: (err as Error).message },
       }));
     }
   }, []);
@@ -166,9 +181,10 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     api.listTicketDevices(ticket.localId).then((d) => {
       const next = d as any[];
       setDevices(next);
-      const tacticalDevices = next.filter((device) => device.source === "tactical_rmm" && device.externalId);
       setLiveDevices({});
-      tacticalDevices.forEach((device) => loadDeviceLive(device.id));
+      next.forEach((device) => {
+        rmmExternalRefs(device).forEach((ref) => loadDeviceLive(device.id, ref.provider));
+      });
     }).catch(() => {
       setDevices([]);
       setLiveDevices({});
@@ -200,6 +216,12 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
       setFull(tt);
       setStatus(tt.status ?? status);
       setAssigneeId((tt.assigneeId as number) ?? "");
+      setTeamId((tt.teamId as number) ?? "");
+      setCustomValues(
+        tt.customFields && typeof tt.customFields === "object" && !Array.isArray(tt.customFields)
+          ? tt.customFields
+          : {}
+      );
       setCompany(tt.company ?? null);
       setContactId((tt.contactId as number) ?? "");
       if (tt.companyId) api.getCompany(tt.companyId).then((c) => setContacts(c.contacts ?? [])).catch(() => setContacts([]));
@@ -211,6 +233,8 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     api.listTicketScriptJobs(id).then((j) => setJobs(j as any[])).catch(() => setJobs([]));
     api.getMailStatus().then((m) => setMailConfigured(m.configured)).catch(() => setMailConfigured(false));
     api.listAssignees().then(setAssignees).catch(() => setAssignees([]));
+    api.listTeams().then(setTeams).catch(() => setTeams([]));
+    api.listCustomFields().then(setCustomFieldDefs).catch(() => setCustomFieldDefs([]));
     api.listDevices({ pageSize: 500 }).then((d) => setAllDevices(d as any[])).catch(() => setAllDevices([]));
     api.listCompanies().then(setCompanies).catch(() => setCompanies([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -286,6 +310,19 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     setAssigneeId(id);
     const u = assignees.find((a) => a.id === id);
     persist({ assigneeId: id === "" ? null : id, assignee: u ? (u.displayName || u.username) : null });
+  };
+
+  const saveTeam = (id: number | "") => {
+    setTeamId(id);
+    persist({ teamId: id === "" ? null : id });
+  };
+
+  const saveCustomField = async (def: api.CustomFieldDef, value: unknown) => {
+    let normalized = value;
+    if (def.type === "number" && value !== "" && value != null) normalized = Number(value);
+    if (value === "" || value === undefined) normalized = null;
+    const ok = await persist({ customFields: { [def.key]: normalized } });
+    if (!ok) reloadFull();
   };
 
   const linkDevice = async () => {
@@ -378,9 +415,9 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   const hasIntegrations = source !== "local" || devices.length > 0 || jobs.length > 0;
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg" fullScreen={isPhone}>
       {/* Header band */}
-      <Box sx={(theme) => ({ background: `linear-gradient(135deg, ${theme.palette.primary.dark} 0%, ${theme.palette.primary.main} 58%, ${theme.palette.secondary.main} 100%)`, color: theme.palette.primary.contrastText, px: 3, py: 2 })}>
+      <Box sx={(theme) => ({ background: `linear-gradient(135deg, ${theme.palette.primary.dark} 0%, ${theme.palette.primary.main} 58%, ${theme.palette.secondary.main} 100%)`, color: theme.palette.primary.contrastText, px: { xs: 2, md: 3 }, py: { xs: 1.5, md: 2 } })}>
         <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
           <Box sx={{ minWidth: 0 }}>
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
@@ -401,7 +438,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                 status={status}
               />
             </Stack>
-            <Typography variant="h5" noWrap sx={{ fontWeight: 700 }}>{title || "(untitled)"}</Typography>
+            <Typography variant="h5" noWrap={!isPhone} sx={{ fontWeight: 700 }}>{title || "(untitled)"}</Typography>
             <Typography variant="body2" sx={{ opacity: 0.85 }}>{companyName || "No company"}</Typography>
             {(full?.labels ?? []).length > 0 && (
               <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} flexWrap="wrap" useFlexGap>
@@ -562,6 +599,15 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                       <MenuItem key={a.id} value={a.id}>{a.displayName || a.username} · {a.role}</MenuItem>
                     ))}
                   </TextField>
+                  <TextField select label="Team / queue" size="small" fullWidth value={teamId}
+                    onChange={(e) => saveTeam(e.target.value === "" ? "" : Number(e.target.value))}>
+                    <MenuItem value="">No team</MenuItem>
+                    {teams.map((team) => (
+                      <MenuItem key={team.id} value={team.id}>
+                        {team.name}{team._count ? ` · ${team._count.tickets} tickets` : ""}
+                      </MenuItem>
+                    ))}
+                  </TextField>
                   <Box>
                     {(full?.labels ?? []).length > 0 && (
                       <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
@@ -586,6 +632,21 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                       );
                     })()}
                   </Box>
+                  {customFieldDefs.length > 0 && (
+                    <>
+                      <Divider sx={{ my: 0.5 }} />
+                      <Typography variant="caption" color="text.secondary">Custom fields</Typography>
+                      {customFieldDefs.map((def) => (
+                        <CustomFieldControl
+                          key={def.id}
+                          def={def}
+                          value={customValues[def.key]}
+                          onChange={(value) => setCustomValues((current) => ({ ...current, [def.key]: value }))}
+                          onSave={(value) => saveCustomField(def, value)}
+                        />
+                      ))}
+                    </>
+                  )}
                   <Divider sx={{ my: 0.5 }} />
                   <MetaRow icon={<BusinessIcon fontSize="small" />} label="Source" value={source} />
                   <MetaRow icon={<CalendarTodayIcon fontSize="small" />} label="Created" value={created} />
@@ -607,7 +668,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                 ) : (
                   <Stack spacing={1} sx={{ mb: 1.5 }}>
                     {devices.map((d) => {
-                      const canRun = !!d.externalId && d.source !== "local" && d.source !== "netviz";
+                      const refs = rmmExternalRefs(d);
                       return (
                         <Box key={d.id}>
                           <Stack direction="row" alignItems="center" spacing={1}>
@@ -616,24 +677,33 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                               <Typography variant="body2" noWrap>{d.displayName || d.hostname || d.ipAddress || "device"}</Typography>
                               {d.ipAddress && <Typography variant="caption" color="text.secondary">{d.ipAddress}</Typography>}
                             </Box>
-                            <Chip size="small" variant="outlined" label={sourceLabel(d.source)} color={sourceColor(d.source)} />
-                            {isRmmSource(d.source) && (
-                              <Tooltip title="Refresh live RMM data">
-                                <IconButton size="small" onClick={() => loadDeviceLive(d.id)}><SyncIcon fontSize="small" /></IconButton>
-                              </Tooltip>
-                            )}
-                            {canRun && (
-                              <Tooltip title="Run script">
-                                <IconButton size="small" onClick={() => setScriptDevice(d)}><TerminalIcon fontSize="small" /></IconButton>
-                              </Tooltip>
-                            )}
+                            {refs.length === 0 && <Chip size="small" variant="outlined" label={sourceLabel(d.source)} color={sourceColor(d.source)} />}
                             <Tooltip title="Unlink device">
                               <IconButton size="small" onClick={() => unlinkDevice(d.id)}><Close fontSize="small" /></IconButton>
                             </Tooltip>
                           </Stack>
-                          {isRmmSource(d.source) && (
-                            <RmmLivePanel state={liveDevices[d.id]} />
-                          )}
+                          {refs.map((ref) => {
+                            const liveKey = `${d.id}:${ref.provider}`;
+                            return (
+                              <Box key={`${ref.provider}:${ref.externalId}`} sx={{ ml: { xs: 0, sm: 4 }, mt: 0.75 }}>
+                                <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap" useFlexGap>
+                                  <Chip size="small" variant="outlined" label={sourceLabel(ref.provider)} color="primary" />
+                                  <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: "anywhere", flexGrow: 1 }}>
+                                    {ref.externalId}
+                                  </Typography>
+                                  <Tooltip title={`Refresh from ${sourceLabel(ref.provider)}`}>
+                                    <IconButton size="small" onClick={() => loadDeviceLive(d.id, ref.provider)}><SyncIcon fontSize="small" /></IconButton>
+                                  </Tooltip>
+                                  <Tooltip title={`Run script through ${sourceLabel(ref.provider)}`}>
+                                    <IconButton size="small" onClick={() => setScriptDevice({ ...d, scriptProvider: ref.provider })}>
+                                      <TerminalIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                                <RmmLivePanel state={liveDevices[liveKey]} />
+                              </Box>
+                            );
+                          })}
                         </Box>
                       );
                     })}
@@ -717,7 +787,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
           onClose={() => setScriptDevice(null)}
           deviceId={scriptDevice.id}
           deviceName={scriptDevice.displayName || scriptDevice.hostname || `device ${scriptDevice.id}`}
-          deviceSource={scriptDevice.source}
+          deviceSource={scriptDevice.scriptProvider ?? scriptDevice.source}
           ticketId={ticket.localId}
         />
       )}
@@ -806,9 +876,91 @@ function SyncStatusBar({
   );
 }
 
+function CustomFieldControl({
+  def,
+  value,
+  onChange,
+  onSave,
+}: {
+  def: api.CustomFieldDef;
+  value: unknown;
+  onChange: (value: unknown) => void;
+  onSave: (value: unknown) => void;
+}) {
+  if (def.type === "boolean") {
+    return (
+      <FormControlLabel
+        sx={{ ml: 0 }}
+        control={
+          <Checkbox
+            checked={value === true}
+            onChange={(event) => {
+              onChange(event.target.checked);
+              onSave(event.target.checked);
+            }}
+          />
+        }
+        label={`${def.label}${def.required ? " *" : ""}`}
+      />
+    );
+  }
+
+  if (def.type === "select") {
+    return (
+      <TextField
+        select
+        size="small"
+        fullWidth
+        required={def.required}
+        label={def.label}
+        value={value == null ? "" : String(value)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          onSave(event.target.value);
+        }}
+      >
+        {!def.required && <MenuItem value="">None</MenuItem>}
+        {(def.options ?? []).map((option) => <MenuItem key={option} value={option}>{option}</MenuItem>)}
+      </TextField>
+    );
+  }
+
+  return (
+    <TextField
+      size="small"
+      fullWidth
+      required={def.required}
+      label={def.label}
+      type={def.type === "number" ? "number" : def.type === "date" ? "date" : "text"}
+      value={value == null ? "" : String(value)}
+      onChange={(event) => onChange(event.target.value)}
+      onBlur={() => onSave(value)}
+      InputLabelProps={def.type === "date" ? { shrink: true } : undefined}
+    />
+  );
+}
+
 const RMM_SOURCES = ["tactical_rmm", "ninjaone", "datto_rmm"];
 function isRmmSource(s?: string): boolean {
   return !!s && RMM_SOURCES.includes(s);
+}
+
+function rmmExternalRefs(device: {
+  source?: string;
+  externalId?: string | null;
+  externalProvider?: string | null;
+  externalRefs?: api.DeviceExternalRef[];
+}): { provider: string; externalId: string }[] {
+  const refs = Array.isArray(device.externalRefs)
+    ? device.externalRefs
+        .filter((ref) => isRmmSource(ref.provider) && !!ref.externalId)
+        .map((ref) => ({ provider: ref.provider, externalId: ref.externalId }))
+    : [];
+  if (refs.length > 0) return refs;
+  const provider = device.externalProvider ?? device.source;
+  return provider && isRmmSource(provider) && device.externalId
+    ? [{ provider, externalId: device.externalId }]
+    : [];
 }
 
 function sourceLabel(s?: string): string {
@@ -1432,6 +1584,7 @@ function EmailDialog({
   onClose: () => void;
   onSent?: () => void;
 }) {
+  const isPhone = useIsPhone();
   const [to, setTo] = useState<string[]>(initialTo ? [initialTo] : []);
   const [cc, setCc] = useState<string[]>([]);
   const [bcc, setBcc] = useState<string[]>([]);
@@ -1490,7 +1643,7 @@ function EmailDialog({
   };
 
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="md">
+    <Dialog open onClose={onClose} fullWidth maxWidth="md" fullScreen={isPhone}>
       <DialogContent>
         <Typography variant="h6" gutterBottom>Send email from ticket</Typography>
         <Stack spacing={2} sx={{ mt: 1 }}>

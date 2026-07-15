@@ -38,6 +38,8 @@ export interface AuthUser {
   role: UserRole;
   authProvider: string;
   themePref: string | null;
+  /** Ordered Kanban board statuses to show; null = all statuses. */
+  kanbanColumns: string[] | null;
 }
 
 declare module 'fastify' {
@@ -67,6 +69,7 @@ const DEV_ADMIN: AuthUser = {
   role: 'admin',
   authProvider: 'local',
   themePref: null,
+  kanbanColumns: null,
 };
 
 // ─── Bearer (OIDC access token) validation, for API clients ──────────────────
@@ -120,6 +123,7 @@ function toAuthUser(u: {
   role: UserRole;
   authProvider: string;
   themePref?: string | null;
+  kanbanColumns?: unknown;
 }): AuthUser {
   return {
     id: u.id,
@@ -129,6 +133,9 @@ function toAuthUser(u: {
     role: u.role,
     authProvider: u.authProvider,
     themePref: u.themePref ?? null,
+    kanbanColumns: Array.isArray(u.kanbanColumns)
+      ? u.kanbanColumns.filter((value): value is string => typeof value === 'string')
+      : null,
   };
 }
 

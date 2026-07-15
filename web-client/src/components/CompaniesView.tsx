@@ -161,7 +161,7 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" alignItems="center" spacing={1.5}>
+      <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" useFlexGap>
         <Box sx={{ width: 44, height: 44, borderRadius: 2, bgcolor: "primary.main", color: "primary.contrastText", display: "grid", placeItems: "center" }}>
           <BusinessIcon />
         </Box>
@@ -174,7 +174,9 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
       </Stack>
       {msg && <Alert severity="success" onClose={() => setMsg(null)}>{msg}</Alert>}
 
-      <Grid container spacing={2}>
+      {/* Box wrapper: Stack's child-margin shorthand would zero the Grid
+          container's negative margin and overflow the viewport on phones. */}
+      <Box><Grid container spacing={2}>
         {/* Company info (editable) */}
         <Grid item xs={12} md={6}>
           <Card><CardContent>
@@ -249,7 +251,7 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
             </Stack>
           </CardContent></Card>
         </Grid>
-      </Grid>
+      </Grid></Box>
     </Stack>
   );
 }

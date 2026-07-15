@@ -5,6 +5,11 @@ import { z } from 'zod';
 import * as tickets from '../repositories/ticketRepository';
 import * as notes from '../repositories/noteRepository';
 import * as audit from '../repositories/auditRepository';
+import * as labels from '../repositories/labelRepository';
+import * as teams from '../repositories/teamRepository';
+import * as customFields from '../repositories/customFieldRepository';
+import * as savedViews from '../repositories/savedViewRepository';
+import { CustomFieldValidationError } from '../services/customFields';
 import * as ticketMail from '../services/mail/ticketMail';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
 import { actorFor } from '../middleware/auth';
@@ -16,7 +21,7 @@ import { buildMcpProtectedResourceMetadata } from '../services/auth/mcpOAuth';
  * with the `mcp` channel — so MCP actions are attributed to the real person who
  * issued the personal access token, not a shared placeholder.
  */
-function buildMcpServer(actor: string): McpServer {
+function buildMcpServer(actor: string, userId: number): McpServer {
   const server = new McpServer({ name: 'anchordesk', version: '1.0.0' });
 
   server.tool(
@@ -27,6 +32,11 @@ function buildMcpServer(actor: string): McpServer {
       assignee: z.string().optional().describe('Filter by assignee name'),
       companyName: z.string().optional().describe('Filter by company name'),
       q: z.string().optional().describe('Free-text search across title, summary, company, ticket number'),
+      regex: z.string().max(500).optional().describe('Case-insensitive POSIX regular expression across ticket text'),
+      labelId: z.number().int().optional().describe('Filter to tickets carrying this label id (see list_labels)'),
+      teamId: z.number().int().optional().describe('Filter to tickets routed to this team/queue (see list_teams)'),
+      includeClosed: z.boolean().optional().default(false).describe('Include Closed tickets when no explicit status is selected'),
+      includeDeleted: z.boolean().optional().default(false).describe('Include soft-deleted tickets'),
       page: z.number().int().min(1).optional().default(1),
       pageSize: z.number().int().min(1).max(100).optional().default(20),
     },
@@ -59,11 +69,20 @@ function buildMcpServer(actor: string): McpServer {
       priority: z.string().optional().default('3'),
       companyName: z.string().optional(),
       assignee: z.string().optional(),
+      teamId: z.number().int().optional().describe('Route the ticket to a team/queue (see list_teams)'),
+      customFields: z.record(z.string(), z.unknown()).optional().describe('Custom field values keyed by field key (see list_custom_fields)'),
     },
     async (args) => {
       const changedBy = actor;
-      const ticket = await tickets.create(args, changedBy);
-      return { content: [{ type: 'text', text: JSON.stringify(ticket, null, 2) }] };
+      try {
+        const ticket = await tickets.create(args, changedBy);
+        return { content: [{ type: 'text', text: JSON.stringify(ticket, null, 2) }] };
+      } catch (err) {
+        if (err instanceof CustomFieldValidationError) {
+          return { content: [{ type: 'text', text: err.message }], isError: true };
+        }
+        throw err;
+      }
     },
   );
 
@@ -79,11 +98,20 @@ function buildMcpServer(actor: string): McpServer {
       priority: z.string().optional(),
       assignee: z.string().optional(),
       companyName: z.string().optional(),
+      teamId: z.number().int().nullable().optional().describe('Route to a team/queue; null clears it (see list_teams)'),
+      customFields: z.record(z.string(), z.unknown()).optional().describe('Partial custom field values to merge; null clears a key (see list_custom_fields)'),
     },
     async ({ id, ...fields }) => {
       const changedBy = actor;
-      const updated = await tickets.update(id, fields, changedBy);
-      return { content: [{ type: 'text', text: JSON.stringify(updated, null, 2) }] };
+      try {
+        const updated = await tickets.update(id, fields, changedBy);
+        return { content: [{ type: 'text', text: JSON.stringify(updated, null, 2) }] };
+      } catch (err) {
+        if (err instanceof CustomFieldValidationError) {
+          return { content: [{ type: 'text', text: err.message }], isError: true };
+        }
+        throw err;
+      }
     },
   );
 
@@ -176,6 +204,70 @@ function buildMcpServer(actor: string): McpServer {
     },
   );
 
+  server.tool(
+    'search_tickets',
+    'Typo-tolerant ranked search (Postgres full-text + trigram) across ticket text, priority, ticket number, and note bodies. Better than list_tickets\' q filter for finding a specific ticket.',
+    {
+      q: z.string().describe('Search terms'),
+      limit: z.number().int().min(1).max(100).optional().default(20),
+    },
+    async ({ q, limit }) => {
+      const results = await tickets.search(q, limit);
+      return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'list_labels',
+    'List the managed labels (tags) that can be applied to tickets.',
+    {},
+    async () => {
+      return { content: [{ type: 'text', text: JSON.stringify(await labels.list(), null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'set_ticket_label',
+    'Apply or remove a label (tag) on a ticket.',
+    {
+      ticketId: z.number().int(),
+      labelId: z.number().int().describe('Label id (see list_labels)'),
+      remove: z.boolean().optional().default(false).describe('true removes the label instead of applying it'),
+    },
+    async ({ ticketId, labelId, remove }) => {
+      if (remove) await labels.removeFromTicket(ticketId, labelId, actor);
+      else await labels.applyToTicket(ticketId, labelId, actor);
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, ticketId, labelId, removed: remove }) }] };
+    },
+  );
+
+  server.tool(
+    'list_teams',
+    'List teams (queues/groups) with their members. Route a ticket to a team via create_ticket/update_ticket teamId.',
+    {},
+    async () => {
+      return { content: [{ type: 'text', text: JSON.stringify(await teams.list(), null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'list_custom_fields',
+    'List the admin-defined custom ticket field definitions (key, label, type, options). Set values via create_ticket/update_ticket customFields.',
+    {},
+    async () => {
+      return { content: [{ type: 'text', text: JSON.stringify(await customFields.list(), null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'list_saved_views',
+    'List your saved ticket views (personal + shared filter sets). Replay one by passing its filters to list_tickets.',
+    {},
+    async () => {
+      return { content: [{ type: 'text', text: JSON.stringify(await savedViews.listForUser(userId), null, 2) }] };
+    },
+  );
+
   return server;
 }
 
@@ -199,7 +291,7 @@ export async function mcpRoutes(app: FastifyInstance) {
     reply.raw.on('close', () => transports.delete(transport.sessionId));
 
     const actor = actorFor(req.user.username, 'mcp');
-    const mcpServer = buildMcpServer(actor);
+    const mcpServer = buildMcpServer(actor, req.user.id);
     await mcpServer.connect(transport);
   });
 

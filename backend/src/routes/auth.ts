@@ -219,6 +219,28 @@ export async function authRoutes(server: FastifyInstance) {
     return reply.send({ themePref: value });
   });
 
+  // Own Kanban board columns: an ordered array of status names to show.
+  // Null/empty resets to the default (all statuses). Statuses are free strings
+  // in the schema, so validation is shape-only (bounded strings, capped count).
+  server.put('/auth/kanban-columns', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { kanbanColumns } = (req.body ?? {}) as { kanbanColumns?: unknown };
+    if (kanbanColumns !== null && !Array.isArray(kanbanColumns)) {
+      return reply.status(400).send({ error: 'kanbanColumns must be an array or null' });
+    }
+    if (Array.isArray(kanbanColumns) && kanbanColumns.length > 20) {
+      return reply.status(400).send({ error: 'kanbanColumns may contain at most 20 statuses' });
+    }
+    if (Array.isArray(kanbanColumns) && kanbanColumns.some((s) => typeof s !== 'string' || !s.trim() || s.length > 100)) {
+      return reply.status(400).send({ error: 'kanbanColumns must contain non-empty status strings up to 100 characters' });
+    }
+    const cleaned = Array.isArray(kanbanColumns)
+      ? [...new Set((kanbanColumns as string[]).map((status) => status.trim()))]
+      : [];
+    const value = cleaned.length > 0 ? cleaned : null;
+    if (req.user.id !== 0) await userRepo.setKanbanColumns(req.user.id, value);
+    return reply.send({ kanbanColumns: value });
+  });
+
   // Change own password (local accounts only).
   server.post('/auth/password', async (req: FastifyRequest, reply: FastifyReply) => {
     const { currentPassword, newPassword } = (req.body ?? {}) as {

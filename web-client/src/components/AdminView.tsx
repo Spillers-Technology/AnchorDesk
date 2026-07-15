@@ -17,6 +17,12 @@ import {
   CircularProgress,
   IconButton,
   Autocomplete,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Checkbox,
+  FormControlLabel,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import MenuItem from "@mui/material/MenuItem";
@@ -42,12 +48,17 @@ import HistoryIcon from "@mui/icons-material/History";
 import TimerIcon from "@mui/icons-material/Timer";
 import LabelIcon from "@mui/icons-material/Label";
 import TuneIcon from "@mui/icons-material/Tune";
+import GroupsIcon from "@mui/icons-material/Groups";
+import DynamicFormIcon from "@mui/icons-material/DynamicForm";
+import BoltIcon from "@mui/icons-material/Bolt";
+import EditIcon from "@mui/icons-material/Edit";
 import * as api from "../api/client";
 import { TICKET_PRIORITIES } from "../ticketVocab";
+import { useIsPhone } from "../theme/useIsPhone";
 
 type AdminSection =
   | "overview" | "users" | "auth" | "integrations" | "interface" | "sla" | "mailboxes" | "mail" | "labels"
-  | "probes" | "devices" | "audit";
+  | "teams" | "custom-fields" | "automations" | "probes" | "devices" | "audit";
 
 const NAV: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
   { id: "overview", label: "Overview", icon: <DashboardIcon /> },
@@ -59,6 +70,9 @@ const NAV: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
   { id: "mailboxes", label: "Mailboxes", icon: <EmailIcon /> },
   { id: "mail", label: "Mail Identities", icon: <EmailIcon /> },
   { id: "labels", label: "Labels", icon: <LabelIcon /> },
+  { id: "teams", label: "Teams", icon: <GroupsIcon /> },
+  { id: "custom-fields", label: "Custom Fields", icon: <DynamicFormIcon /> },
+  { id: "automations", label: "Automations", icon: <BoltIcon /> },
   { id: "probes", label: "Probes", icon: <RouterIcon /> },
   { id: "devices", label: "Devices", icon: <DevicesIcon /> },
   { id: "audit", label: "Audit Log", icon: <HistoryIcon /> },
@@ -72,10 +86,10 @@ export default function AdminView() {
 
   return (
     <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
-      <Paper variant="outlined" sx={{ width: { xs: "100%", md: 230 }, flexShrink: 0, position: { md: "sticky" }, top: { md: 88 } }}>
-        <List dense disablePadding>
+      <Paper variant="outlined" sx={{ width: { xs: "100%", md: 230 }, maxWidth: "100%", minWidth: 0, flexShrink: 0, position: { md: "sticky" }, top: { md: 88 }, overflowX: { xs: "auto", md: "hidden" } }}>
+        <List dense disablePadding sx={{ display: { xs: "flex", md: "block" }, width: { xs: "max-content", md: "auto" }, minWidth: { xs: "100%", md: 0 }, py: { xs: 0.5, md: 0 } }}>
           {NAV.map((n) => (
-            <ListItemButton key={n.id} selected={section === n.id} onClick={() => setSection(n.id)}>
+            <ListItemButton key={n.id} selected={section === n.id} onClick={() => setSection(n.id)} sx={{ flex: { xs: "0 0 auto", md: "initial" }, minWidth: { xs: 155, md: 0 } }}>
               <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
               <ListItemText primary={n.label} />
             </ListItemButton>
@@ -93,6 +107,9 @@ export default function AdminView() {
         {section === "mailboxes" && <MailboxesPanel />}
         {section === "mail" && <MailIdentitiesPanel />}
         {section === "labels" && <LabelsPanel />}
+        {section === "teams" && <TeamsPanel />}
+        {section === "custom-fields" && <CustomFieldsPanel />}
+        {section === "automations" && <AutomationsPanel />}
         {section === "probes" && <ProbesPanel />}
         {section === "devices" && <DevicesPanel />}
         {section === "audit" && <AuditPanel />}
@@ -117,19 +134,23 @@ function OverviewPanel({ onNavigate }: { onNavigate: (s: AdminSection) => void }
   return (
     <Stack spacing={2}>
       <Typography variant="h5">Overview</Typography>
-      <Grid container spacing={2}>
-        {stats.map((s) => (
-          <Grid item xs={6} sm={4} md={2.4} key={s.label}>
-            <Card variant="outlined" sx={{ cursor: "pointer", "&:hover": { borderColor: "primary.main" } }} onClick={() => onNavigate(s.go)}>
-              <CardContent>
-                <Typography variant="h4">{s.value}</Typography>
-                <Typography variant="body2" color="text.secondary">{s.label}</Typography>
-                {s.sub && <Typography variant="caption" color="text.secondary">{s.sub}</Typography>}
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+      {/* Box wrapper: Stack's child-margin shorthand would zero the Grid
+          container's negative margin and overflow the viewport on phones. */}
+      <Box>
+        <Grid container spacing={2}>
+          {stats.map((s) => (
+            <Grid item xs={6} sm={4} md={2.4} key={s.label}>
+              <Card variant="outlined" sx={{ cursor: "pointer", "&:hover": { borderColor: "primary.main" } }} onClick={() => onNavigate(s.go)}>
+                <CardContent>
+                  <Typography variant="h4">{s.value}</Typography>
+                  <Typography variant="body2" color="text.secondary">{s.label}</Typography>
+                  {s.sub && <Typography variant="caption" color="text.secondary">{s.sub}</Typography>}
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      </Box>
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
@@ -207,7 +228,7 @@ function UsersPanel() {
         </Stack>
       </Paper>
 
-      <Paper variant="outlined">
+      <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -457,7 +478,7 @@ function ProbesPanel() {
         </Stack>
       </Paper>
 
-      <Paper variant="outlined">
+      <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -508,11 +529,12 @@ function ProbesPanel() {
 }
 
 function DevicesPanel() {
-  const { data, loading, error, reload } = useAsync(() => api.listDevices({ pageSize: 200 }) as Promise<any[]>);
+  const { data, loading, error, reload } = useAsync(() => api.listDevices({ pageSize: 200 }));
   const [companies, setCompanies] = useState<api.Company[]>([]);
   const [rmms, setRmms] = useState<api.RmmProviderStatus[]>([]);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [editingDevice, setEditingDevice] = useState<api.Device | null>(null);
 
   useEffect(() => {
     api.listCompanies().then(setCompanies).catch(() => setCompanies([]));
@@ -568,18 +590,21 @@ function DevicesPanel() {
         </Stack>
         {syncMsg && <Alert severity="info" sx={{ mt: 1 }}>{syncMsg}</Alert>}
       </Box>
-      <Paper variant="outlined">
+      <Paper variant="outlined" sx={{ overflowX: "auto" }}>
       <Table size="small">
         <TableHead>
           <TableRow>
             <TableCell>Host / Name</TableCell>
             <TableCell>IP</TableCell>
             <TableCell>MAC</TableCell>
+            <TableCell>Asset</TableCell>
             <TableCell>Type</TableCell>
             <TableCell>Company</TableCell>
             <TableCell>Source</TableCell>
             <TableCell>Status</TableCell>
             <TableCell>Last Seen</TableCell>
+            <TableCell>RMM refs</TableCell>
+            <TableCell align="right">Actions</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -588,6 +613,7 @@ function DevicesPanel() {
               <TableCell>{d.displayName || d.hostname || "—"}</TableCell>
               <TableCell>{d.ipAddress ?? "—"}</TableCell>
               <TableCell>{d.macAddress ?? "—"}</TableCell>
+              <TableCell>{d.assetTag || d.serialNumber || "—"}</TableCell>
               <TableCell>{d.deviceType ?? "—"}</TableCell>
               <TableCell sx={{ minWidth: 180 }}>
                 <Autocomplete
@@ -608,15 +634,153 @@ function DevicesPanel() {
                 <Chip size="small" color={d.status === "online" ? "success" : "default"} label={d.status} />
               </TableCell>
               <TableCell>{d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString() : "—"}</TableCell>
+              <TableCell>
+                <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                  {(d.externalRefs ?? []).map((ref) => <Chip key={ref.id} size="small" variant="outlined" label={ref.provider} />)}
+                  {(d.externalRefs ?? []).length === 0 && d.externalProvider && <Chip size="small" variant="outlined" label={d.externalProvider} />}
+                  {(d.externalRefs ?? []).length === 0 && !d.externalProvider && "—"}
+                </Stack>
+              </TableCell>
+              <TableCell align="right"><IconButton aria-label={`Edit ${d.displayName || d.hostname || "device"}`} onClick={() => setEditingDevice(d)}><EditIcon /></IconButton></TableCell>
             </TableRow>
           ))}
           {(data ?? []).length === 0 && (
-            <TableRow><TableCell colSpan={8}>No devices yet — register a probe, sync from an RMM, or add one manually.</TableCell></TableRow>
+            <TableRow><TableCell colSpan={11}>No devices yet — register a probe, sync from an RMM, or add one manually.</TableCell></TableRow>
           )}
         </TableBody>
       </Table>
       </Paper>
+      <DeviceEditorDialog
+        open={!!editingDevice}
+        device={editingDevice}
+        onClose={() => setEditingDevice(null)}
+        onSaved={() => { setEditingDevice(null); reload(); }}
+      />
     </Stack>
+  );
+}
+
+function DeviceEditorDialog({
+  open,
+  device,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  device: api.Device | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isPhone = useIsPhone();
+  const emptyForm = {
+    assetTag: "", serialNumber: "", manufacturer: "", model: "", vendor: "", location: "",
+    purchaseDate: "", warrantyExpiresAt: "", notes: "",
+  };
+  const [form, setForm] = useState(emptyForm);
+  const [refs, setRefs] = useState<api.DeviceExternalRef[]>([]);
+  const [provider, setProvider] = useState("tactical_rmm");
+  const [externalId, setExternalId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !device) return;
+    const dateOnly = (value: string | null) => value ? value.slice(0, 10) : "";
+    setForm({
+      assetTag: device.assetTag ?? "",
+      serialNumber: device.serialNumber ?? "",
+      manufacturer: device.manufacturer ?? "",
+      model: device.model ?? "",
+      vendor: device.vendor ?? "",
+      location: device.location ?? "",
+      purchaseDate: dateOnly(device.purchaseDate),
+      warrantyExpiresAt: dateOnly(device.warrantyExpiresAt),
+      notes: device.notes ?? "",
+    });
+    setRefs(device.externalRefs ?? []);
+    setExternalId("");
+    setError(null);
+    api.listDeviceExternalRefs(device.id).then(setRefs).catch(() => {});
+  }, [open, device]);
+
+  const set = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const save = async () => {
+    if (!device) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.updateDevice(device.id, Object.fromEntries(
+        Object.entries(form).map(([key, value]) => [key, value.trim() || null])
+      ) as Partial<api.Device>);
+      onSaved();
+    } catch (err) { setError(errText(err)); }
+    finally { setBusy(false); }
+  };
+  const addRef = async () => {
+    if (!device || !externalId.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.addDeviceExternalRef(device.id, { provider, externalId: externalId.trim() });
+      setRefs(await api.listDeviceExternalRefs(device.id));
+      setExternalId("");
+    } catch (err) { setError(errText(err)); }
+    finally { setBusy(false); }
+  };
+  const removeRef = async (refId: number) => {
+    if (!device) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteDeviceExternalRef(device.id, refId);
+      setRefs((current) => current.filter((ref) => ref.id !== refId));
+    } catch (err) { setError(errText(err)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="md" fullScreen={isPhone}>
+      <DialogTitle>Device details · {device?.displayName || device?.hostname || `#${device?.id ?? ""}`}</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2} sx={{ mt: 0.5 }}>
+          {error && <Alert severity="error">{error}</Alert>}
+          <Typography variant="subtitle2">Asset record</Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}><TextField fullWidth label="Asset tag" value={form.assetTag} onChange={(event) => set("assetTag", event.target.value)} /></Grid>
+            <Grid item xs={12} sm={6}><TextField fullWidth label="Serial number" value={form.serialNumber} onChange={(event) => set("serialNumber", event.target.value)} /></Grid>
+            <Grid item xs={12} sm={6}><TextField fullWidth label="Manufacturer" value={form.manufacturer} onChange={(event) => set("manufacturer", event.target.value)} /></Grid>
+            <Grid item xs={12} sm={6}><TextField fullWidth label="Model" value={form.model} onChange={(event) => set("model", event.target.value)} /></Grid>
+            <Grid item xs={12} sm={6}><TextField fullWidth label="Vendor" value={form.vendor} onChange={(event) => set("vendor", event.target.value)} /></Grid>
+            <Grid item xs={12} sm={6}><TextField fullWidth label="Location" value={form.location} onChange={(event) => set("location", event.target.value)} /></Grid>
+            <Grid item xs={12} sm={6}><TextField fullWidth type="date" label="Purchase date" value={form.purchaseDate} onChange={(event) => set("purchaseDate", event.target.value)} InputLabelProps={{ shrink: true }} /></Grid>
+            <Grid item xs={12} sm={6}><TextField fullWidth type="date" label="Warranty expires" value={form.warrantyExpiresAt} onChange={(event) => set("warrantyExpiresAt", event.target.value)} InputLabelProps={{ shrink: true }} /></Grid>
+            <Grid item xs={12}><TextField fullWidth multiline minRows={3} label="Asset notes" value={form.notes} onChange={(event) => set("notes", event.target.value)} /></Grid>
+          </Grid>
+          <Divider />
+          <Typography variant="subtitle2">External RMM references</Typography>
+          <Stack spacing={1}>
+            {refs.map((ref) => (
+              <Paper key={ref.id} variant="outlined" sx={{ p: 1, display: "flex", alignItems: "center", gap: 1 }}>
+                <Chip size="small" color="primary" variant="outlined" label={ref.provider} />
+                <Typography variant="body2" sx={{ flexGrow: 1, overflowWrap: "anywhere" }}>{ref.externalId}</Typography>
+                <IconButton color="error" aria-label={`Remove ${ref.provider} reference`} disabled={busy} onClick={() => void removeRef(ref.id)}><DeleteIcon fontSize="small" /></IconButton>
+              </Paper>
+            ))}
+            {refs.length === 0 && <Typography variant="body2" color="text.secondary">No external references.</Typography>}
+          </Stack>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+            <TextField select label="Provider" value={provider} onChange={(event) => setProvider(event.target.value)} sx={{ minWidth: 170 }}>
+              <MenuItem value="tactical_rmm">Tactical RMM</MenuItem>
+              <MenuItem value="ninjaone">NinjaOne</MenuItem>
+              <MenuItem value="datto_rmm">Datto RMM</MenuItem>
+            </TextField>
+            <TextField label="External device ID" value={externalId} onChange={(event) => setExternalId(event.target.value)} sx={{ flexGrow: 1 }} />
+            <Button variant="outlined" disabled={busy || !externalId.trim()} onClick={() => void addRef()}>Add reference</Button>
+          </Stack>
+        </Stack>
+      </DialogContent>
+      <DialogActions><Button onClick={onClose} disabled={busy}>Cancel</Button><Button variant="contained" onClick={() => void save()} disabled={busy}>{busy ? "Saving…" : "Save asset"}</Button></DialogActions>
+    </Dialog>
   );
 }
 
@@ -852,7 +1016,7 @@ function MailboxesPanel() {
         </Stack>
       </Paper>
 
-      <Paper variant="outlined">
+      <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -944,7 +1108,7 @@ function SlaPanel() {
         </Stack>
       </Paper>
 
-      <Paper variant="outlined">
+      <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -995,7 +1159,7 @@ function LabelsPanel() {
           <Button variant="contained" disabled={!name} onClick={create}>Add</Button>
         </Stack>
       </Paper>
-      <Paper variant="outlined">
+      <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead><TableRow><TableCell>Label</TableCell><TableCell>Color</TableCell><TableCell align="right"></TableCell></TableRow></TableHead>
           <TableBody>
@@ -1041,7 +1205,7 @@ function MailIdentitiesPanel() {
           <Button variant="contained" disabled={!iAddr} onClick={addIdentity}>Add</Button>
         </Stack>
       </Paper>
-      <Paper variant="outlined">
+      <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead><TableRow><TableCell>Address</TableCell><TableCell>Name</TableCell><TableCell>Type</TableCell><TableCell>Enabled</TableCell><TableCell align="right"></TableCell></TableRow></TableHead>
           <TableBody>
@@ -1070,7 +1234,7 @@ function MailIdentitiesPanel() {
           <Box><Button variant="contained" disabled={!tName || !tBody} onClick={addTemplate}>Add template</Button></Box>
         </Stack>
       </Paper>
-      <Paper variant="outlined">
+      <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead><TableRow><TableCell>Template</TableCell><TableCell>Subject</TableCell><TableCell align="right"></TableCell></TableRow></TableHead>
           <TableBody>
@@ -1086,6 +1250,483 @@ function MailIdentitiesPanel() {
         </Table>
       </Paper>
     </Stack>
+  );
+}
+
+function AutomationsPanel() {
+  const rules = useAsync(() => api.listAutomations());
+  const [editing, setEditing] = useState<api.AutomationRule | null | undefined>(undefined);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const mutate = async (operation: () => Promise<unknown>, success: string) => {
+    setMsg(null);
+    try {
+      await operation();
+      setMsg({ ok: true, text: success });
+      rules.reload();
+    } catch (error) {
+      setMsg({ ok: false, text: errText(error) });
+    }
+  };
+
+  if (rules.loading) return <CircularProgress />;
+  if (rules.error) return <Alert severity="error">{rules.error}</Alert>;
+
+  return (
+    <Stack spacing={2}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
+        <Box sx={{ flexGrow: 1 }}>
+          <Typography variant="h5">Automations</Typography>
+          <Typography variant="body2" color="text.secondary">Run ordered actions when ticket and SLA events match all conditions.</Typography>
+        </Box>
+        <Button variant="contained" onClick={() => setEditing(null)}>Add rule</Button>
+      </Stack>
+      {msg && <Alert severity={msg.ok ? "success" : "error"} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+      {(rules.data ?? []).map((rule) => (
+        <Paper key={rule.id} variant="outlined" sx={{ p: 2 }}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "stretch", sm: "center" }}>
+            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                <Typography variant="subtitle1">{rule.name}</Typography>
+                <Chip size="small" label={rule.enabled ? "Enabled" : "Disabled"} color={rule.enabled ? "success" : "default"} />
+                <Chip size="small" variant="outlined" label={rule.trigger.replace(/_/g, " ")} />
+              </Stack>
+              <Typography variant="body2" color="text.secondary">
+                {rule.conditions.length} conditions · {rule.actions.length} actions · {rule.runCount} runs
+                {rule.lastRunAt ? ` · last ${new Date(rule.lastRunAt).toLocaleString()}` : ""}
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={0.5}>
+              <Switch
+                inputProps={{ "aria-label": `${rule.enabled ? "Disable" : "Enable"} ${rule.name}` }}
+                checked={rule.enabled}
+                onChange={(event) => void mutate(() => api.updateAutomation(rule.id, { enabled: event.target.checked }), event.target.checked ? "Rule enabled" : "Rule disabled")}
+              />
+              <IconButton aria-label={`Edit ${rule.name}`} onClick={() => setEditing(rule)}><EditIcon /></IconButton>
+              <IconButton color="error" aria-label={`Delete ${rule.name}`} onClick={() => {
+                if (window.confirm(`Delete automation “${rule.name}”?`)) void mutate(() => api.deleteAutomation(rule.id), "Rule deleted");
+              }}><DeleteIcon /></IconButton>
+            </Stack>
+          </Stack>
+        </Paper>
+      ))}
+      {(rules.data ?? []).length === 0 && <Alert severity="info">No rules yet. Add one to automate routing, notifications, notes, and SLA escalations.</Alert>}
+      <AutomationEditorDialog
+        open={editing !== undefined}
+        rule={editing ?? null}
+        onClose={() => setEditing(undefined)}
+        onSave={async (data) => {
+          if (editing) await api.updateAutomation(editing.id, data);
+          else await api.createAutomation(data);
+          setEditing(undefined);
+          rules.reload();
+        }}
+      />
+    </Stack>
+  );
+}
+
+function AutomationEditorDialog({
+  open,
+  rule,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  rule: api.AutomationRule | null;
+  onClose: () => void;
+  onSave: (data: api.AutomationRuleInput) => Promise<void>;
+}) {
+  const isPhone = useIsPhone();
+  const [name, setName] = useState("");
+  const [trigger, setTrigger] = useState<api.AutomationTrigger>("ticket_created");
+  const [enabled, setEnabled] = useState(true);
+  const [conditions, setConditions] = useState("[]");
+  const [actions, setActions] = useState('[\n  { "type": "add_note", "content": "Automated update" }\n]');
+  const [references, setReferences] = useState<{ teams: api.Team[]; users: api.Assignee[]; labels: api.Label[]; fields: api.CustomFieldDef[] }>({ teams: [], users: [], labels: [], fields: [] });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setName(rule?.name ?? "");
+    setTrigger(rule?.trigger ?? "ticket_created");
+    setEnabled(rule?.enabled ?? true);
+    setConditions(JSON.stringify(rule?.conditions ?? [], null, 2));
+    setActions(JSON.stringify(rule?.actions ?? [{ type: "add_note", content: "Automated update" }], null, 2));
+    setError(null);
+    Promise.all([api.listTeams(), api.listAssignees(), api.listLabels(), api.listCustomFields()])
+      .then(([teams, users, labels, fields]) => setReferences({ teams, users, labels, fields }))
+      .catch(() => setReferences({ teams: [], users: [], labels: [], fields: [] }));
+  }, [open, rule]);
+
+  const save = async () => {
+    if (!name.trim()) return;
+    let parsedConditions: api.AutomationCondition[];
+    let parsedActions: api.AutomationAction[];
+    try {
+      parsedConditions = JSON.parse(conditions);
+      parsedActions = JSON.parse(actions);
+      if (!Array.isArray(parsedConditions)) throw new Error("Conditions must be a JSON array.");
+      if (!Array.isArray(parsedActions) || parsedActions.length === 0) throw new Error("Actions must be a non-empty JSON array.");
+    } catch (err) {
+      setError((err as Error).message);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try { await onSave({ name: name.trim(), trigger, enabled, conditions: parsedConditions, actions: parsedActions }); }
+    catch (err) { setError(errText(err)); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="md" fullScreen={isPhone}>
+      <DialogTitle>{rule ? "Edit automation" : "Add automation"}</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2} sx={{ mt: 0.5 }}>
+          {error && <Alert severity="error">{error}</Alert>}
+          <TextField label="Rule name" required value={name} onChange={(event) => setName(event.target.value)} autoFocus />
+          <TextField select label="Trigger" value={trigger} onChange={(event) => setTrigger(event.target.value as api.AutomationTrigger)}>
+            {(["ticket_created", "ticket_updated", "note_added", "sla_at_risk", "sla_breached"] as api.AutomationTrigger[]).map((value) => (
+              <MenuItem key={value} value={value}>{value.replace(/_/g, " ")}</MenuItem>
+            ))}
+          </TextField>
+          <FormControlLabel control={<Checkbox checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />} label="Enabled" />
+          <Paper variant="outlined" sx={{ p: 1.5 }}>
+            <Typography variant="caption" color="text.secondary" display="block">
+              Reference IDs for actions
+            </Typography>
+            <Typography variant="body2">
+              Teams: {references.teams.map((team) => `${team.name} #${team.id}`).join(", ") || "none"}
+            </Typography>
+            <Typography variant="body2">
+              Users: {references.users.map((user) => `${user.displayName || user.username} #${user.id}`).join(", ") || "none"}
+            </Typography>
+            <Typography variant="body2">
+              Labels: {references.labels.map((label) => `${label.name} #${label.id}`).join(", ") || "none"}
+            </Typography>
+            <Typography variant="body2">
+              Custom condition keys: {references.fields.map((field) => `custom.${field.key}`).join(", ") || "none"}
+            </Typography>
+          </Paper>
+          <TextField
+            label="Conditions (all must match)"
+            value={conditions}
+            onChange={(event) => setConditions(event.target.value)}
+            multiline
+            minRows={5}
+            InputProps={{ sx: { fontFamily: "monospace", fontSize: 13 } }}
+            helperText='JSON array, e.g. [{"field":"priority","op":"eq","value":"Urgent"}]. Use custom.<key> for custom fields.'
+          />
+          <TextField
+            label="Actions (run in order)"
+            value={actions}
+            onChange={(event) => setActions(event.target.value)}
+            multiline
+            minRows={7}
+            InputProps={{ sx: { fontFamily: "monospace", fontSize: 13 } }}
+            helperText="Action types: set_status, set_priority, assign_user, assign_team, add_label, add_note, notify_user, notify_team."
+          />
+        </Stack>
+      </DialogContent>
+      <DialogActions><Button onClick={onClose} disabled={saving}>Cancel</Button><Button variant="contained" onClick={() => void save()} disabled={saving || !name.trim()}>{saving ? "Saving…" : "Save rule"}</Button></DialogActions>
+    </Dialog>
+  );
+}
+
+function CustomFieldsPanel() {
+  const fields = useAsync(() => api.listCustomFields(true));
+  const [editing, setEditing] = useState<api.CustomFieldDef | null | undefined>(undefined);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const mutate = async (operation: () => Promise<unknown>, success: string) => {
+    setMsg(null);
+    try {
+      await operation();
+      setMsg({ ok: true, text: success });
+      fields.reload();
+    } catch (error) {
+      setMsg({ ok: false, text: errText(error) });
+    }
+  };
+
+  if (fields.loading) return <CircularProgress />;
+  if (fields.error) return <Alert severity="error">{fields.error}</Alert>;
+
+  return (
+    <Stack spacing={2}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
+        <Box sx={{ flexGrow: 1 }}>
+          <Typography variant="h5">Custom ticket fields</Typography>
+          <Typography variant="body2" color="text.secondary">Define structured fields rendered on every ticket.</Typography>
+        </Box>
+        <Button variant="contained" onClick={() => setEditing(null)}>Add field</Button>
+      </Stack>
+      {msg && <Alert severity={msg.ok ? "success" : "error"} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+      <Paper variant="outlined" sx={{ overflowX: "auto" }}>
+        <Table size="small">
+          <TableHead><TableRow><TableCell>Field</TableCell><TableCell>Key</TableCell><TableCell>Type</TableCell><TableCell>Required</TableCell><TableCell>Status</TableCell><TableCell align="right">Actions</TableCell></TableRow></TableHead>
+          <TableBody>
+            {(fields.data ?? []).map((field) => (
+              <TableRow key={field.id} sx={{ opacity: field.archived ? 0.65 : 1 }}>
+                <TableCell>{field.label}</TableCell>
+                <TableCell><code>{field.key}</code></TableCell>
+                <TableCell>{field.type}{field.type === "select" ? ` · ${(field.options ?? []).length} options` : ""}</TableCell>
+                <TableCell>{field.required ? "Yes" : "No"}</TableCell>
+                <TableCell><Chip size="small" label={field.archived ? "Archived" : "Active"} color={field.archived ? "default" : "success"} /></TableCell>
+                <TableCell align="right">
+                  <IconButton aria-label={`Edit ${field.label}`} onClick={() => setEditing(field)}><EditIcon fontSize="small" /></IconButton>
+                  <Switch
+                    size="small"
+                    checked={!field.archived}
+                    inputProps={{ "aria-label": field.archived ? `Restore ${field.label}` : `Archive ${field.label}` }}
+                    onChange={() => void mutate(() => api.updateCustomField(field.id, { archived: !field.archived }), field.archived ? "Field restored" : "Field archived")}
+                  />
+                  <IconButton color="error" aria-label={`Delete ${field.label}`} onClick={() => {
+                    if (window.confirm(`Permanently delete “${field.label}”? Archive it instead if tickets still use this key.`)) {
+                      void mutate(() => api.deleteCustomField(field.id), "Field deleted");
+                    }
+                  }}><DeleteIcon fontSize="small" /></IconButton>
+                </TableCell>
+              </TableRow>
+            ))}
+            {(fields.data ?? []).length === 0 && <TableRow><TableCell colSpan={6}>No custom fields defined.</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </Paper>
+      <CustomFieldEditorDialog
+        open={editing !== undefined}
+        field={editing ?? null}
+        onClose={() => setEditing(undefined)}
+        onSave={async (data) => {
+          if (editing) await api.updateCustomField(editing.id, data);
+          else await api.createCustomField(data as api.CustomFieldDefInput);
+          setEditing(undefined);
+          fields.reload();
+        }}
+      />
+    </Stack>
+  );
+}
+
+function CustomFieldEditorDialog({
+  open,
+  field,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  field: api.CustomFieldDef | null;
+  onClose: () => void;
+  onSave: (data: api.CustomFieldDefInput | Partial<Omit<api.CustomFieldDefInput, "key" | "type">>) => Promise<void>;
+}) {
+  const isPhone = useIsPhone();
+  const [form, setForm] = useState({ key: "", label: "", type: "text" as api.CustomFieldType, options: "", required: false, sortOrder: 0, archived: false });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    setForm({
+      key: field?.key ?? "",
+      label: field?.label ?? "",
+      type: field?.type ?? "text",
+      options: (field?.options ?? []).join(", "),
+      required: field?.required ?? false,
+      sortOrder: field?.sortOrder ?? 0,
+      archived: field?.archived ?? false,
+    });
+    setError(null);
+  }, [open, field]);
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((current) => ({ ...current, [key]: value }));
+  const save = async () => {
+    if (!form.key.trim() || !form.label.trim()) return;
+    const options = form.type === "select" ? form.options.split(",").map((option) => option.trim()).filter(Boolean) : null;
+    if (form.type === "select" && (!options || options.length === 0)) { setError("Select fields need at least one option."); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      const common = { label: form.label.trim(), options, required: form.required, sortOrder: form.sortOrder, archived: form.archived };
+      await onSave(field ? common : { ...common, key: form.key.trim(), type: form.type });
+    } catch (err) { setError(errText(err)); }
+    finally { setSaving(false); }
+  };
+  return (
+    <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="sm" fullScreen={isPhone}>
+      <DialogTitle>{field ? "Edit custom field" : "Add custom field"}</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2} sx={{ mt: 0.5 }}>
+          {error && <Alert severity="error">{error}</Alert>}
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <TextField label="Key" required disabled={!!field} value={form.key} onChange={(event) => set("key", event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))} helperText="Stable API key: lowercase letters, digits, underscores" fullWidth />
+            <TextField select label="Type" disabled={!!field} value={form.type} onChange={(event) => set("type", event.target.value as api.CustomFieldType)} fullWidth>
+              {(["text", "number", "boolean", "date", "select"] as api.CustomFieldType[]).map((type) => <MenuItem key={type} value={type}>{type}</MenuItem>)}
+            </TextField>
+          </Stack>
+          <TextField label="Label" required value={form.label} onChange={(event) => set("label", event.target.value)} />
+          {form.type === "select" && <TextField label="Options" value={form.options} onChange={(event) => set("options", event.target.value)} helperText="Comma-separated choices" multiline minRows={2} />}
+          <TextField label="Sort order" type="number" value={form.sortOrder} onChange={(event) => set("sortOrder", Number(event.target.value))} />
+          <FormControlLabel control={<Checkbox checked={form.required} onChange={(event) => set("required", event.target.checked)} />} label="Required" />
+          {field && <FormControlLabel control={<Checkbox checked={form.archived} onChange={(event) => set("archived", event.target.checked)} />} label="Archived" />}
+        </Stack>
+      </DialogContent>
+      <DialogActions><Button onClick={onClose} disabled={saving}>Cancel</Button><Button variant="contained" onClick={() => void save()} disabled={saving || !form.key.trim() || !form.label.trim()}>{saving ? "Saving…" : "Save"}</Button></DialogActions>
+    </Dialog>
+  );
+}
+
+function TeamsPanel() {
+  const teams = useAsync(() => api.listTeams());
+  const [users, setUsers] = useState<api.ManagedUser[]>([]);
+  const [editing, setEditing] = useState<api.Team | null | undefined>(undefined);
+  const [addingMember, setAddingMember] = useState<Record<number, number | "">>({});
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    api.listUsers().then(setUsers).catch(() => setUsers([]));
+  }, []);
+
+  const act = async (operation: () => Promise<unknown>, success: string) => {
+    setMsg(null);
+    try {
+      await operation();
+      setMsg({ ok: true, text: success });
+      teams.reload();
+    } catch (error) {
+      setMsg({ ok: false, text: errText(error) });
+    }
+  };
+
+  if (teams.loading) return <CircularProgress />;
+  if (teams.error) return <Alert severity="error">{teams.error}</Alert>;
+
+  return (
+    <Stack spacing={2}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
+        <Box sx={{ flexGrow: 1 }}>
+          <Typography variant="h5">Teams</Typography>
+          <Typography variant="body2" color="text.secondary">Route tickets to queues and control team membership.</Typography>
+        </Box>
+        <Button variant="contained" onClick={() => setEditing(null)}>Add team</Button>
+      </Stack>
+      {msg && <Alert severity={msg.ok ? "success" : "error"} onClose={() => setMsg(null)}>{msg.text}</Alert>}
+      {(teams.data ?? []).map((team) => {
+        const memberIds = new Set(team.members.map((member) => member.userId));
+        const available = users.filter((user) => user.isActive && !memberIds.has(user.id));
+        return (
+          <Paper key={team.id} variant="outlined" sx={{ p: 2 }}>
+            <Stack spacing={1.5}>
+              <Stack direction="row" spacing={1} alignItems="flex-start">
+                <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                  <Typography variant="subtitle1">{team.name}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {team.description || "No description"} · {team._count?.tickets ?? 0} tickets
+                  </Typography>
+                </Box>
+                <IconButton aria-label={`Edit ${team.name}`} onClick={() => setEditing(team)}><EditIcon /></IconButton>
+                <IconButton aria-label={`Delete ${team.name}`} color="error" onClick={() => {
+                  if (window.confirm(`Delete team “${team.name}”? Tickets will become unassigned from the team.`)) {
+                    void act(() => api.deleteTeam(team.id), "Team deleted");
+                  }
+                }}><DeleteIcon /></IconButton>
+              </Stack>
+              <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                {team.members.map((member) => (
+                  <Chip
+                    key={member.userId}
+                    label={member.user.displayName || member.user.username}
+                    onDelete={() => void act(() => api.removeTeamMember(team.id, member.userId), "Member removed")}
+                  />
+                ))}
+                {team.members.length === 0 && <Typography variant="body2" color="text.secondary">No members yet.</Typography>}
+              </Stack>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <TextField
+                  select
+                  size="small"
+                  label="Add member"
+                  value={addingMember[team.id] ?? ""}
+                  onChange={(event) => setAddingMember((current) => ({ ...current, [team.id]: event.target.value === "" ? "" : Number(event.target.value) }))}
+                  sx={{ minWidth: 220, flexGrow: 1 }}
+                >
+                  <MenuItem value="">Choose a user…</MenuItem>
+                  {available.map((user) => <MenuItem key={user.id} value={user.id}>{user.displayName || user.username} · {user.role}</MenuItem>)}
+                </TextField>
+                <Button
+                  variant="outlined"
+                  disabled={!addingMember[team.id]}
+                  onClick={() => {
+                    const userId = addingMember[team.id];
+                    if (typeof userId !== "number") return;
+                    void act(() => api.addTeamMember(team.id, userId), "Member added");
+                    setAddingMember((current) => ({ ...current, [team.id]: "" }));
+                  }}
+                >
+                  Add
+                </Button>
+              </Stack>
+            </Stack>
+          </Paper>
+        );
+      })}
+      {(teams.data ?? []).length === 0 && <Alert severity="info">No teams yet. Add a queue for routing tickets.</Alert>}
+      <TeamEditorDialog
+        open={editing !== undefined}
+        team={editing ?? null}
+        onClose={() => setEditing(undefined)}
+        onSave={async (data) => {
+          if (editing) await api.updateTeam(editing.id, data);
+          else await api.createTeam(data);
+          setEditing(undefined);
+          teams.reload();
+        }}
+      />
+    </Stack>
+  );
+}
+
+function TeamEditorDialog({
+  open,
+  team,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  team: api.Team | null;
+  onClose: () => void;
+  onSave: (data: { name: string; description: string | null }) => Promise<void>;
+}) {
+  const isPhone = useIsPhone();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    setName(team?.name ?? "");
+    setDescription(team?.description ?? "");
+    setError(null);
+  }, [open, team]);
+  const save = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    setError(null);
+    try { await onSave({ name: name.trim(), description: description.trim() || null }); }
+    catch (err) { setError(errText(err)); }
+    finally { setSaving(false); }
+  };
+  return (
+    <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="sm" fullScreen={isPhone}>
+      <DialogTitle>{team ? "Edit team" : "Add team"}</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2} sx={{ mt: 0.5 }}>
+          {error && <Alert severity="error">{error}</Alert>}
+          <TextField label="Name" required value={name} onChange={(event) => setName(event.target.value)} autoFocus />
+          <TextField label="Description" value={description} onChange={(event) => setDescription(event.target.value)} multiline minRows={3} />
+        </Stack>
+      </DialogContent>
+      <DialogActions><Button onClick={onClose} disabled={saving}>Cancel</Button><Button variant="contained" onClick={() => void save()} disabled={saving || !name.trim()}>{saving ? "Saving…" : "Save"}</Button></DialogActions>
+    </Dialog>
   );
 }
 
@@ -1112,7 +1753,7 @@ function AuditPanel() {
       </Stack>
 
       {loading ? <CircularProgress /> : error ? <Alert severity="error">{error}</Alert> : (
-        <Paper variant="outlined">
+        <Paper variant="outlined" sx={{ overflowX: "auto" }}>
           <Table size="small">
             <TableHead>
               <TableRow>

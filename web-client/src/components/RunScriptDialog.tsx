@@ -15,6 +15,7 @@ import {
   Chip,
 } from "@mui/material";
 import * as api from "../api/client";
+import { useIsPhone } from "../theme/useIsPhone";
 
 interface RunScriptDialogProps {
   open: boolean;
@@ -32,6 +33,7 @@ type Script = { id: string; name: string; shell?: string };
  *  RMMs with no catalog like Datto, paste a component UID), optional args +
  *  schedule, fire, show the result. */
 export default function RunScriptDialog({ open, onClose, deviceId, deviceName, deviceSource, ticketId }: RunScriptDialogProps) {
+  const isPhone = useIsPhone();
   const [scripts, setScripts] = useState<Script[]>([]);
   const [loadingScripts, setLoadingScripts] = useState(false);
   const [script, setScript] = useState<string>("");
@@ -72,6 +74,7 @@ export default function RunScriptDialog({ open, onClose, deviceId, deviceName, d
         args: args.trim() ? args.split(/\s+/) : undefined,
         ticketId,
         scheduledFor: scheduledFor || undefined,
+        provider: deviceSource,
       });
       setResult(job);
     } catch (e) {
@@ -82,7 +85,7 @@ export default function RunScriptDialog({ open, onClose, deviceId, deviceName, d
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={isPhone}>
       <DialogTitle>Run script on {deviceName}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2} sx={{ mt: 1 }}>

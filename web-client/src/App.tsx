@@ -24,6 +24,8 @@ import {
   Stack,
   MenuItem,
   LinearProgress,
+  Checkbox,
+  FormControlLabel,
 } from "@mui/material";
 import DashboardAppBar from "./components/DashboardAppBar";
 import DashboardDrawer from "./components/DashboardDrawer";
@@ -53,8 +55,15 @@ import FilterListIcon from "@mui/icons-material/FilterList";
 import SelectAllIcon from "@mui/icons-material/SelectAll";
 import ClearIcon from "@mui/icons-material/Clear";
 import EditNoteIcon from "@mui/icons-material/EditNote";
+import BookmarkAddIcon from "@mui/icons-material/BookmarkAdd";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import ViewColumnIcon from "@mui/icons-material/ViewColumn";
+import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import SaveIcon from "@mui/icons-material/Save";
 import { TICKET_PRIORITIES, TICKET_STATUSES } from "./ticketVocab";
 import { PrioritySignal, StatusSignal } from "./components/TicketSignals";
+import { useIsPhone } from "./theme/useIsPhone";
 
 // Map local-DB ticket record to the component-facing Ticket interface.
 // The component interface uses CW-era field names; this adapter lets us keep
@@ -69,6 +78,9 @@ function mapDbTicket(t: Record<string, unknown>): Ticket & { localId: number } {
     status: String(t.status ?? "New"),
     priority: String(t.priority ?? ""),
     assignee: String(t.assignee ?? ""),
+    teamId: t.teamId == null ? null : Number(t.teamId),
+    team: (t.team as Ticket["team"]) ?? null,
+    customFields: (t.customFields as Record<string, unknown>) ?? {},
     company: {
       CompanyName: String(t.companyName ?? ""),
       Acronym: "",
@@ -116,6 +128,7 @@ export interface TicketFilterCriteria {
   assignee?: string;
   company?: string;
   labelId?: number;
+  teamId?: number;
   /** POSIX regex matched server-side across ticket text. */
   regex?: string;
   /** Surface closed tickets too (default off keeps the board to live work). */
@@ -151,6 +164,11 @@ function App() {
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [assignees, setAssignees] = useState<api.Assignee[]>([]);
+  const [savedViews, setSavedViews] = useState<api.SavedView[]>([]);
+  const [savedViewId, setSavedViewId] = useState<number | "">("");
+  const [saveViewOpen, setSaveViewOpen] = useState(false);
+  const [kanbanColumns, setKanbanColumns] = useState<string[] | null>(null);
+  const [kanbanColumnsOpen, setKanbanColumnsOpen] = useState(false);
   // Legacy DataGrid table view is opt-in via an admin setting; off by default.
   const [legacyTableView, setLegacyTableView] = useState(false);
 
@@ -189,6 +207,7 @@ function App() {
         assignee: filters.assignee || undefined,
         company: filters.company || undefined,
         labelId: filters.labelId || undefined,
+        teamId: filters.teamId || undefined,
         regex: filters.regex || undefined,
         includeClosed: filters.includeClosed || undefined,
       });
@@ -266,6 +285,66 @@ function App() {
     setFilters(criteria);
     setPage(1);
     setFilterDialogOpen(false);
+  };
+
+  const reloadSavedViews = useCallback(() => {
+    api.listSavedViews().then(setSavedViews).catch(() => setSavedViews([]));
+  }, []);
+
+  const applySavedView = (id: number | "") => {
+    setSavedViewId(id);
+    if (id === "") return;
+    const selected = savedViews.find((view) => view.id === id);
+    if (!selected) return;
+    const { q, ...criteria } = selected.filters;
+    setFilters(criteria);
+    setSearchTerm(q ?? "");
+    setPage(1);
+  };
+
+  const saveCurrentView = async (name: string, shared: boolean) => {
+    const created = await api.createSavedView({
+      name,
+      shared,
+      filters: { ...filters, q: searchTerm.trim() || undefined },
+    });
+    setSaveViewOpen(false);
+    reloadSavedViews();
+    setSavedViewId(created.id);
+  };
+
+  const removeSavedView = async () => {
+    if (savedViewId === "") return;
+    try {
+      await api.deleteSavedView(savedViewId);
+      setSavedViewId("");
+      reloadSavedViews();
+    } catch (err) {
+      setToast({ message: `Could not delete view: ${(err as Error).message}`, severity: "error" });
+    }
+  };
+
+  const updateCurrentSavedView = async () => {
+    if (savedViewId === "") return;
+    try {
+      await api.updateSavedView(savedViewId, { filters: { ...filters, q: searchTerm.trim() || undefined } });
+      reloadSavedViews();
+      setToast({ message: "Saved view updated", severity: "success" });
+    } catch (err) {
+      setToast({ message: `Could not update view: ${(err as Error).message}`, severity: "error" });
+    }
+  };
+
+  const saveKanbanColumns = async (columns: string[] | null) => {
+    try {
+      const result = await api.setMyKanbanColumns(columns);
+      setKanbanColumns(result.kanbanColumns);
+      if (user) setUser({ ...user, kanbanColumns: result.kanbanColumns });
+      setKanbanColumnsOpen(false);
+      setToast({ message: "Board columns saved", severity: "success" });
+    } catch (err) {
+      setToast({ message: `Could not save board columns: ${(err as Error).message}`, severity: "error" });
+    }
   };
 
   const shortenSummary = (summary: string) =>
@@ -364,6 +443,12 @@ function App() {
     api.listAssignees().then(setAssignees).catch(() => setAssignees([]));
   }, [user, canWrite]);
 
+  useEffect(() => {
+    if (!user) return;
+    reloadSavedViews();
+    setKanbanColumns(Array.isArray(user.kanbanColumns) ? user.kanbanColumns : null);
+  }, [user, reloadSavedViews]);
+
   // Load interface prefs once signed in (gates the legacy table view).
   useEffect(() => {
     if (!user) return;
@@ -456,7 +541,9 @@ function App() {
           legacyTableView={legacyTableView}
         />
 
-        <Box component="main" sx={{ flexGrow: 1, p: 3, backgroundColor: "background.default" }}>
+        {/* minWidth: 0 lets wide children (Kanban's fixed columns) scroll inside
+            main instead of stretching the page past the viewport on phones. */}
+        <Box component="main" sx={{ flexGrow: 1, minWidth: 0, minHeight: "100vh", p: { xs: 1.5, sm: 2, md: 3 }, backgroundColor: "background.default" }}>
           <Toolbar />
 
           {["cards", "table", "kanban"].includes(viewMode) && (
@@ -479,7 +566,7 @@ function App() {
                 placeholder="Search tickets…"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                sx={{ flexGrow: 1, minWidth: 200, maxWidth: 420 }}
+                sx={{ flexGrow: 1, minWidth: { xs: 140, sm: 200 }, maxWidth: 420 }}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start"><SearchIcon fontSize="small" color="action" /></InputAdornment>
@@ -495,10 +582,49 @@ function App() {
                 </IconButton>
               </Tooltip>
 
+              <TextField
+                select
+                size="small"
+                label="Saved view"
+                value={savedViewId}
+                onChange={(event) => applySavedView(event.target.value === "" ? "" : Number(event.target.value))}
+                sx={{ minWidth: { xs: 145, sm: 180 } }}
+              >
+                <MenuItem value="">Current filters</MenuItem>
+                {savedViews.map((view) => (
+                  <MenuItem key={view.id} value={view.id}>
+                    {view.shared ? "Shared · " : ""}{view.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <Tooltip title="Save current search and filters">
+                <IconButton aria-label="Save current view" onClick={() => setSaveViewOpen(true)}><BookmarkAddIcon /></IconButton>
+              </Tooltip>
+              {savedViewId !== "" && (
+                <>
+                  <Tooltip title="Update selected view with current filters">
+                    <IconButton aria-label="Update saved view" onClick={() => void updateCurrentSavedView()}><SaveIcon /></IconButton>
+                  </Tooltip>
+                  <Tooltip title="Delete selected view">
+                    <IconButton aria-label="Delete saved view" onClick={removeSavedView}><DeleteOutlineIcon /></IconButton>
+                  </Tooltip>
+                </>
+              )}
+              {viewMode === "kanban" && (
+                <Tooltip title="Choose board columns">
+                  <IconButton aria-label="Choose board columns" onClick={() => setKanbanColumnsOpen(true)}><ViewColumnIcon /></IconButton>
+                </Tooltip>
+              )}
+
               <Box sx={{ flexGrow: 1 }} />
 
-              <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateDialogOpen(true)}>
-                New ticket
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => setCreateDialogOpen(true)}
+                sx={{ minWidth: { xs: 0, sm: 64 }, px: { xs: 1.25, sm: 2 }, "& .MuiButton-startIcon": { mr: { xs: 0, sm: 1 } } }}
+              >
+                <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>New ticket</Box>
               </Button>
             </Paper>
           )}
@@ -555,7 +681,7 @@ function App() {
           ) : tickets.length > 0 ? (
             viewMode === "cards" ? (
               <>
-                <Grid container spacing={3} sx={{ mt: 0 }}>
+                <Grid container spacing={{ xs: 2, md: 3 }} sx={{ mt: 0 }}>
                   {tickets.map((ticket) => (
                     <Grid item xs={12} sm={6} md={4} lg={3} key={ticket.localId}>
                       <TicketCard
@@ -569,7 +695,7 @@ function App() {
                     </Grid>
                   ))}
                 </Grid>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 3 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 3, flexWrap: "wrap", gap: 1 }}>
                   <Typography variant="body2" color="text.secondary">
                     {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
                   </Typography>
@@ -592,6 +718,7 @@ function App() {
                 )}
                 <KanbanBoard
                   tickets={tickets}
+                  columns={kanbanColumns ?? undefined}
                   onStatusChange={(ticketId, newStatus) => handleStatusChange(ticketId, newStatus)}
                   onTicketClick={handleTicketClick}
                   onTicketClose={handleCloseTicket}
@@ -613,6 +740,20 @@ function App() {
           onClose={() => setFilterDialogOpen(false)}
           value={filters}
           applyFilters={applyFilters}
+        />
+
+        <SaveViewDialog
+          open={saveViewOpen}
+          allowShared={isAdmin}
+          onClose={() => setSaveViewOpen(false)}
+          onSave={saveCurrentView}
+        />
+
+        <KanbanColumnsDialog
+          open={kanbanColumnsOpen}
+          value={kanbanColumns}
+          onClose={() => setKanbanColumnsOpen(false)}
+          onSave={saveKanbanColumns}
         />
 
         {selectedTicket && (
@@ -788,6 +929,170 @@ function BulkUpdateDialog({
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Button variant="contained" startIcon={<EditNoteIcon />} onClick={apply} disabled={busy || !hasChanges || count === 0}>
           {busy ? "Updating" : "Apply"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function SaveViewDialog({
+  open,
+  allowShared,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  allowShared: boolean;
+  onClose: () => void;
+  onSave: (name: string, shared: boolean) => Promise<void>;
+}) {
+  const isPhone = useIsPhone();
+  const [name, setName] = useState("");
+  const [shared, setShared] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setShared(false);
+    setError(null);
+  }, [open]);
+
+  const save = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(name.trim(), allowShared && shared);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="xs" fullScreen={isPhone}>
+      <DialogTitle>Save view</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2} sx={{ mt: 0.5 }}>
+          {error && <Alert severity="error">{error}</Alert>}
+          <TextField
+            label="View name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") void save(); }}
+            autoFocus
+            fullWidth
+          />
+          {allowShared && (
+            <FormControlLabel
+              control={<Checkbox checked={shared} onChange={(event) => setShared(event.target.checked)} />}
+              label="Share with everyone"
+            />
+          )}
+          <Typography variant="body2" color="text.secondary">
+            Saves the current search, team, label, status, company, assignee, and closed-ticket filters.
+          </Typography>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button variant="contained" onClick={() => void save()} disabled={saving || !name.trim()}>
+          {saving ? "Saving…" : "Save view"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function KanbanColumnsDialog({
+  open,
+  value,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  value: string[] | null;
+  onClose: () => void;
+  onSave: (columns: string[] | null) => Promise<void>;
+}) {
+  const isPhone = useIsPhone();
+  const defaultColumns = TICKET_STATUSES.filter((status) => status !== "Closed");
+  const [draft, setDraft] = useState<string[]>(defaultColumns);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) setDraft(value?.filter((status) => (TICKET_STATUSES as readonly string[]).includes(status)) ?? defaultColumns);
+    // `defaultColumns` is derived from a module constant and is intentionally stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, value]);
+
+  const move = (status: string, offset: -1 | 1) => {
+    setDraft((current) => {
+      const index = current.indexOf(status);
+      const target = index + offset;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const save = async (columns: string[] | null) => {
+    setSaving(true);
+    try { await onSave(columns); } finally { setSaving(false); }
+  };
+
+  const rows = [...draft, ...TICKET_STATUSES.filter((status) => !draft.includes(status))];
+
+  return (
+    <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="xs" fullScreen={isPhone}>
+      <DialogTitle>Board columns</DialogTitle>
+      <DialogContent dividers>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Choose visible statuses and arrange their left-to-right order.
+        </Typography>
+        <Stack spacing={0.5}>
+          {rows.map((status) => {
+            const index = draft.indexOf(status);
+            const selected = index >= 0;
+            return (
+              <Paper key={status} variant="outlined" sx={{ px: 1, py: 0.5, display: "flex", alignItems: "center", gap: 0.5 }}>
+                <FormControlLabel
+                  sx={{ flexGrow: 1, m: 0 }}
+                  control={
+                    <Checkbox
+                      checked={selected}
+                      onChange={(event) => setDraft((current) =>
+                        event.target.checked ? [...current, status] : current.filter((entry) => entry !== status)
+                      )}
+                    />
+                  }
+                  label={<StatusSignal status={status} />}
+                />
+                {selected && (
+                  <>
+                    <IconButton aria-label={`Move ${status} left`} size="small" disabled={index === 0} onClick={() => move(status, -1)}>
+                      <ArrowUpwardIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton aria-label={`Move ${status} right`} size="small" disabled={index === draft.length - 1} onClick={() => move(status, 1)}>
+                      <ArrowDownwardIcon fontSize="small" />
+                    </IconButton>
+                  </>
+                )}
+              </Paper>
+            );
+          })}
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ flexWrap: "wrap" }}>
+        <Button color="inherit" onClick={() => void save(null)} disabled={saving}>Use default</Button>
+        <Box sx={{ flexGrow: 1 }} />
+        <Button onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button variant="contained" onClick={() => void save(draft)} disabled={saving || draft.length === 0}>
+          Save columns
         </Button>
       </DialogActions>
     </Dialog>

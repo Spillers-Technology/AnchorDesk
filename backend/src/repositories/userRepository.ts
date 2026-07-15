@@ -193,6 +193,14 @@ export function setThemePref(id: number, themePref: string | null): Promise<User
   return prisma.user.update({ where: { id }, data: { themePref } });
 }
 
+/** Update a user's own Kanban column selection (validated by the caller; null = default). */
+export function setKanbanColumns(id: number, kanbanColumns: string[] | null): Promise<User> {
+  return prisma.user.update({
+    where: { id },
+    data: { kanbanColumns: kanbanColumns ?? Prisma.DbNull },
+  });
+}
+
 /** Active users who can own a ticket (admins + technicians). For the assignee picker. */
 export function listAssignable(): Promise<User[]> {
   return prisma.user.findMany({

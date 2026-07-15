@@ -203,7 +203,7 @@ export default function SyncView({ onTicketsChanged }: Props) {
       )}
 
       {/* Providers */}
-      <Paper variant="outlined" sx={{ mb: 3 }}>
+      <Paper variant="outlined" sx={{ mb: 3, overflowX: "auto" }}>
         <Box sx={{ p: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Typography variant="subtitle1" fontWeight={600}>
             Configured Providers
@@ -297,7 +297,7 @@ export default function SyncView({ onTicketsChanged }: Props) {
       </Paper>
 
       {/* Recent sync log */}
-      <Paper variant="outlined">
+      <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Box sx={{ p: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Typography variant="subtitle1" fontWeight={600}>
             Recent Sync Activity

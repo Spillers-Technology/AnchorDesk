@@ -9,11 +9,12 @@
  * GoF pattern: Strategy (implements DeviceProvider)
  */
 
-import { DeviceProvider, ExternalDevice } from './DeviceProvider';
+import { DeviceProvider, ExternalDevice, normalizeDeviceBatch } from './DeviceProvider';
 import * as ninja from '../services/ninjaService';
 
 export class NinjaOneProvider implements DeviceProvider {
   readonly name = 'ninjaone';
+  normalizationErrors: string[] = [];
 
   /** organizationId → name, populated per fetch so normalize() can attach it. */
   private orgNames = new Map<number, string>();
@@ -28,7 +29,13 @@ export class NinjaOneProvider implements DeviceProvider {
     }
 
     const devices = await ninja.listDevices();
-    return devices.map((d) => this.normalize(d as unknown as Record<string, unknown>));
+    const batch = normalizeDeviceBatch(
+      devices,
+      'NinjaOne',
+      (device) => this.normalize(device as unknown as Record<string, unknown>),
+    );
+    this.normalizationErrors = batch.errors;
+    return batch.devices;
   }
 
   async getDevice(externalDeviceId: string): Promise<ExternalDevice | null> {
@@ -50,11 +57,16 @@ export class NinjaOneProvider implements DeviceProvider {
       displayName: name,
       ipAddress: Array.isArray(d.ipAddresses) ? d.ipAddresses[0] : undefined,
       vendor: d.system?.manufacturer,
+      manufacturer: d.system?.manufacturer,
+      model: d.system?.model,
+      serialNumber: d.system?.serialNumber,
       os: d.os?.name,
       deviceType: mapNodeClass(d.nodeClass),
       status: d.offline === true ? 'offline' : d.offline === false ? 'online' : 'unknown',
       companyName: company || undefined,
-      lastSeenAt: d.lastContact ? new Date(d.lastContact * 1000) : undefined,
+      lastSeenAt: typeof d.lastContact === 'number' && Number.isFinite(d.lastContact)
+        ? new Date(d.lastContact * 1000)
+        : undefined,
       metadata: {
         nodeClass: d.nodeClass,
         organizationId: d.organizationId,

@@ -1,5 +1,55 @@
 # Changelog
 
+## 2.1.0 — 2026-07-15 — Pocket & Anchor (minor)
+
+AnchorDesk becomes a mobile-first field helpdesk and adds the queue,
+configuration, and workflow primitives needed for larger service desks.
+
+### Added
+
+- **Mobile-first web client.** Phone-width dialogs, compact responsive layout,
+  touch-visible actions, pinch/on-screen network controls, and a five-device
+  screenshot matrix cover the core product from 344px upward.
+- **Teams and configurable tickets.** Team queues are independent of individual
+  assignment; admin-defined text, number, boolean, date, and select fields are
+  validated centrally and stored on tickets.
+- **Automation and escalation.** Rules react to ticket/note events and SLA
+  warnings or breaches, then assign, update, label, annotate, or notify through
+  the audited repository/event pipeline.
+- **Saved workspaces.** Personal/shared saved views persist ticket filters, and
+  each user can choose and order their Kanban status columns.
+- **Multi-RMM configuration records.** Devices gain lifecycle/asset fields and
+  provider-specific external references, with identity-aware merge and provider
+  selection for live data and scripts.
+- **Expanded MCP tools.** Agents can use labels, teams, custom fields, saved
+  views, ranked search, and ticket history as well as the existing ticket,
+  notes, time, and email workflows.
+
+### Changed
+
+- Ticket list/create/update surfaces now carry team and validated custom-field
+  data end to end.
+- CI uses Node.js 22, deterministic `npm ci` installs, Prisma validation, and
+  complete backend test/build and web test/lint/build gates.
+- Local asset fields remain authoritative when RMM telemetry refreshes a device;
+  legacy device external-id columns remain supported as the primary reference.
+- Scheduled RMM jobs pin their provider target, claim execution atomically, and
+  preserve asynchronous provider acknowledgements until a terminal result.
+
+### Notes
+
+- Schema change: additive tables/columns for teams, custom fields, automation
+  rules, saved views, Kanban preferences, asset metadata, and external device
+  references, plus pinned script-job targets/timeouts. Run `npx prisma db push`
+  before starting the new backend.
+- See [RELEASE_NOTES_v2.1.0.md](RELEASE_NOTES_v2.1.0.md) for the complete upgrade
+  and verification guide.
+
+## 2.0.1 — 2026-07-12 — Favicon patch
+
+- Replaced the Vite/default favicon across the web client, documentation site,
+  and published web image. No functional or schema changes.
+
 ## 2.0.0 — 2026-07-11 — Signal & Spectrum (major)
 
 AnchorDesk 2.0 completes the application-design milestones from the full live-product audit: personal visual identity, stronger data guarantees, clearer workflow signals, and a network view with real device intelligence.

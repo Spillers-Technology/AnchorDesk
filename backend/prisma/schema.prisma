@@ -33,6 +33,10 @@ model User {
   // Per-user selected UI theme/palette id (e.g. "default-dark", "solarized-light").
   // Null = use the app default. Validated against the known palette set on save.
   themePref         String?      @map("theme_pref") @db.VarChar(40)
+  // Per-user Kanban board columns: an ordered array of status names to show.
+  // Null = all statuses (the default board). Validated against the status
+  // vocabulary on save, like themePref.
+  kanbanColumns     Json?        @map("kanban_columns")
   lastSeenAt        DateTime?    @map("last_seen_at")
   passwordChangedAt DateTime?    @map("password_changed_at")
   createdAt         DateTime     @default(now()) @map("created_at")
@@ -44,6 +48,8 @@ model User {
   notifications   Notification[]
   mailIdentities  MailIdentity[]
   apiTokens       ApiToken[]
+  teamMemberships TeamMember[]
+  savedViews      SavedView[]
 
   @@unique([authProvider, subject])
   @@map("users")
@@ -253,6 +259,12 @@ model Ticket {
   contactId        Int?         @map("contact_id")
   assignee         String?      @db.VarChar(100)
   assigneeId       Int?         @map("assignee_id")
+  // Queue/group routing: the team responsible for the ticket (independent of
+  // the individual assignee — a ticket can sit in a team queue unassigned).
+  teamId           Int?         @map("team_id")
+  // Admin-defined extra fields, keyed by CustomFieldDef.key. Validated against
+  // the definitions on write; unknown/archived keys are rejected.
+  customFields     Json?        @map("custom_fields")
   source           TicketSource @default(local)
   // external_id holds the RFC 5322 Message-ID for imap-sourced tickets, which
   // can exceed 100 chars — keep at 255 so long Message-IDs don't overflow.
@@ -277,52 +289,54 @@ model Ticket {
   createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt @map("updated_at")
 
-  assigneeUser User?        @relation("AssignedTickets", fields: [assigneeId], references: [id])
-  company      Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  contact      Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  slaPolicy    SlaPolicy?   @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
-  notes        Note[]
-  syncEntries  SyncLog[]
-  deviceLinks  DeviceLink[]
-  scriptJobs   ScriptJob[]
-  attachments  Attachment[]
+  assigneeUser  User?          @relation("AssignedTickets", fields: [assigneeId], references: [id])
+  team          Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  company       Company?       @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact       Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  slaPolicy     SlaPolicy?     @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
+  notes         Note[]
+  syncEntries   SyncLog[]
+  deviceLinks   DeviceLink[]
+  scriptJobs    ScriptJob[]
+  attachments   Attachment[]
   notifications Notification[]
-  labels       TicketLabel[]
+  labels        TicketLabel[]
 
   @@unique([externalId, externalProvider])
   @@index([companyId])
+  @@index([teamId])
   @@index([responseDueAt])
   @@index([resolutionDueAt])
   @@map("tickets")
 }
 
 model Note {
-  id         Int       @id @default(autoincrement())
-  ticketId   Int       @map("ticket_id")
-  content    String    @db.Text
-  author     String    @db.VarChar(150)
-  authorId   Int?      @map("author_id")
-  noteType   NoteType  @default(note) @map("note_type")
-  timeStart  DateTime? @map("time_start")
-  timeStop   DateTime? @map("time_stop")
+  id          Int       @id @default(autoincrement())
+  ticketId    Int       @map("ticket_id")
+  content     String    @db.Text
+  author      String    @db.VarChar(150)
+  authorId    Int?      @map("author_id")
+  noteType    NoteType  @default(note) @map("note_type")
+  timeStart   DateTime? @map("time_start")
+  timeStop    DateTime? @map("time_stop")
   // Canonical billable duration for time_entry notes (minutes). Lets users log
   // "30m" directly without start/stop; totals sum this field.
-  minutes    Int?
-  externalId String?   @map("external_id") @db.VarChar(255)
+  minutes     Int?
+  externalId  String?   @map("external_id") @db.VarChar(255)
   // Email correspondence metadata (noteType = email). `content` holds the plain-text
   // body (search/preview); `htmlContent` holds the sanitized HTML rendered in the
   // conversation view. `direction` is "inbound" | "outbound". `inReplyTo` is the
   // Message-ID this email replied to, for thread rendering.
-  direction   String?  @db.VarChar(10)
-  htmlContent String?  @map("html_content") @db.Text
-  emailFrom   String?  @map("email_from") @db.VarChar(320)
-  emailTo     String?  @map("email_to") @db.Text
-  emailCc     String?  @map("email_cc") @db.Text
-  emailBcc    String?  @map("email_bcc") @db.Text
-  subject     String?  @db.VarChar(255)
-  inReplyTo   String?  @map("in_reply_to") @db.VarChar(255)
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
+  direction   String?   @db.VarChar(10)
+  htmlContent String?   @map("html_content") @db.Text
+  emailFrom   String?   @map("email_from") @db.VarChar(320)
+  emailTo     String?   @map("email_to") @db.Text
+  emailCc     String?   @map("email_cc") @db.Text
+  emailBcc    String?   @map("email_bcc") @db.Text
+  subject     String?   @db.VarChar(255)
+  inReplyTo   String?   @map("in_reply_to") @db.VarChar(255)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   ticket      Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   authorUser  User?        @relation("AuthoredNotes", fields: [authorId], references: [id])
@@ -379,15 +393,15 @@ model Notification {
 // matched by priority and/or company. Resolution precedence when a ticket is
 // scored: company+priority > company > priority > global default (both null).
 model SlaPolicy {
-  id               Int      @id @default(autoincrement())
-  name             String   @db.VarChar(150)
-  priority         String?  @db.VarChar(50)
-  companyId        Int?     @map("company_id")
-  responseMinutes  Int      @map("response_minutes")
-  resolutionMinutes Int     @map("resolution_minutes")
-  enabled          Boolean  @default(true)
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id                Int      @id @default(autoincrement())
+  name              String   @db.VarChar(150)
+  priority          String?  @db.VarChar(50)
+  companyId         Int?     @map("company_id")
+  responseMinutes   Int      @map("response_minutes")
+  resolutionMinutes Int      @map("resolution_minutes")
+  enabled           Boolean  @default(true)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   tickets Ticket[]
 
@@ -441,8 +455,8 @@ model Label {
 }
 
 model TicketLabel {
-  ticketId Int      @map("ticket_id")
-  labelId  Int      @map("label_id")
+  ticketId  Int      @map("ticket_id")
+  labelId   Int      @map("label_id")
   createdAt DateTime @default(now()) @map("created_at")
 
   ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
@@ -505,56 +519,99 @@ model SyncLog {
 // tickets. RMM / scanner adapters (netviz, tactical_rmm) upsert into this table
 // via DeviceProvider; standalone use needs no external system at all.
 model Device {
-  id               Int          @id @default(autoincrement())
-  hostname         String?      @db.VarChar(255)
-  displayName      String?      @map("display_name") @db.VarChar(255)
-  ipAddress        String?      @map("ip_address") @db.VarChar(45)
-  macAddress       String?      @map("mac_address") @db.VarChar(17)
-  vendor           String?      @db.VarChar(150)
-  os               String?      @db.VarChar(150)
-  deviceType       String?      @map("device_type") @db.VarChar(100)
-  openPorts        Json?        @map("open_ports")
-  status           String       @default("unknown") @db.VarChar(50)
-  companyName      String?      @map("company_name") @db.VarChar(150)
-  companyId        Int?         @map("company_id")
-  source           DeviceSource @default(local)
-  probeId          Int?         @map("probe_id")
-  externalId       String?      @map("external_id") @db.VarChar(255)
-  externalProvider String?      @map("external_provider") @db.VarChar(50)
-  metadata         Json?
-  firstSeenAt      DateTime?    @map("first_seen_at")
-  lastSeenAt       DateTime?    @map("last_seen_at")
-  createdAt        DateTime     @default(now()) @map("created_at")
-  updatedAt        DateTime     @updatedAt @map("updated_at")
+  id                Int          @id @default(autoincrement())
+  hostname          String?      @db.VarChar(255)
+  displayName       String?      @map("display_name") @db.VarChar(255)
+  ipAddress         String?      @map("ip_address") @db.VarChar(45)
+  macAddress        String?      @map("mac_address") @db.VarChar(17)
+  vendor            String?      @db.VarChar(150)
+  // Configuration/asset-management fields. These remain locally editable even
+  // when telemetry is refreshed from one or more RMMs.
+  assetTag          String?      @map("asset_tag") @db.VarChar(100)
+  serialNumber      String?      @map("serial_number") @db.VarChar(150)
+  manufacturer      String?      @db.VarChar(150)
+  model             String?      @db.VarChar(150)
+  location          String?      @db.VarChar(255)
+  purchaseDate      DateTime?    @map("purchase_date") @db.Date
+  warrantyExpiresAt DateTime?    @map("warranty_expires_at") @db.Date
+  notes             String?      @db.Text
+  os                String?      @db.VarChar(150)
+  deviceType        String?      @map("device_type") @db.VarChar(100)
+  openPorts         Json?        @map("open_ports")
+  status            String       @default("unknown") @db.VarChar(50)
+  companyName       String?      @map("company_name") @db.VarChar(150)
+  companyId         Int?         @map("company_id")
+  source            DeviceSource @default(local)
+  probeId           Int?         @map("probe_id")
+  // Legacy primary external reference, retained for compatibility with older
+  // installs and callers. New code records every source in DeviceExternalRef;
+  // these columns mirror the first/primary source.
+  externalId        String?      @map("external_id") @db.VarChar(255)
+  externalProvider  String?      @map("external_provider") @db.VarChar(50)
+  metadata          Json?
+  firstSeenAt       DateTime?    @map("first_seen_at")
+  lastSeenAt        DateTime?    @map("last_seen_at")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
 
-  probe       Probe?       @relation(fields: [probeId], references: [id])
-  company     Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  ticketLinks DeviceLink[]
-  scriptJobs  ScriptJob[]
+  probe        Probe?              @relation(fields: [probeId], references: [id])
+  company      Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  ticketLinks  DeviceLink[]
+  scriptJobs   ScriptJob[]
+  externalRefs DeviceExternalRef[]
 
   @@unique([externalId, externalProvider])
   @@index([companyName])
   @@map("devices")
 }
 
+// One physical configuration can be observed by multiple RMMs/probes. Keeping
+// provider identities here prevents duplicate Device rows while retaining the
+// provider-specific id needed for live lookups and script runs.
+model DeviceExternalRef {
+  id          Int       @id @default(autoincrement())
+  deviceId    Int       @map("device_id")
+  provider    String    @db.VarChar(50)
+  externalId  String    @map("external_id") @db.VarChar(255)
+  metadata    Json?
+  firstSeenAt DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime? @map("last_seen_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, externalId])
+  @@unique([deviceId, provider])
+  @@index([deviceId])
+  @@map("device_external_refs")
+}
+
 // A script execution against a device through its RMM (the "act on machines"
 // half of the thesis). Tracks run-now and scheduled invocations + their output.
 model ScriptJob {
-  id           Int             @id @default(autoincrement())
-  deviceId     Int             @map("device_id")
-  ticketId     Int?            @map("ticket_id")
-  runner       String          @db.VarChar(50)
-  scriptRef    String          @map("script_ref") @db.VarChar(150)
-  scriptName   String?         @map("script_name") @db.VarChar(255)
-  args         Json?
-  status       ScriptJobStatus @default(queued)
-  output       String?         @db.Text
-  exitCode     Int?            @map("exit_code")
-  scheduledFor DateTime?       @map("scheduled_for")
-  createdBy    String?         @map("created_by") @db.VarChar(255)
-  createdAt    DateTime        @default(now()) @map("created_at")
-  startedAt    DateTime?       @map("started_at")
-  completedAt  DateTime?       @map("completed_at")
+  id               Int             @id @default(autoincrement())
+  deviceId         Int             @map("device_id")
+  ticketId         Int?            @map("ticket_id")
+  runner           String          @db.VarChar(50)
+  externalDeviceId String?         @map("external_device_id") @db.VarChar(255)
+  scriptRef        String          @map("script_ref") @db.VarChar(150)
+  scriptName       String?         @map("script_name") @db.VarChar(255)
+  args             Json?
+  // Requested provider timeout. Tactical enforces it remotely; providers that
+  // cannot honor a timeout reject the request before the job is queued.
+  timeoutSeconds   Int?            @map("timeout_seconds")
+  // Provider-side job/run id. Persisted before returning a nonterminal result
+  // so later scheduler/API polls can safely refresh without re-executing.
+  invocationId     String?         @map("invocation_id") @db.VarChar(512)
+  status           ScriptJobStatus @default(queued)
+  output           String?         @db.Text
+  exitCode         Int?            @map("exit_code")
+  scheduledFor     DateTime?       @map("scheduled_for")
+  createdBy        String?         @map("created_by") @db.VarChar(255)
+  createdAt        DateTime        @default(now()) @map("created_at")
+  startedAt        DateTime?       @map("started_at")
+  completedAt      DateTime?       @map("completed_at")
 
   device Device  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   ticket Ticket? @relation(fields: [ticketId], references: [id], onDelete: SetNull)
@@ -600,6 +657,113 @@ model Probe {
   devices Device[]
 
   @@map("probes")
+}
+
+// A team is the queue/group primitive (Zammad groups, Autotask queues): tickets
+// are routed to a team, technicians belong to teams, and views/automations can
+// target them. Assignment to a person (assigneeId) stays independent — a ticket
+// can sit in a team's queue unassigned.
+model Team {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.VarChar(300)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  members TeamMember[]
+  tickets Ticket[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  teamId Int @map("team_id")
+  userId Int @map("user_id")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@map("team_members")
+}
+
+// Admin-defined extra ticket fields (Zammad object attributes, Autotask UDFs).
+// Definitions live here; per-ticket values live in Ticket.customFields (jsonb
+// keyed by `key`) — no EAV table, matching the project's jsonb-first ethos.
+// `options` holds the choice list for select fields. Archived fields keep their
+// stored values but stop rendering/validating.
+model CustomFieldDef {
+  id        Int             @id @default(autoincrement())
+  key       String          @unique @db.VarChar(60)
+  label     String          @db.VarChar(100)
+  type      CustomFieldType
+  options   Json?
+  // Input-level requirement: if supplied, the value cannot be blank/cleared.
+  // Automated intake may omit it until the ticket is enriched by a technician.
+  required  Boolean         @default(false)
+  sortOrder Int             @default(0) @map("sort_order")
+  archived  Boolean         @default(false)
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  @@map("custom_field_defs")
+}
+
+enum CustomFieldType {
+  text
+  number
+  boolean
+  date
+  select
+}
+
+// Event-driven when/if/then automation (Zammad triggers, JSM automation rules).
+// `conditions` is an all-of array of { field, op, value }; `actions` is an array
+// of { type, ...params } applied in order. SLA escalation is expressed as a rule
+// on the sla_at_risk / sla_breached triggers (e.g. bump priority, reassign,
+// notify a team) rather than a separate mechanism. Rules run in the
+// automationService eventBus subscriber; actions are audited as
+// "automation:<rule name>" and never re-trigger rules (loop guard).
+model AutomationRule {
+  id         Int               @id @default(autoincrement())
+  name       String            @db.VarChar(120)
+  enabled    Boolean           @default(true)
+  trigger    AutomationTrigger
+  conditions Json
+  actions    Json
+  runCount   Int               @default(0) @map("run_count")
+  lastRunAt  DateTime?         @map("last_run_at")
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+
+  @@map("automation_rules")
+}
+
+enum AutomationTrigger {
+  ticket_created
+  ticket_updated
+  note_added
+  sla_at_risk
+  sla_breached
+}
+
+// A persisted ticket filter set (Zammad overviews, JSM saved filters). Personal
+// views belong to a user; shared = true publishes a view to everyone (created by
+// admins). `filters` mirrors the /tickets query surface: { status, assignee,
+// company, q, regex, labelId, teamId, includeClosed }.
+model SavedView {
+  id        Int      @id @default(autoincrement())
+  userId    Int?     @map("user_id")
+  name      String   @db.VarChar(100)
+  filters   Json
+  shared    Boolean  @default(false)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("saved_views")
 }
 
 enum UserRole {

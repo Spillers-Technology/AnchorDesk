@@ -2,9 +2,30 @@
 
 AnchorDesk exposes its Model Context Protocol server at `/mcp/sse`. The MCP
 server can create and update tickets, add notes, log time, send ticket email,
-and read ticket history, so `/mcp/*` is never public in a real deployment.
+work with labels/teams/custom fields/views, search, and read ticket history, so
+`/mcp/*` is never public in a real deployment.
 
 There are two supported authentication paths.
+
+## Tool coverage
+
+Every tool runs as the user who owns the personal token or approved the OAuth
+connection. The same REST validation, RBAC, and audit actor are used by the web
+client and MCP server.
+
+| Area | Tools / behavior |
+|---|---|
+| Ticket read | `list_tickets`, `get_ticket`, and typo-tolerant `search_tickets`; list filters include status, assignee, company, label, team, text, and closed visibility |
+| Ticket write | `create_ticket` and `update_ticket`, including queue `teamId` and validated `customFields` |
+| Conversation | `add_note`, `log_time`, and threaded `send_ticket_email` |
+| Audit | `get_ticket_history` returns the actor-attributed ticket revision stream |
+| Labels | `list_labels` and `set_ticket_label` (apply or remove) |
+| Configuration | `list_teams` and `list_custom_fields` expose the ids/keys agents need for ticket writes |
+| Views | `list_saved_views` returns the current user's personal views plus admin-published shared filter sets; pass a view's filters to `list_tickets` |
+
+Administration of teams, field definitions, automation rules, and shared views
+remains in the authenticated REST/web admin surfaces. MCP consumes those
+definitions but does not bypass their ownership or admin boundaries.
 
 ## Option 1: Personal Access Token
 

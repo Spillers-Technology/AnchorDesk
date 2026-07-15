@@ -39,8 +39,14 @@ import { startImapScheduler } from './services/imapScheduler';
 import { startSlaScheduler } from './services/slaScheduler';
 import { initWsHub } from './services/realtime/wsHub';
 import { initNotificationService } from './services/notificationService';
+import { initAutomationService } from './services/automation/automationService';
+import { teamRoutes } from './routes/teams';
+import { customFieldRoutes } from './routes/customFields';
+import { automationRoutes } from './routes/automations';
+import { savedViewRoutes } from './routes/views';
 import { config } from './config/config';
 import { prisma } from './db/prisma';
+import { backfillLegacyExternalRefs } from './repositories/deviceRepository';
 
 async function start() {
   const server = fastify({ logger: true });
@@ -112,6 +118,14 @@ async function start() {
   server.register(slaRoutes);
   // Labels (managed tags) + ticket tag/untag
   server.register(labelRoutes);
+  // Teams (queues/groups) — ticket routing + membership
+  server.register(teamRoutes);
+  // Custom ticket field definitions (values ride on Ticket.customFields)
+  server.register(customFieldRoutes);
+  // Automation rules (when/if/then; includes SLA escalations)
+  server.register(automationRoutes);
+  // Saved ticket views (personal + shared filter sets)
+  server.register(savedViewRoutes);
   // Time / "My Day" — the signed-in user's logged time for a day
   server.register(timeRoutes);
   // Devices (local-first asset records + ticket linking)
@@ -144,6 +158,12 @@ async function start() {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
+  // Upgrade legacy single-provider device identities before serving requests.
+  const backfilledRefs = await backfillLegacyExternalRefs();
+  if (backfilledRefs > 0) {
+    server.log.info({ count: backfilledRefs }, 'Backfilled legacy device external references');
+  }
+
   await server.listen({ port: Number(config.serverPort), host: '0.0.0.0' });
   server.log.info(`anchordesk backend listening on :${config.serverPort}`);
 
@@ -159,6 +179,7 @@ async function start() {
   // Wire the WebSocket hub + notification service to the in-process event bus.
   initWsHub();
   initNotificationService();
+  initAutomationService();
 
   // Poll for due scheduled script jobs + inbound email-to-ticket.
   startScriptScheduler(server.log);

@@ -10,6 +10,8 @@ import { TICKET_STATUSES } from "../ticketVocab";
 
 interface KanbanBoardProps {
   tickets: Ticket[];
+  /** Ordered statuses selected in the current user's board preference. */
+  columns?: string[];
   onStatusChange: (ticketId: number, newStatus: string) => void;
   onTicketClick: (ticket: Ticket) => void;
   /** Close a ticket — invoked after its fall-off animation finishes. */
@@ -28,6 +30,7 @@ const fallOff = keyframes({
 
 const KanbanBoard: React.FC<KanbanBoardProps> = ({
   tickets,
+  columns,
   onStatusChange,
   onTicketClick,
   onTicketClose,
@@ -45,7 +48,12 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
   // We only show a Closed column when closed tickets are actually loaded (i.e.
   // the user opted into them via the advanced search "include closed").
   const hasClosed = tickets.some((t) => t.status === "Closed");
-  const statuses = TICKET_STATUSES.filter((s) => s !== "Closed" || hasClosed);
+  const preferredStatuses = columns?.length
+    ? columns.filter((status) => (TICKET_STATUSES as readonly string[]).includes(status))
+    : TICKET_STATUSES;
+  const statuses = preferredStatuses.filter((status) =>
+    status !== "Closed" || hasClosed || columns?.includes("Closed")
+  );
 
   const ticketsByStatus = statuses.reduce((acc, status) => {
     acc[status] = tickets.filter((ticket) => ticket.status === status);
@@ -128,6 +136,9 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                                 ? `${fallOff} 0.55s cubic-bezier(0.45, 0, 0.65, 1) forwards`
                                 : "none",
                               "&:hover .kb-close": { opacity: 1 },
+                              // Touch-primary devices have no hover: keep the
+                              // close affordance visible instead of unreachable.
+                              "@media (hover: none)": { "& .kb-close": { opacity: 0.85 } },
                             }}
                           >
                             <TicketCard
