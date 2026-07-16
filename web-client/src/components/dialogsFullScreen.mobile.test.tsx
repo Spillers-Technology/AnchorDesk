@@ -12,6 +12,8 @@ import { buildTheme } from "../theme";
 import CreateTicketDialog from "./CreateTicketDialog";
 import RunScriptDialog from "./RunScriptDialog";
 import FilterDialog from "./FilterDialog";
+import TicketDialog from "./TicketDialog";
+import type { Ticket } from "../interfaces";
 
 vi.mock("../api/client", () => ({
   listAssignees: () => Promise.resolve([]),
@@ -48,6 +50,17 @@ function renderInTheme(ui: React.ReactElement) {
 }
 
 const noop = () => {};
+const ticket: Ticket = {
+  ticketnumber: "10482",
+  ticketTitle: "Mobile ticket cockpit",
+  ticketSummary: "Verify the primary ticket dialog contract.",
+  status: "New",
+  priority: "Medium",
+  company: { CompanyName: "ACME", Acronym: "ACME", PrimaryEngagementMgr: "" },
+  technician: null,
+  timeEntries: [],
+  dateEntered: "2026-07-15T12:00:00.000Z",
+};
 
 describe("dialogs at phone width", () => {
   beforeEach(() => {
@@ -70,6 +83,19 @@ describe("dialogs at phone width", () => {
 
   it("FilterDialog renders full-screen", () => {
     renderInTheme(<FilterDialog open onClose={noop} value={{}} applyFilters={noop} />);
+    expect(document.querySelector(".MuiDialog-paperFullScreen")).not.toBeNull();
+  });
+
+  it("TicketDialog renders full-screen", () => {
+    renderInTheme(
+      <TicketDialog
+        open
+        ticket={ticket}
+        notes={[]}
+        currentUser={{ canWrite: false }}
+        onClose={noop}
+      />
+    );
     expect(document.querySelector(".MuiDialog-paperFullScreen")).not.toBeNull();
   });
 

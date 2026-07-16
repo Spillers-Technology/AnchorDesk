@@ -32,6 +32,7 @@ The core entity. Created locally or synced from an external source.
 | `sla_policy_id` | FK → sla_policies | Resolved SLA policy |
 | `response_due_at`, `resolution_due_at` | DATETIME | Response/resolution deadlines derived from the policy |
 | `first_responded_at` | DATETIME | First qualifying technician response; freezes the response clock |
+| `due_at` | DATETIME | Manual deadline (indexed); while set it overrides `resolution_due_at` everywhere the SLA is consumed, and clearing it falls back to the policy deadline. The response clock is unaffected |
 | `closed_at` | DATETIME | Set when status transitions to a closed state |
 | `created_at` | DATETIME | Immutable creation timestamp |
 | `updated_at` | DATETIME | Auto-updated on every change |
@@ -223,7 +224,7 @@ views.
 | `id` | INT PK | |
 | `user_id` | Nullable FK → users | Owner of a personal view; shared views and dev-admin-owned views use null |
 | `name` | VARCHAR | View label |
-| `filters` | JSON | Ticket filters such as status, assignee, company, query, label, team, and closed visibility |
+| `filters` | JSON | Ticket filters such as status, assignee, company, query, label, team, exact custom-field values, and closed visibility |
 | `shared` | BOOL | Shared views are visible to everyone and may be published by admins only |
 | `sort_order` | INT | UI ordering |
 
@@ -278,12 +279,18 @@ result; an acknowledgement is never recorded as script success.
 
 ---
 
-## Applying 2.1.0
+## Applying 2.2.0
 
-The 2.1.0 changes are additive. This repository's deployment convention is
-`npx prisma db push`; Docker Compose runs it during backend startup and the
-Kubernetes development deployment uses a dedicated init container. Validate
-and apply the schema before starting a manually managed backend:
+The 2.2.0 schema change is additive: `tickets.due_at` is a nullable, indexed
+manual deadline. Existing policy-derived `response_due_at` and
+`resolution_due_at` values are preserved. When `due_at` is present it replaces
+the resolution target used by the SLA scheduler and UI; clearing it restores
+the policy target without affecting the response clock.
+
+This repository's deployment convention is `npx prisma db push`; Docker
+Compose runs it during backend startup and the Kubernetes development
+deployment uses a dedicated init container. Validate and apply the schema
+before starting a manually managed backend:
 
 ```bash
 cd backend

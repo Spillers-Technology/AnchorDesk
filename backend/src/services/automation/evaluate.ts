@@ -2,7 +2,7 @@
  * Pure condition evaluation for automation rules — no DB, unit-tested.
  * A rule's `conditions` is an all-of array matched against a flat snapshot of
  * the ticket (plus event fields for SLA triggers). Field names:
- *   status, priority, companyName, assignee, teamId, source, labelIds,
+ *   status, priority, companyName, assignee, teamId, source, labelIds, dueAt,
  *   custom.<key>  (ticket custom fields)
  *   kind, level   (sla_at_risk / sla_breached triggers: response|resolution)
  */
@@ -30,7 +30,7 @@ export type EvalContext = Record<string, unknown>;
 const CONDITION_OPS: ConditionOp[] = ['eq', 'neq', 'contains', 'in', 'gte', 'lte', 'set', 'unset'];
 const BUILTIN_FIELDS = new Set([
   'status', 'priority', 'companyName', 'assignee', 'assigneeId', 'teamId',
-  'source', 'title', 'labelIds', 'kind', 'level',
+  'source', 'title', 'labelIds', 'kind', 'level', 'dueAt',
 ]);
 const CUSTOM_FIELD_RE = /^custom\.[a-z][a-z0-9_]{0,59}$/;
 
@@ -54,8 +54,14 @@ export function validateRuleCondition(value: unknown): string | null {
   if (op === 'in' && (!Array.isArray(value.value) || value.value.length === 0 || value.value.length > 100)) {
     return 'condition in needs a non-empty value array (maximum 100)';
   }
-  if ((op === 'gte' || op === 'lte') && !Number.isFinite(Number(value.value))) {
-    return `condition ${op} needs a numeric value`;
+  if (op === 'gte' || op === 'lte') {
+    if (value.field === 'dueAt') {
+      if (typeof value.value !== 'string' || Number.isNaN(Date.parse(value.value))) {
+        return `condition ${op} on dueAt needs an ISO 8601 datetime value`;
+      }
+    } else if (!Number.isFinite(Number(value.value))) {
+      return `condition ${op} needs a numeric value`;
+    }
   }
   return null;
 }
@@ -110,6 +116,23 @@ function looseEq(a: unknown, b: unknown): boolean {
   return lower(a) === lower(b);
 }
 
+/**
+ * Order two values for gte/lte: numbers compare numerically; otherwise both
+ * sides must parse as datetimes (ISO strings — e.g. the dueAt context field)
+ * and compare by epoch. Null means "not comparable" and the condition fails.
+ */
+function ordinals(actual: unknown, expected: unknown): [number | null, number | null] {
+  const a = Number(actual);
+  const b = Number(expected);
+  if (Number.isFinite(a) && Number.isFinite(b)) return [a, b];
+  if (typeof actual === 'string' && typeof expected === 'string') {
+    const da = Date.parse(actual);
+    const db = Date.parse(expected);
+    if (!Number.isNaN(da) && !Number.isNaN(db)) return [da, db];
+  }
+  return [null, null];
+}
+
 export function evaluateCondition(condition: RuleCondition, ctx: EvalContext): boolean {
   const actual = ctx[condition.field];
   switch (condition.op) {
@@ -128,14 +151,12 @@ export function evaluateCondition(condition: RuleCondition, ctx: EvalContext): b
       return options.some((o) => looseEq(actual, o));
     }
     case 'gte': {
-      const a = Number(actual);
-      const b = Number(condition.value);
-      return Number.isFinite(a) && Number.isFinite(b) && a >= b;
+      const [a, b] = ordinals(actual, condition.value);
+      return a !== null && b !== null && a >= b;
     }
     case 'lte': {
-      const a = Number(actual);
-      const b = Number(condition.value);
-      return Number.isFinite(a) && Number.isFinite(b) && a <= b;
+      const [a, b] = ordinals(actual, condition.value);
+      return a !== null && b !== null && a <= b;
     }
     case 'set':
       return !isEmpty(actual);
@@ -162,6 +183,8 @@ export function ticketContext(ticket: {
   source?: string | null;
   title?: string | null;
   customFields?: unknown;
+  dueAt?: Date | null;
+  resolutionDueAt?: Date | null;
   labels?: { labelId: number }[];
 }): EvalContext {
   const ctx: EvalContext = {
@@ -173,6 +196,9 @@ export function ticketContext(ticket: {
     teamId: ticket.teamId ?? null,
     source: ticket.source ?? null,
     title: ticket.title ?? null,
+    // The effective resolution deadline (manual override, else SLA target) as
+    // an ISO string so set/unset and datetime gte/lte conditions work.
+    dueAt: (ticket.dueAt ?? ticket.resolutionDueAt)?.toISOString() ?? null,
     labelIds: (ticket.labels ?? []).map((l) => l.labelId),
   };
   const custom = ticket.customFields;

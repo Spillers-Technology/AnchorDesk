@@ -1,5 +1,5 @@
 import { SlaPolicy } from '@prisma/client';
-import { pickPolicy } from './sla';
+import { pickPolicy, effectiveResolutionDueAt } from './sla';
 
 // Minimal SlaPolicy factory — only the fields pickPolicy reads matter.
 function policy(p: Partial<SlaPolicy> & { id: number }): SlaPolicy {
@@ -50,5 +50,28 @@ describe('pickPolicy precedence', () => {
 
   it('does not match a policy whose company differs', () => {
     expect(pickPolicy([byCompany], 'High', 8)).toBeNull();
+  });
+});
+
+describe('effectiveResolutionDueAt', () => {
+  const sla = new Date('2026-07-20T12:00:00Z');
+  const manual = new Date('2026-07-18T09:00:00Z');
+
+  it('uses the manual deadline when set, even when later than the SLA target', () => {
+    expect(effectiveResolutionDueAt({ dueAt: manual, resolutionDueAt: sla })).toBe(manual);
+    const laterManual = new Date('2026-07-25T12:00:00Z');
+    expect(effectiveResolutionDueAt({ dueAt: laterManual, resolutionDueAt: sla })).toBe(laterManual);
+  });
+
+  it('falls back to the SLA resolution target when no manual deadline is set', () => {
+    expect(effectiveResolutionDueAt({ dueAt: null, resolutionDueAt: sla })).toBe(sla);
+  });
+
+  it('is a manual-only deadline when no SLA policy applies', () => {
+    expect(effectiveResolutionDueAt({ dueAt: manual, resolutionDueAt: null })).toBe(manual);
+  });
+
+  it('is null when neither clock exists', () => {
+    expect(effectiveResolutionDueAt({ dueAt: null, resolutionDueAt: null })).toBeNull();
   });
 });

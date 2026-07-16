@@ -36,7 +36,7 @@ export async function cwRoutes(server: FastifyInstance) {
       const tickets = await getCwm().ServiceAPI.getServiceTickets({ conditions, page: 1, pageSize: 100 });
       return reply.send(tickets);
     } catch (err) {
-      server.log.error('CW fetch failed:', err);
+      server.log.error({ err }, 'CW fetch failed');
       return reply.status(502).send({ error: 'ConnectWise API unavailable' });
     }
   });
@@ -46,7 +46,7 @@ export async function cwRoutes(server: FastifyInstance) {
       const ticket = await getCwm().ServiceAPI.getServiceTicketsById(parseInt(req.params.ticketId));
       return reply.send(ticket);
     } catch (err) {
-      server.log.error('CW fetch failed:', err);
+      server.log.error({ err }, 'CW fetch failed');
       return reply.status(502).send({ error: 'ConnectWise API unavailable' });
     }
   });
@@ -59,7 +59,7 @@ export async function cwRoutes(server: FastifyInstance) {
       });
       return reply.send(notes);
     } catch (err) {
-      server.log.error('CW fetch failed:', err);
+      server.log.error({ err }, 'CW fetch failed');
       return reply.status(502).send({ error: 'ConnectWise API unavailable' });
     }
   });
@@ -75,7 +75,7 @@ export async function cwRoutes(server: FastifyInstance) {
       const tickets = await getCwm().ServiceAPI.getServiceTickets({ conditions, page: 1, pageSize: 100 });
       return reply.send(tickets);
     } catch (err) {
-      server.log.error('CW fetch failed:', err);
+      server.log.error({ err }, 'CW fetch failed');
       return reply.status(502).send({ error: 'ConnectWise API unavailable' });
     }
   });

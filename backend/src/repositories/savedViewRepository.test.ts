@@ -10,6 +10,7 @@ describe('normalizeSavedViewFilters', () => {
       regex: 'print(er|ing)',
       labelId: 2,
       teamId: 3,
+      customFields: { site: 'HQ', seats: 12, vip: true },
       includeClosed: true,
     })).toEqual({
       status: 'Open',
@@ -19,6 +20,7 @@ describe('normalizeSavedViewFilters', () => {
       regex: 'print(er|ing)',
       labelId: 2,
       teamId: 3,
+      customFields: { site: 'HQ', seats: 12, vip: true },
       includeClosed: true,
     });
   });
@@ -27,6 +29,9 @@ describe('normalizeSavedViewFilters', () => {
     [[], 'filters must be an object'],
     [{ mystery: true }, 'Unsupported saved-view filter'],
     [{ teamId: 0 }, 'teamId must be a positive integer'],
+    [{ customFields: [] }, 'customFields must be an object'],
+    [{ customFields: { 'Bad key': 'x' } }, 'invalid custom field key'],
+    [{ customFields: { site: null } }, 'must be a string, number, or boolean'],
     [{ includeClosed: 'yes' }, 'includeClosed must be a boolean'],
   ])('rejects invalid filters %#', (filters, message) => {
     expect(() => normalizeSavedViewFilters(filters)).toThrow(message);

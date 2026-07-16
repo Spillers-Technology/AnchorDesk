@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
 // Single shared PrismaClient instance — prevents connection pool exhaustion
-// in dev (ts-node re-imports modules on each request without this guard).
+// in dev (tsx watch can re-import modules without this guard).
 declare global {
   // eslint-disable-next-line no-var
   var __prisma: PrismaClient | undefined;

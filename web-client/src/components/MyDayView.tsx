@@ -161,7 +161,9 @@ export default function MyDayView({ onOpenTicket }: Props) {
     <Stack spacing={2}>
       {/* Header: date nav + summary */}
       <Paper variant="outlined" sx={{ p: 1.5, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-        <Stack direction="row" alignItems="center" spacing={0.5}>
+        <Stack direction="row" spacing={0.5} sx={{
+          alignItems: "center"
+        }}>
           <Tooltip title="Previous day"><IconButton size="small" onClick={() => shiftDay(-1)}><ChevronLeftIcon /></IconButton></Tooltip>
           <Tooltip title="Next day"><IconButton size="small" onClick={() => shiftDay(1)}><ChevronRightIcon /></IconButton></Tooltip>
           <Button size="small" variant={isToday ? "contained" : "outlined"} onClick={goToday} sx={{ ml: 0.5 }}>Today</Button>
@@ -170,24 +172,29 @@ export default function MyDayView({ onOpenTicket }: Props) {
           {day.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} sx={{
+          alignItems: "center"
+        }}>
           <Chip icon={<AccessTimeIcon />} color="primary" variant="outlined"
             label={`${fmtMins(data?.summary.loggedMinutes ?? 0)} logged`} />
           {totalGapMin > 0 && (
             <Chip color="warning" variant="outlined" label={`${fmtMins(totalGapMin)} in gaps`} />
           )}
           {data?.summary.firstStart && data?.summary.lastStop && (
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{
+              color: "text.secondary"
+            }}>
               {fmtClock(new Date(data.summary.firstStart))} – {fmtClock(new Date(data.summary.lastStop))}
             </Typography>
           )}
         </Stack>
       </Paper>
-
       {loading ? (
         <Box sx={{ display: "grid", placeItems: "center", py: 6 }}><CircularProgress /></Box>
       ) : (
-        <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
+        <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{
+          alignItems: "flex-start"
+        }}>
           {/* The day spread */}
           <Paper variant="outlined" sx={{ p: 2, flexGrow: 1, width: "100%", minWidth: 0 }}>
             {placedEntries.length === 0 ? (
@@ -200,8 +207,15 @@ export default function MyDayView({ onOpenTicket }: Props) {
                 {/* Hour gutter */}
                 <Box sx={{ width: 56, flexShrink: 0, position: "relative", height: trackHeight }}>
                   {hourMarks.map((h) => (
-                    <Typography key={h.getTime()} variant="caption" color="text.secondary"
-                      sx={{ position: "absolute", top: topFor(h) - 8, right: 8 }}>
+                    <Typography
+                      key={h.getTime()}
+                      variant="caption"
+                      sx={{
+                        color: "text.secondary",
+                        position: "absolute",
+                        top: topFor(h) - 8,
+                        right: 8
+                      }}>
                       {h.toLocaleTimeString([], { hour: "numeric" })}
                     </Typography>
                   ))}
@@ -277,7 +291,9 @@ export default function MyDayView({ onOpenTicket }: Props) {
           {unplacedEntries.length > 0 && (
             <Paper variant="outlined" sx={{ p: 2, width: { xs: "100%", md: 280 }, flexShrink: 0 }}>
               <Typography variant="subtitle2" gutterBottom>Duration-only</Typography>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" sx={{
+                color: "text.secondary"
+              }}>
                 Logged without a start/stop, so they can't sit on the clock — but they still count toward the day.
               </Typography>
               <Divider sx={{ my: 1 }} />

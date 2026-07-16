@@ -92,9 +92,13 @@ export default function RunScriptDialog({ open, onClose, deviceId, deviceName, d
           {error && <Alert severity="error">{error}</Alert>}
 
           {loadingScripts ? (
-            <Stack direction="row" alignItems="center" spacing={1}>
+            <Stack direction="row" spacing={1} sx={{
+              alignItems: "center"
+            }}>
               <CircularProgress size={16} />
-              <Typography variant="body2" color="text.secondary">Loading scripts…</Typography>
+              <Typography variant="body2" sx={{
+                color: "text.secondary"
+              }}>Loading scripts…</Typography>
             </Stack>
           ) : useManualRef ? (
             <TextField
@@ -141,13 +145,21 @@ export default function RunScriptDialog({ open, onClose, deviceId, deviceName, d
             onChange={(e) => setScheduledFor(e.target.value)}
             fullWidth
             size="small"
-            InputLabelProps={{ shrink: true }}
             helperText="Leave blank to run immediately"
+            slotProps={{
+              inputLabel: { shrink: true }
+            }}
           />
 
           {result && (
             <Box>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{
+                  alignItems: "center",
+                  mb: 1
+                }}>
                 <Typography variant="subtitle2">Result</Typography>
                 <Chip
                   size="small"
@@ -165,7 +177,9 @@ export default function RunScriptDialog({ open, onClose, deviceId, deviceName, d
                   maxRows={14}
                   fullWidth
                   size="small"
-                  InputProps={{ readOnly: true, sx: { fontFamily: "monospace", fontSize: 13 } }}
+                  slotProps={{
+                    input: { readOnly: true, sx: { fontFamily: "monospace", fontSize: 13 } }
+                  }}
                 />
               )}
             </Box>

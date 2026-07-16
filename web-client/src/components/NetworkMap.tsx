@@ -54,6 +54,17 @@ export const CATEGORY_COLORS: Record<string, string> = {
   unknown: "#64748b",
 };
 
+export const CATEGORY_ICONS: Record<string, string> = {
+  "firewall/network": "📡",
+  "windows/smb": "🖥️",
+  "linux/iot": "🐧",
+  apple: "🍎",
+  printer: "🖨️",
+  "camera/media": "📹",
+  "web appliance": "🌐",
+  unknown: "❔",
+};
+
 export function categoryFor(device: Device): string {
   if (!device.alive && device.open_ports.length === 0) return "unknown";
   if (device.open_ports.some((port) => port.port === 53) || device.device_type === "network_device") return "firewall/network";
@@ -66,6 +77,28 @@ export function categoryFor(device: Device): string {
   return "unknown";
 }
 
+/** A compact device-shape cue for the canvas. Provider device types are more
+ * specific than the service-based map clusters, so prefer them before falling
+ * back to the cluster icon. Text labels still carry the same information. */
+export function deviceIconFor(device: Device): string {
+  const type = device.device_type.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (type.includes("printer")) return "🖨️";
+  if (type.includes("camera") || type.includes("rtsp")) return "📹";
+  if (type.includes("firewall")) return "🛡️";
+  if (type.includes("network") || type.includes("router") || type.includes("switch")) return "📡";
+  if (type.includes("server")) return "🗄️";
+  if (type.includes("storage") || type.includes("nas")) return "💾";
+  if (type.includes("laptop")) return "💻";
+  if (type.includes("workstation") || type.includes("desktop") || type.includes("kiosk") || type.includes("windows") || type.includes("smb") || type.includes("rdp")) return "🖥️";
+  if (type.includes("phone") || type.includes("mobile") || type.includes("tablet")) return "📱";
+  if (type.includes("apple") || type.includes("mac")) return "🍎";
+  if (type.includes("linux") || type.includes("ssh")) return "🐧";
+  if (type.includes("iot")) return "🔌";
+  if (type.includes("plex") || type.includes("media")) return "🎬";
+  if (type.includes("web")) return "🌐";
+  return CATEGORY_ICONS[categoryFor(device)] ?? CATEGORY_ICONS.unknown;
+}
+
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const HUB_RADIUS = 30;
 const MIN_SCALE = 0.35;
@@ -74,6 +107,7 @@ const MAX_SCALE = 4;
 type MapNode = {
   device: Device;
   category: string;
+  icon: string;
   // Layout target in world coordinates; x/y animate toward it.
   tx: number;
   ty: number;
@@ -165,6 +199,7 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
         if (existing) {
           existing.device = device;
           existing.category = cluster.category;
+          existing.icon = deviceIconFor(device);
           existing.tx = spot.x;
           existing.ty = spot.y;
           existing.r = nodeRadius(device);
@@ -173,6 +208,7 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
           nodes.set(device.ip, {
             device,
             category: cluster.category,
+            icon: deviceIconFor(device),
             tx: spot.x,
             ty: spot.y,
             x: cluster.cx,
@@ -507,12 +543,28 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
           ctx.stroke();
         }
 
+        // The icon makes device shape visible without relying on cluster
+        // color. Keep the existing open-port count as a small corner badge.
+        ctx.fillStyle = node.device.alive || node.device.open_ports.length > 0 ? "#ffffff" : "#334155";
+        ctx.font = `${Math.max(7, radius * 1.05)}px "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(node.icon, node.x, node.y + 0.5);
+
         if (node.device.open_ports.length > 0 && radius > 6) {
+          const badgeRadius = Math.max(3.4, radius * 0.38);
+          const badgeX = node.x + radius * 0.72;
+          const badgeY = node.y - radius * 0.72;
+          ctx.beginPath();
+          ctx.arc(badgeX, badgeY, badgeRadius, 0, Math.PI * 2);
           ctx.fillStyle = "#ffffff";
-          ctx.font = `700 ${Math.max(8, radius * 0.9)}px "Segoe UI", system-ui, sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(String(node.device.open_ports.length), node.x, node.y + 0.5);
+          ctx.fill();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1 / view.scale;
+          ctx.stroke();
+          ctx.fillStyle = "#1a242e";
+          ctx.font = `700 ${Math.max(5.5, badgeRadius * 1.35)}px "Segoe UI", system-ui, sans-serif`;
+          ctx.fillText(String(node.device.open_ports.length), badgeX, badgeY + 0.25);
         }
 
         const isHover = node.device.ip === hoverIP;
@@ -530,8 +582,17 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
           ctx.stroke();
         }
 
-        const showLabel =
-          isHover || isSelected || (node.labelRank < 14 && node.device.open_ports.length > 0 && view.scale > 0.55);
+        // At phone width the default fitted view packs labels too tightly.
+        // Icons remain visible; labels return after zooming and always render
+        // for the hovered/selected device.
+        const automaticLabelLimit = width < 480
+          ? view.scale > 0.85 ? 6 : 0
+          : width < 700 ? 8 : 14;
+        const showLabel = isHover || isSelected || (
+          node.labelRank < automaticLabelLimit
+          && node.device.open_ports.length > 0
+          && view.scale > 0.55
+        );
         if (showLabel) {
           const label = node.device.hostname || node.device.ip;
           ctx.font = `${11 / view.scale}px "Segoe UI", system-ui, sans-serif`;
@@ -594,6 +655,7 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
               aria-pressed={focusCategory === category}
               onClick={() => setFocusCategory(focusCategory === category ? "" : category)}
             >
+              <span className="legendIcon" aria-hidden="true">{CATEGORY_ICONS[category]}</span>
               <i className="legendSwatch" style={{ background: CATEGORY_COLORS[category] }} aria-hidden="true" />
               {category}
               <b>{counts.get(category)}</b>
@@ -618,7 +680,7 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
               top: Math.min(tooltip.y + 14, Math.max(0, sizeRef.current.height - 120)),
             }}
           >
-            <strong>{tooltipDevice.hostname || tooltipDevice.ip}</strong>
+            <strong><span aria-hidden="true">{deviceIconFor(tooltipDevice)} </span>{tooltipDevice.hostname || tooltipDevice.ip}</strong>
             <span>{tooltipDevice.ip}{tooltipDevice.vendor ? ` · ${tooltipDevice.vendor}` : ""}</span>
             <span>
               {tooltipDevice.alive ? "up" : "down"} · {categoryFor(tooltipDevice)}
@@ -633,7 +695,7 @@ export function NetworkMap({ devices, cidr, onSelectDevice }: { devices: Device[
       {selected && (
         <div className="mapDetail">
           <div className="mapDetailHead">
-            <strong>{selected.hostname || selected.ip}</strong>
+            <strong><span aria-hidden="true">{deviceIconFor(selected)} </span>{selected.hostname || selected.ip}</strong>
             <span className={`statusPill ${selected.alive ? "up" : "down"}`}>{selected.alive ? "up" : "down"}</span>
             <button onClick={() => setSelectedIP("")}>Close</button>
           </div>

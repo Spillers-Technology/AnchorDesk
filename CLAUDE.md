@@ -49,6 +49,14 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 > - **Configuration records** — devices add asset/lifecycle fields and `DeviceExternalRef`, so multiple RMM/probe identities resolve to one physical record. Sync matches provider ref → MAC → company-scoped serial → hostname+company, preserves locally maintained asset data, and lets live/script routes select the provider; legacy external columns remain the primary back-compat reference.
 > - **MCP parity** — ticket tools accept team/custom-field data and the server exposes labels, teams, custom-field definitions, saved views, ranked search, and ticket history under the connection user's normal RBAC/audit identity.
 > - **The rule** — every view must stay usable on a 360px touch screen; UI changes are screenshot-verified at phone widths before merge, and new views must be added to the capture script. See `docs/mobile.md`.
+>
+> **As of 2.2.0 ("Clock & Compass"):** tickets gain explicit manual deadlines, daily views surface more of the existing queue/configuration context, and both application stacks move to their current release lines.
+> - **Manual deadlines** — nullable/indexed `Ticket.dueAt` is accepted by REST create/update and MCP `create_ticket` / `update_ticket`. While set it overrides only the SLA resolution target (including scheduler/automation evaluation); clearing it falls back to `resolutionDueAt`, and the response clock is unchanged. `SlaChip`, TicketDialog, cards, and the virtualized table all carry the effective date.
+> - **Read-side configuration** — ticket cards/table show teams, active custom-field definitions become dynamic table columns and advanced-search controls, and `GET /tickets?cf.<key>=<value>` builds validated typed `jsonb` equality predicates. Saved views preserve team and custom-field filters.
+> - **Attribution + device context** — `automation:<rule>` actors render as named Automation badges in ticket history and notes; Network exposes all provider references on the selected device; Canvas nodes add device-type emoji while retaining labels, colors, and status cues.
+> - **Board craft** — Kanban status columns are directly draggable and save through the existing `User.kanbanColumns` preference; ticket drag-between-status remains a separate drag type.
+> - **Platform refresh** — the backend uses Fastify 5 with compatible `@fastify/*` plugins (no `fastify-autoload`), otplib 13, dotenv 17, TypeScript 7, `tsx`, and Jest 30 + SWC. The web uses React 19, React Router 7, Vite 8, Vitest 4, MUI 9, and Data Grid 9.
+> - **Mobile harness** — mock data includes deadlines, automation activity, external references, and typed field filters; the five-device matrix adds Advanced search and Ticket history, and the phone-width test guards Advanced search plus the full TicketDialog.
 
 Key design goals:
 - Excellent standalone ticketing experience first
@@ -142,7 +150,7 @@ yet exercised end to end.
 ## Local dev setup
 
 ### Prerequisites
-- Node.js 22 (CI baseline), npm
+- Node.js 22.12 or newer (CI baseline), npm
 - Docker + Docker Compose
 
 ### 1. Start the database
@@ -246,11 +254,11 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/tickets` | List tickets — **paged** `{ items, total, page, pageSize }` (filters include status, assignee, company, label, team, q, closed visibility, page, pageSize) |
+| GET | `/tickets` | List tickets — **paged** `{ items, total, page, pageSize }` (filters include status, assignee, company, label, `teamId`, typed `cf.<key>` equality, q, closed visibility, page, pageSize) |
 | GET | `/tickets/search?q=` | **Postgres full-text search** (ranked) |
 | GET | `/tickets/:id` | Get one ticket with notes |
-| POST | `/tickets` | Create ticket |
-| PATCH | `/tickets/:id` | Update ticket fields |
+| POST | `/tickets` | Create ticket (`dueAt`: optional ISO 8601 manual deadline) |
+| PATCH | `/tickets/:id` | Update ticket fields (`dueAt`: ISO 8601, or `null` to restore the SLA resolution target) |
 | DELETE | `/tickets/:id` | Soft-delete (status → Deleted) |
 | GET | `/tickets/:id/history` | Full audit log for this ticket |
 | GET | `/tickets/:id/notes` | List notes |
@@ -338,7 +346,7 @@ Short version:
 ## Running tests
 
 ```bash
-# Backend (Node.js 22, matching CI)
+# Backend (Node.js 22.12+, matching CI)
 cd backend
 npm ci
 npx prisma validate
@@ -354,7 +362,10 @@ npm run lint
 npm run build
 ```
 
-Backend tests use **ts-jest** (`backend/jest.config.js`). The security-critical
+Backend tests use **Jest 30 + @swc/jest** (`backend/jest.config.js`) — SWC
+transpiles TS for tests while `npm run build` (TypeScript 7 native `tsc`) owns
+type checking, matching CI order. The dev runner is **tsx** (`npm start` =
+`tsx watch src/index.ts`). The security-critical
 auth primitives are covered in `backend/src/services/auth/__tests__/` (password
 hashing, TOTP, recovery codes) plus provider normalization, custom-field
 validation, automation evaluation, and auth serializers/guards. New DB-touching

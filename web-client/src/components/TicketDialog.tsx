@@ -28,7 +28,7 @@ import {
 } from "@mui/material";
 import { Close, Save as SaveIcon, Undo as UndoIcon } from "@mui/icons-material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutlined";
 import EditIcon from "@mui/icons-material/Edit";
 import ComputerIcon from "@mui/icons-material/Computer";
 import TerminalIcon from "@mui/icons-material/Terminal";
@@ -38,6 +38,7 @@ import SyncIcon from "@mui/icons-material/Sync";
 import EmailIcon from "@mui/icons-material/Email";
 import DownloadIcon from "@mui/icons-material/Download";
 import NoteAddIcon from "@mui/icons-material/NoteAdd";
+import HistoryIcon from "@mui/icons-material/History";
 import { Ticket, Note } from "../interfaces";
 import NotesSection from "./NotesSection";
 import RichTextEditor from "./RichTextEditor";
@@ -51,6 +52,7 @@ import { TICKET_STATUSES, TICKET_PRIORITIES } from "../ticketVocab";
 import { PrioritySignal, StatusSignal } from "./TicketSignals";
 import { htmlToPlainText, isRichTextEmpty, toEditorHtml } from "../html";
 import { useIsPhone } from "../theme/useIsPhone";
+import TicketHistory from "./TicketHistory";
 
 interface TicketDialogProps {
   ticket: Ticket;
@@ -87,6 +89,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   const [assigneeId, setAssigneeId] = useState<number | "">("");
   const [teams, setTeams] = useState<api.Team[]>([]);
   const [teamId, setTeamId] = useState<number | "">("");
+  const [dueAt, setDueAt] = useState("");
   const [customFieldDefs, setCustomFieldDefs] = useState<api.CustomFieldDef[]>([]);
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
   const [allDevices, setAllDevices] = useState<any[]>([]);
@@ -103,6 +106,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   const [liveDevices, setLiveDevices] = useState<
     Record<string, { loading: boolean; data?: api.RmmLiveData; error?: string }>
   >({});
+  const [showHistory, setShowHistory] = useState(false);
 
   const reloadAttachments = useCallback(() => {
     if (ticket.localId == null) return;
@@ -210,6 +214,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   // assignable users, and the device pool for linking.
   useEffect(() => {
     if (!open || ticket.localId == null) return;
+    setShowHistory(false);
     const id = ticket.localId;
     api.getTicket(id).then((t) => {
       const tt = t as any;
@@ -217,6 +222,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
       setStatus(tt.status ?? status);
       setAssigneeId((tt.assigneeId as number) ?? "");
       setTeamId((tt.teamId as number) ?? "");
+      setDueAt(toDateTimeLocal(tt.dueAt));
       setCustomValues(
         tt.customFields && typeof tt.customFields === "object" && !Array.isArray(tt.customFields)
           ? tt.customFields
@@ -315,6 +321,12 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   const saveTeam = (id: number | "") => {
     setTeamId(id);
     persist({ teamId: id === "" ? null : id });
+  };
+
+  const saveDueAt = async (value: string) => {
+    if (value && Number.isNaN(new Date(value).getTime())) return;
+    const ok = await persist({ dueAt: value ? new Date(value).toISOString() : null });
+    if (!ok) setDueAt(toDateTimeLocal(full?.dueAt));
   };
 
   const saveCustomField = async (def: api.CustomFieldDef, value: unknown) => {
@@ -418,9 +430,20 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg" fullScreen={isPhone}>
       {/* Header band */}
       <Box sx={(theme) => ({ background: `linear-gradient(135deg, ${theme.palette.primary.dark} 0%, ${theme.palette.primary.main} 58%, ${theme.palette.secondary.main} 100%)`, color: theme.palette.primary.contrastText, px: { xs: 2, md: 3 }, py: { xs: 1.5, md: 2 } })}>
-        <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
+        <Stack
+          direction="row"
+          sx={{
+            alignItems: "flex-start",
+            justifyContent: "space-between"
+          }}>
           <Box sx={{ minWidth: 0 }}>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{
+                alignItems: "center",
+                mb: 0.5
+              }}>
               <Chip size="small" label={`#${ticket.ticketnumber}`} sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "inherit", fontWeight: 700 }} />
               <SyncBadges
                 ticket={{
@@ -434,6 +457,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
               <SlaChip
                 responseDueAt={full?.responseDueAt}
                 resolutionDueAt={full?.resolutionDueAt}
+                dueAt={full?.dueAt}
                 firstRespondedAt={full?.firstRespondedAt}
                 status={status}
               />
@@ -441,7 +465,14 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
             <Typography variant="h5" noWrap={!isPhone} sx={{ fontWeight: 700 }}>{title || "(untitled)"}</Typography>
             <Typography variant="body2" sx={{ opacity: 0.85 }}>{companyName || "No company"}</Typography>
             {(full?.labels ?? []).length > 0 && (
-              <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} flexWrap="wrap" useFlexGap>
+              <Stack
+                direction="row"
+                spacing={0.5}
+                useFlexGap
+                sx={{
+                  flexWrap: "wrap",
+                  mt: 0.5
+                }}>
                 {(full?.labels ?? []).map((tl: any) => (
                   <Chip key={tl.label.id} size="small" label={tl.label.name}
                     sx={{ bgcolor: tl.label.color, color: "#fff", height: 20 }} />
@@ -449,7 +480,9 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
               </Stack>
             )}
           </Box>
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1} sx={{
+            alignItems: "center"
+          }}>
             <SaveStatus state={saveState} />
             {ticket.localId != null && (
               <Tooltip title="Download ticket (printable)">
@@ -462,7 +495,6 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
           </Stack>
         </Stack>
       </Box>
-
       <DialogContent dividers sx={{ bgcolor: "background.default", p: { xs: 1.5, md: 2 } }}>
         {source !== "local" && full?.externalId && (
           <SyncStatusBar
@@ -475,10 +507,12 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
         )}
         <Grid container spacing={2}>
           {/* Main column */}
-          <Grid item xs={12} md={7}>
+          <Grid size={{ xs: 12, md: 7 }}>
             <Card>
               <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>Description</Typography>
+                <Typography variant="subtitle2" gutterBottom sx={{
+                  color: "text.secondary"
+                }}>Description</Typography>
                 <DescriptionEditor value={description} onSave={(v) => persist({ description: v })} />
               </CardContent>
             </Card>
@@ -488,11 +522,14 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                 <Stack
                   direction={{ xs: "column", sm: "row" }}
                   spacing={1}
-                  alignItems={{ xs: "stretch", sm: "center" }}
-                  justifyContent="space-between"
-                  sx={{ mb: 1.5 }}
-                >
-                  <Typography variant="subtitle2" color="text.secondary">Activity & notes</Typography>
+                  sx={{
+                    alignItems: { xs: "stretch", sm: "center" },
+                    justifyContent: "space-between",
+                    mb: 1.5
+                  }}>
+                  <Typography variant="subtitle2" sx={{
+                    color: "text.secondary"
+                  }}>Activity & notes</Typography>
                   <EmailActionButton
                     enabled={mailConfigured && ticket.localId != null}
                     disabledReason={ticket.localId == null ? "Save the ticket before sending email." : "Email is not configured."}
@@ -512,26 +549,46 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                     subject: /^re:/i.test(n.subject ?? "") ? n.subject : `Re: ${n.subject ?? title}`,
                   }) : undefined}
                 />
+                {ticket.localId != null && (
+                  <Box sx={{ mt: 1.5 }}>
+                    <Button
+                      size="small"
+                      color="inherit"
+                      startIcon={<HistoryIcon />}
+                      onClick={() => setShowHistory((visible) => !visible)}
+                      aria-expanded={showHistory}
+                    >
+                      {showHistory ? "Hide revision history" : "Show revision history"}
+                    </Button>
+                    {showHistory && <TicketHistory ticketId={ticket.localId} />}
+                  </Box>
+                )}
               </CardContent>
             </Card>
           </Grid>
 
           {/* Sidebar */}
-          <Grid item xs={12} md={5}>
+          <Grid size={{ xs: 12, md: 5 }}>
             <Card>
               <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>Details</Typography>
+                <Typography variant="subtitle2" gutterBottom sx={{
+                  color: "text.secondary"
+                }}>Details</Typography>
                 <Stack spacing={1.5}>
                   {/* Status + priority share a row — both are short and read at a glance. */}
                   <Stack direction="row" spacing={1}>
                     <TextField select label="Status" size="small" fullWidth value={status}
-                      SelectProps={{ renderValue: (value) => <StatusSignal status={String(value)} /> }}
-                      onChange={(e) => handleStatus(e.target.value)}>
+                      onChange={(e) => handleStatus(e.target.value)}
+                      slotProps={{
+                        select: { renderValue: (value) => <StatusSignal status={String(value)} /> }
+                      }}>
                       {TICKET_STATUSES.map((s) => <MenuItem key={s} value={s}><StatusSignal status={s} /></MenuItem>)}
                     </TextField>
                     <TextField select label="Priority" size="small" fullWidth value={priority || "Medium"}
-                      SelectProps={{ renderValue: (value) => <PrioritySignal priority={String(value)} /> }}
-                      onChange={(e) => handlePriority(e.target.value)}>
+                      onChange={(e) => handlePriority(e.target.value)}
+                      slotProps={{
+                        select: { renderValue: (value) => <PrioritySignal priority={String(value)} /> }
+                      }}>
                       {TICKET_PRIORITIES.map((p) => <MenuItem key={p} value={p}><PrioritySignal priority={p} /></MenuItem>)}
                     </TextField>
                   </Stack>
@@ -562,7 +619,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                         options={contacts}
                         value={selectedContact}
                         getOptionLabel={(c) => (typeof c === "string" ? c : c.name)}
-                        isOptionEqualToValue={(o, v) => o.id === v.id}
+                        isOptionEqualToValue={(o, v) => typeof o !== "string" && typeof v !== "string" && o.id === v.id}
                         onChange={(_e, v) => pickContactValue(v)}
                         renderOption={(props, c) => {
                           const { key, ...rest } = props as { key?: React.Key };
@@ -573,7 +630,9 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                                   {c.name}{c.isPrimary ? " · Primary" : ""}
                                 </Typography>
                                 {(c.title || c.email) && (
-                                  <Typography variant="caption" color="text.secondary">
+                                  <Typography variant="caption" sx={{
+                                    color: "text.secondary"
+                                  }}>
                                     {[c.title, c.email].filter(Boolean).join(" · ")}
                                   </Typography>
                                 )}
@@ -586,20 +645,36 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                         )}
                       />
                       {selectedContact && (selectedContact.email || selectedContact.phone) && (
-                        <Typography variant="caption" color="text.secondary" sx={{ mt: -0.75, ml: 0.5 }}>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: "text.secondary",
+                            mt: -0.75,
+                            ml: 0.5
+                          }}>
                           {[selectedContact.email, selectedContact.phone].filter(Boolean).join(" · ")}
                         </Typography>
                       )}
                     </>
                   )}
-                  <TextField select label="Assignee" size="small" fullWidth value={assigneeId}
+                  <TextField
+                    select
+                    label="Assignee"
+                    size="small"
+                    fullWidth
+                    value={assigneeId === "" || assignees.some((assignee) => assignee.id === assigneeId) ? assigneeId : ""}
                     onChange={(e) => saveAssignee(e.target.value === "" ? "" : Number(e.target.value))}>
                     <MenuItem value="">Unassigned</MenuItem>
                     {assignees.map((a) => (
                       <MenuItem key={a.id} value={a.id}>{a.displayName || a.username} · {a.role}</MenuItem>
                     ))}
                   </TextField>
-                  <TextField select label="Team / queue" size="small" fullWidth value={teamId}
+                  <TextField
+                    select
+                    label="Team / queue"
+                    size="small"
+                    fullWidth
+                    value={teamId === "" || teams.some((team) => team.id === teamId) ? teamId : ""}
                     onChange={(e) => saveTeam(e.target.value === "" ? "" : Number(e.target.value))}>
                     <MenuItem value="">No team</MenuItem>
                     {teams.map((team) => (
@@ -608,9 +683,43 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                       </MenuItem>
                     ))}
                   </TextField>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
+                    <TextField
+                      label="Manual deadline"
+                      type="datetime-local"
+                      size="small"
+                      fullWidth
+                      value={dueAt}
+                      onChange={(event) => setDueAt(event.target.value)}
+                      onBlur={() => void saveDueAt(dueAt)}
+                      helperText="Overrides the SLA resolution target; response SLA is unchanged."
+                      slotProps={{ inputLabel: { shrink: true } }}
+                    />
+                    {dueAt && (
+                      <Button
+                        size="small"
+                        color="inherit"
+                        sx={{ mt: 0.25, minWidth: 52 }}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setDueAt("");
+                          void saveDueAt("");
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </Stack>
                   <Box>
                     {(full?.labels ?? []).length > 0 && (
-                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+                      <Stack
+                        direction="row"
+                        spacing={0.5}
+                        useFlexGap
+                        sx={{
+                          flexWrap: "wrap",
+                          mb: 1
+                        }}>
                         {(full?.labels ?? []).map((tl: any) => (
                           <Chip key={tl.label.id} size="small" label={tl.label.name}
                             sx={{ bgcolor: tl.label.color, color: "#fff" }}
@@ -621,10 +730,17 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                     {(() => {
                       const available = allLabels.filter((l) => !(full?.labels ?? []).some((tl: any) => tl.label.id === l.id));
                       return (
-                        <TextField select label="Labels" size="small" fullWidth value=""
+                        <TextField
+                          select
+                          label="Labels"
+                          size="small"
+                          fullWidth
+                          value=""
                           onChange={(e) => e.target.value !== "" && addLabel(Number(e.target.value))}
-                          InputLabelProps={{ shrink: true }}
-                          SelectProps={{ displayEmpty: true, renderValue: () => (available.length ? "Add a label…" : "No labels available") }}>
+                          slotProps={{
+                            select: { displayEmpty: true, renderValue: () => (available.length ? "Add a label…" : "No labels available") },
+                            inputLabel: { shrink: true }
+                          }}>
                           {/* Hidden empty option anchors the value="" so MUI doesn't warn. */}
                           <MenuItem value="" sx={{ display: "none" }} />
                           {available.map((l) => <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>)}
@@ -635,7 +751,9 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                   {customFieldDefs.length > 0 && (
                     <>
                       <Divider sx={{ my: 0.5 }} />
-                      <Typography variant="caption" color="text.secondary">Custom fields</Typography>
+                      <Typography variant="caption" sx={{
+                        color: "text.secondary"
+                      }}>Custom fields</Typography>
                       {customFieldDefs.map((def) => (
                         <CustomFieldControl
                           key={def.id}
@@ -660,22 +778,33 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
             {/* Linked devices */}
             <Card sx={{ mt: 2 }}>
               <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                <Typography variant="subtitle2" gutterBottom sx={{
+                  color: "text.secondary"
+                }}>
                   Devices {devices.length > 0 && `(${devices.length})`}
                 </Typography>
                 {devices.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>No devices linked.</Typography>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      color: "text.secondary",
+                      mb: 1.5
+                    }}>No devices linked.</Typography>
                 ) : (
                   <Stack spacing={1} sx={{ mb: 1.5 }}>
                     {devices.map((d) => {
                       const refs = rmmExternalRefs(d);
                       return (
                         <Box key={d.id}>
-                          <Stack direction="row" alignItems="center" spacing={1}>
+                          <Stack direction="row" spacing={1} sx={{
+                            alignItems: "center"
+                          }}>
                             <ComputerIcon fontSize="small" color={d.status === "online" ? "success" : "disabled"} />
                             <Box sx={{ minWidth: 0, flexGrow: 1 }}>
                               <Typography variant="body2" noWrap>{d.displayName || d.hostname || d.ipAddress || "device"}</Typography>
-                              {d.ipAddress && <Typography variant="caption" color="text.secondary">{d.ipAddress}</Typography>}
+                              {d.ipAddress && <Typography variant="caption" sx={{
+                                color: "text.secondary"
+                              }}>{d.ipAddress}</Typography>}
                             </Box>
                             {refs.length === 0 && <Chip size="small" variant="outlined" label={sourceLabel(d.source)} color={sourceColor(d.source)} />}
                             <Tooltip title="Unlink device">
@@ -686,9 +815,22 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                             const liveKey = `${d.id}:${ref.provider}`;
                             return (
                               <Box key={`${ref.provider}:${ref.externalId}`} sx={{ ml: { xs: 0, sm: 4 }, mt: 0.75 }}>
-                                <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap" useFlexGap>
+                                <Stack
+                                  direction="row"
+                                  spacing={0.5}
+                                  useFlexGap
+                                  sx={{
+                                    alignItems: "center",
+                                    flexWrap: "wrap"
+                                  }}>
                                   <Chip size="small" variant="outlined" label={sourceLabel(ref.provider)} color="primary" />
-                                  <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: "anywhere", flexGrow: 1 }}>
+                                  <Typography
+                                    variant="caption"
+                                    sx={{
+                                      color: "text.secondary",
+                                      overflowWrap: "anywhere",
+                                      flexGrow: 1
+                                    }}>
                                     {ref.externalId}
                                   </Typography>
                                   <Tooltip title={`Refresh from ${sourceLabel(ref.provider)}`}>
@@ -710,7 +852,9 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                   </Stack>
                 )}
                 {/* Link an existing device to this ticket */}
-                <Stack direction="row" spacing={1} alignItems="center">
+                <Stack direction="row" spacing={1} sx={{
+                  alignItems: "center"
+                }}>
                   <Autocomplete
                     size="small"
                     sx={{ flexGrow: 1 }}
@@ -722,7 +866,9 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                       <Box component="li" {...props} key={d.id} sx={{ display: "flex", gap: 1 }}>
                         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                           <Typography variant="body2" noWrap>{d.displayName || d.hostname || d.ipAddress || "device"}</Typography>
-                          {d.ipAddress && <Typography variant="caption" color="text.secondary">{d.ipAddress}</Typography>}
+                          {d.ipAddress && <Typography variant="caption" sx={{
+                            color: "text.secondary"
+                          }}>{d.ipAddress}</Typography>}
                         </Box>
                         <Chip size="small" variant="outlined" label={sourceLabel(d.source)} color={sourceColor(d.source)} />
                       </Box>
@@ -742,7 +888,9 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
                       />
                     }
                     label={
-                      <Typography variant="caption" color="text.secondary">
+                      <Typography variant="caption" sx={{
+                        color: "text.secondary"
+                      }}>
                         {showAllDevices
                           ? "Showing devices from all companies"
                           : `Scoped to this company — show all companies (${hiddenByCompany} hidden)`}
@@ -762,7 +910,9 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
             {hasIntegrations && (
               <Card sx={{ mt: 2 }}>
                 <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>Integrations</Typography>
+                  <Typography variant="subtitle2" gutterBottom sx={{
+                    color: "text.secondary"
+                  }}>Integrations</Typography>
                   <Stack spacing={1}>
                     {source !== "local" && (
                       <MetaRow icon={<SyncIcon fontSize="small" />} label="Synced from" value={`${externalProvider ?? source}${full?.externalId ? ` · ${full.externalId}` : ""}`} />
@@ -775,12 +925,10 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
           </Grid>
         </Grid>
       </DialogContent>
-
       <DialogActions>
         <Box sx={{ flexGrow: 1 }} />
         <Button onClick={onClose}>Close</Button>
       </DialogActions>
-
       {scriptDevice && (
         <RunScriptDialog
           open={!!scriptDevice}
@@ -791,7 +939,6 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
           ticketId={ticket.localId}
         />
       )}
-
       {compose && ticket.localId != null && (
         <EmailDialog
           ticketId={ticket.localId}
@@ -935,9 +1082,20 @@ function CustomFieldControl({
       value={value == null ? "" : String(value)}
       onChange={(event) => onChange(event.target.value)}
       onBlur={() => onSave(value)}
-      InputLabelProps={def.type === "date" ? { shrink: true } : undefined}
+      slotProps={{
+        inputLabel: def.type === "date" ? { shrink: true } : undefined
+      }}
     />
   );
+}
+
+/** Convert an ISO timestamp to a timezone-correct datetime-local value. */
+function toDateTimeLocal(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 
 const RMM_SOURCES = ["tactical_rmm", "ninjaone", "datto_rmm"];
@@ -987,9 +1145,18 @@ function RmmLivePanel({
 }) {
   if (!state || state.loading) {
     return (
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ ml: 4, mt: 0.75 }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{
+          alignItems: "center",
+          ml: 4,
+          mt: 0.75
+        }}>
         <CircularProgress size={12} />
-        <Typography variant="caption" color="text.secondary">Loading live RMM data…</Typography>
+        <Typography variant="caption" sx={{
+          color: "text.secondary"
+        }}>Loading live RMM data…</Typography>
       </Stack>
     );
   }
@@ -1014,13 +1181,17 @@ function RmmLivePanel({
     <Box sx={{ ml: 4, mt: 0.75, p: 1, borderRadius: 1, bgcolor: "action.hover" }}>
       <Grid container spacing={0.5}>
         {facts.map(([label, value]) => (
-          <Grid item xs={12} sm={6} key={label}>
-            <Typography variant="caption" color="text.secondary">{label}: </Typography>
+          <Grid size={{ xs: 12, sm: 6 }} key={label}>
+            <Typography variant="caption" sx={{
+              color: "text.secondary"
+            }}>{label}: </Typography>
             <Typography variant="caption">{value}</Typography>
           </Grid>
         ))}
       </Grid>
-      <Typography variant="caption" color="text.disabled">
+      <Typography variant="caption" sx={{
+        color: "text.disabled"
+      }}>
         Live as of {new Date(live.fetchedAt).toLocaleTimeString()}
       </Typography>
     </Box>
@@ -1080,8 +1251,16 @@ function TimeCard({ minutes, entries, onLog, onLogRange, onDelete, onEdit }: Tim
   return (
     <Card sx={{ mt: 2 }}>
       <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
-        <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 1 }}>
-          <Typography variant="subtitle2" color="text.secondary">Time logged</Typography>
+        <Stack
+          direction="row"
+          sx={{
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            mb: 1
+          }}>
+          <Typography variant="subtitle2" sx={{
+            color: "text.secondary"
+          }}>Time logged</Typography>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>{fmtMinutes(minutes)}</Typography>
         </Stack>
 
@@ -1114,11 +1293,17 @@ function TimeCard({ minutes, entries, onLog, onLogRange, onDelete, onEdit }: Tim
           <Stack spacing={1} sx={{ mb: entries.length ? 1.5 : 0 }}>
             <Stack direction="row" spacing={1}>
               <TextField size="small" label="Start" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)}
-                InputLabelProps={{ shrink: true }} sx={{ flexGrow: 1 }} />
+                sx={{ flexGrow: 1 }} slotProps={{
+                inputLabel: { shrink: true }
+              }} />
               <TextField size="small" label="Stop" type="datetime-local" value={stop} onChange={(e) => setStop(e.target.value)}
-                InputLabelProps={{ shrink: true }} sx={{ flexGrow: 1 }} />
+                sx={{ flexGrow: 1 }} slotProps={{
+                inputLabel: { shrink: true }
+              }} />
             </Stack>
-            <Stack direction="row" spacing={1} alignItems="center">
+            <Stack direction="row" spacing={1} sx={{
+              alignItems: "center"
+            }}>
               <Button size="small" onClick={() => setStop(nowLocalInput())}>Stop = now</Button>
               <Chip size="small" color={rangeMinutes > 0 ? "primary" : "default"}
                 label={rangeMinutes > 0 ? fmtMinutes(rangeMinutes) : "—"} />
@@ -1133,7 +1318,9 @@ function TimeCard({ minutes, entries, onLog, onLogRange, onDelete, onEdit }: Tim
         {entries.length > 0 && <Divider sx={{ mb: 1 }} />}
         <Stack spacing={0.5}>
           {entries.map((e) => (
-            <Stack key={e.id} direction="row" alignItems="center" spacing={1}>
+            <Stack key={e.id} direction="row" spacing={1} sx={{
+              alignItems: "center"
+            }}>
               {editing === e.id ? (
                 <>
                   <TextField size="small" type="number" value={editMin} onChange={(ev) => setEditMin(ev.target.value)} sx={{ width: 80 }} autoFocus
@@ -1144,7 +1331,9 @@ function TimeCard({ minutes, entries, onLog, onLogRange, onDelete, onEdit }: Tim
                 <>
                   <Chip size="small" label={fmtMinutes(e.minutes ?? 0)} />
                   <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                    <Typography variant="caption" color="text.secondary" noWrap title={e.content}>
+                    <Typography variant="caption" noWrap title={e.content} sx={{
+                      color: "text.secondary"
+                    }}>
                       {e.author} · {new Date(e.createdAt).toLocaleDateString()}{e.content && ` · ${e.content}`}
                     </Typography>
                   </Box>
@@ -1201,19 +1390,25 @@ function AttachmentsCard({
   return (
     <Card sx={{ mt: 2 }}>
       <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
-        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+        <Typography variant="subtitle2" gutterBottom sx={{
+          color: "text.secondary"
+        }}>
           Attachments {attachments.length > 0 && `(${attachments.length})`}
         </Typography>
         <Stack spacing={1} sx={{ mb: 1.5 }}>
           {attachments.map((a) => (
-            <Stack key={a.id} direction="row" alignItems="center" spacing={1}>
+            <Stack key={a.id} direction="row" spacing={1} sx={{
+              alignItems: "center"
+            }}>
               <Box sx={{ minWidth: 0, flexGrow: 1 }}>
                 <Typography variant="body2" noWrap component="a"
                   href={api.attachmentDownloadUrl(a.id)} target="_blank" rel="noopener"
                   sx={{ color: "primary.main", textDecoration: "none" }}>
                   {a.filename}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">{fmtBytes(a.size)}</Typography>
+                <Typography variant="caption" sx={{
+                  color: "text.secondary"
+                }}>{fmtBytes(a.size)}</Typography>
               </Box>
               <Tooltip title="Delete attachment">
                 <IconButton size="small" onClick={() => remove(a.id)}><Close fontSize="small" /></IconButton>
@@ -1236,7 +1431,9 @@ function AttachmentsCard({
             bgcolor: dragOver ? "action.hover" : "transparent",
           }}
         >
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{
+            color: "text.secondary"
+          }}>
             {busy ? "Uploading…" : "Drop files here or click to upload"}
           </Typography>
           <input ref={inputRef} type="file" multiple hidden
@@ -1259,9 +1456,16 @@ function SaveStatus({ state }: { state: "idle" | "saving" | "saved" | "error" })
 
 function MetaRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <Stack direction="row" spacing={1} alignItems="center">
+    <Stack direction="row" spacing={1} sx={{
+      alignItems: "center"
+    }}>
       <Box sx={{ color: "text.secondary", display: "flex" }}>{icon}</Box>
-      <Typography variant="caption" color="text.secondary" sx={{ width: 70 }}>{label}</Typography>
+      <Typography
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+          width: 70
+        }}>{label}</Typography>
       <Typography variant="body2" sx={{ wordBreak: "break-word" }}>{value}</Typography>
     </Stack>
   );
@@ -1358,7 +1562,9 @@ function InlineEditableText({
             if (event.key === "Escape") cancel();
           }}
         />
-        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+        <Stack direction="row" spacing={0.5} sx={{
+          justifyContent: "flex-end"
+        }}>
           <Tooltip title="Cancel edit">
             <span>
               <IconButton size="small" aria-label={`Cancel ${label.toLowerCase()} edit`} onClick={cancel} disabled={saving}>
@@ -1386,10 +1592,18 @@ function InlineEditableText({
 
   return (
     <Box>
-      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.25 }}>
+      <Typography
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+          display: "block",
+          mb: 0.25
+        }}>
         {label}
       </Typography>
-      <Stack direction="row" spacing={1} alignItems="flex-start">
+      <Stack direction="row" spacing={1} sx={{
+        alignItems: "flex-start"
+      }}>
         <Typography variant="body1" sx={{ flexGrow: 1, minWidth: 0, overflowWrap: "anywhere" }}>
           {value || "—"}
         </Typography>
@@ -1458,7 +1672,9 @@ function DescriptionEditor({
       <Stack spacing={1.25}>
         {error && <Alert severity="error">{error}</Alert>}
         <RichTextEditor value={draft} onChange={setDraft} minHeight={190} />
-        <Stack direction="row" spacing={1} justifyContent="flex-end">
+        <Stack direction="row" spacing={1} sx={{
+          justifyContent: "flex-end"
+        }}>
           <Button size="small" startIcon={<UndoIcon />} onClick={cancel} disabled={saving}>
             Cancel
           </Button>
@@ -1471,7 +1687,9 @@ function DescriptionEditor({
   }
 
   return (
-    <Stack direction="row" alignItems="flex-start" spacing={1}>
+    <Stack direction="row" spacing={1} sx={{
+      alignItems: "flex-start"
+    }}>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
         <HtmlContent value={value} emptyText="No description." />
       </Box>
@@ -1526,7 +1744,13 @@ function AddNoteComposer({ onSave }: { onSave: (html: string) => Promise<void> }
 
   return (
     <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 1.25, mb: 2, bgcolor: "background.paper" }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+      <Stack
+        direction="row"
+        sx={{
+          alignItems: "center",
+          justifyContent: "space-between",
+          mb: 1
+        }}>
         <Typography variant="subtitle2">New note</Typography>
         <Tooltip title="Discard note">
           <IconButton size="small" aria-label="Discard note" onClick={reset}>
@@ -1537,7 +1761,9 @@ function AddNoteComposer({ onSave }: { onSave: (html: string) => Promise<void> }
       <Stack spacing={1.25}>
         {error && <Alert severity="error">{error}</Alert>}
         <RichTextEditor value={html} onChange={setHtml} minHeight={150} />
-        <Stack direction="row" spacing={1} justifyContent="flex-end">
+        <Stack direction="row" spacing={1} sx={{
+          justifyContent: "flex-end"
+        }}>
           <Button size="small" startIcon={<UndoIcon />} onClick={reset}>
             Cancel
           </Button>
@@ -1651,8 +1877,10 @@ function EmailDialog({
 
           {identities.length > 0 && (
             <Box>
-              <Typography variant="caption" color="text.secondary">From</Typography>
-              <Select fullWidth size="small" value={fromId} onChange={(e) => setFromId(e.target.value === "" ? "" : Number(e.target.value))}>
+              <Typography variant="caption" sx={{
+                color: "text.secondary"
+              }}>From</Typography>
+              <Select<number | ""> fullWidth size="small" value={fromId} onChange={(e) => setFromId(e.target.value === "" ? "" : Number(e.target.value))}>
                 {identities.map((i) => (
                   <MenuItem key={i.id} value={i.id}>
                     {i.displayName ? `${i.displayName} <${i.address}>` : i.address}{i.shared ? " · shared" : ""}
@@ -1672,7 +1900,9 @@ function EmailDialog({
             <Button size="small" sx={{ alignSelf: "flex-start" }} onClick={() => setShowCcBcc(true)}>Add Cc / Bcc</Button>
           )}
 
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1} sx={{
+            alignItems: "center"
+          }}>
             <TextField label="Subject" value={subj} onChange={(e) => setSubj(e.target.value)} fullWidth size="small" />
             {templates.length > 0 && (
               <Select size="small" displayEmpty value="" sx={{ minWidth: 140 }}
@@ -1692,8 +1922,19 @@ function EmailDialog({
             }}
           />
 
-          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-            <Typography variant="caption" color="text.secondary" sx={{ width: "100%" }}>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              alignItems: "center",
+              flexWrap: "wrap"
+            }}>
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+                width: "100%"
+              }}>
               Tip: paste or drop an image into the message to embed it inline.
             </Typography>
             <Button component="label" size="small" variant="outlined">

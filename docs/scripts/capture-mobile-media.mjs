@@ -106,7 +106,15 @@ async function captureDevice(browser, device) {
       await page.getByRole("heading", { name: "Board columns" }).waitFor({ state: "hidden", timeout: 5_000 });
     }
 
-    if (view("ticket") || view("composer")) {
+    if (view("filters")) {
+      await page.getByRole("button", { name: "Advanced search" }).click();
+      await page.getByRole("heading", { name: "Advanced search" }).waitFor({ timeout: 20_000 });
+      await shoot(page, device, "filters");
+      await page.keyboard.press("Escape");
+      await page.getByRole("heading", { name: "Advanced search" }).waitFor({ state: "hidden", timeout: 5_000 });
+    }
+
+    if (view("ticket") || view("composer") || view("ticket-history")) {
       // On phone viewports scrollIntoViewIfNeeded can park the card under the
       // fixed AppBar, which makes a real click fail actionability. Center it
       // and dispatch the click on the card itself.
@@ -116,6 +124,14 @@ async function captureDevice(browser, device) {
       await page.locator('[role="dialog"]').first().waitFor({ timeout: 20_000 });
       await page.waitForTimeout(500);
       if (view("ticket")) await shoot(page, device, "ticket");
+
+      if (view("ticket-history")) {
+        const historyButton = page.getByRole("button", { name: "Show revision history" });
+        await historyButton.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        await historyButton.click();
+        await page.getByText("Revision History", { exact: true }).waitFor({ timeout: 20_000 });
+        await shoot(page, device, "ticket-history");
+      }
 
       if (view("composer")) {
         const emailButton = page.getByRole("button", { name: "Send email" }).first();

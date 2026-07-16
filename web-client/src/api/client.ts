@@ -310,6 +310,7 @@ export interface SavedViewFilters {
   regex?: string;
   labelId?: number;
   teamId?: number;
+  customFields?: Record<string, string | number | boolean>;
   includeClosed?: boolean;
 }
 export interface SavedView {
@@ -518,6 +519,8 @@ export interface TicketFilters {
   regex?: string;
   labelId?: number;
   teamId?: number;
+  /** Exact JSONB field matches; serialized as cf.<key>=value query params. */
+  customFields?: Record<string, string | number | boolean>;
   /** Include closed tickets (default false hides them from working views). */
   includeClosed?: boolean;
   page?: number;
@@ -532,13 +535,14 @@ export interface TicketPage {
 }
 
 export function listTickets(filters: TicketFilters = {}) {
-  const params = new URLSearchParams(
-    Object.fromEntries(
-      Object.entries(filters)
-        .filter(([, v]) => v !== undefined && v !== "")
-        .map(([k, v]) => [k, String(v)])
-    )
-  );
+  const { customFields, ...normalFilters } = filters;
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(normalFilters)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  for (const [key, value] of Object.entries(customFields ?? {})) {
+    if (value !== "") params.set(`cf.${key}`, String(value));
+  }
   return request<TicketPage>(`/tickets?${params}`);
 }
 

@@ -94,12 +94,13 @@ export default function AccountMenu() {
         </MenuItem>
         <Divider />
         <Box sx={{ px: 2, py: 0.75 }}>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{
+            color: "text.secondary"
+          }}>
             AnchorDesk v{__APP_VERSION__}
           </Typography>
         </Box>
       </Menu>
-
       {pwOpen && <ChangePasswordDialog onClose={() => setPwOpen(false)} />}
       {mfaOpen && <ManageMfaDialog onClose={() => setMfaOpen(false)} />}
       {sigOpen && <SignatureDialog onClose={() => setSigOpen(false)} />}
@@ -116,7 +117,12 @@ function AppearanceDialog({ onClose }: { onClose: () => void }) {
     <Dialog open onClose={onClose} fullWidth maxWidth="xs">
       <DialogTitle>Appearance</DialogTitle>
       <DialogContent>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        <Typography
+          variant="body2"
+          sx={{
+            color: "text.secondary",
+            mb: 2
+          }}>
           Choose a palette for your AnchorDesk workspace. Your choice follows your account.
         </Typography>
         <Stack spacing={1}>
@@ -148,7 +154,9 @@ function AppearanceDialog({ onClose }: { onClose: () => void }) {
                   ))}
                 </Box>
                 <Box sx={{ textAlign: "left" }}>
-                  <Typography component="span" variant="body2" fontWeight={700}>{option.label}</Typography>
+                  <Typography component="span" variant="body2" sx={{
+                    fontWeight: 700
+                  }}>{option.label}</Typography>
                   <Typography component="span" variant="caption" sx={{ display: "block", opacity: 0.75 }}>
                     {option.mode === "dark" ? "Dark palette" : "Light palette"}
                   </Typography>
@@ -208,7 +216,9 @@ function ApiTokensDialog({ onClose }: { onClose: () => void }) {
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           {msg && <Alert severity="error">{msg}</Alert>}
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{
+            color: "text.secondary"
+          }}>
             Personal access tokens authenticate programmatic clients (e.g. the MCP voice agent) as
             you. Actions are logged under your account. Send the token as{" "}
             <code>Authorization: Bearer &lt;token&gt;</code>. Treat it like a password.
@@ -230,7 +240,9 @@ function ApiTokensDialog({ onClose }: { onClose: () => void }) {
             </Alert>
           )}
 
-          <Stack direction="row" spacing={1} alignItems="flex-start">
+          <Stack direction="row" spacing={1} sx={{
+            alignItems: "flex-start"
+          }}>
             <TextField
               label="Token name"
               size="small"
@@ -258,7 +270,9 @@ function ApiTokensDialog({ onClose }: { onClose: () => void }) {
           </Stack>
 
           {loaded && tokens.length === 0 && (
-            <Typography variant="body2" color="text.secondary">No tokens yet.</Typography>
+            <Typography variant="body2" sx={{
+              color: "text.secondary"
+            }}>No tokens yet.</Typography>
           )}
           {tokens.length > 0 && (
             <List dense disablePadding>
@@ -281,7 +295,9 @@ function ApiTokensDialog({ onClose }: { onClose: () => void }) {
                   >
                     <ListItemText
                       primary={
-                        <Stack direction="row" spacing={1} alignItems="center">
+                        <Stack direction="row" spacing={1} sx={{
+                          alignItems: "center"
+                        }}>
                           <span style={{ opacity: inactive ? 0.5 : 1 }}>{t.name}</span>
                           <code style={{ fontSize: 12, opacity: 0.7 }}>{t.prefix}…</code>
                           {t.revokedAt && <Chip size="small" color="default" label="revoked" />}
@@ -431,7 +447,9 @@ function SignatureDialog({ onClose }: { onClose: () => void }) {
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           {msg && <Alert severity={msg.ok ? "success" : "error"}>{msg.text}</Alert>}
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{
+            color: "text.secondary"
+          }}>
             Appended to outbound ticket emails when "Signature" is checked in the composer.
           </Typography>
           {loaded && <RichTextEditor value={html} onChange={setHtml} />}

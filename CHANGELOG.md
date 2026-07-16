@@ -1,5 +1,50 @@
 # Changelog
 
+## 2.2.0 — 2026-07-15 — Clock & Compass (minor)
+
+AnchorDesk adds an explicit promise date to each ticket, surfaces more of the
+configuration already attached to daily work, and refreshes both application
+stacks for the next release line.
+
+### Added
+
+- **Manual ticket deadlines.** An optional `dueAt` can be set or cleared from
+  the ticket cockpit, REST create/update calls, and MCP `create_ticket` /
+  `update_ticket`. While present it replaces the SLA resolution target in live
+  chips, scheduling, automation context, and the table's new Due column; the
+  response SLA remains independent.
+- **Operational context where work happens.** Ticket cards and the virtualized
+  table show team queues; custom-field definitions become typed table columns
+  and advanced-search filters; the Network view exposes every provider
+  reference for the selected device.
+- **Faster visual navigation.** Kanban status columns can be reordered directly
+  by drag handle, and the Canvas network map adds device-type emoji indicators
+  without removing its existing color, label, and status cues.
+
+### Changed
+
+- `GET /tickets` accepts a typed exact-match `cf.<key>=<value>` filter for
+  active custom fields, backed by PostgreSQL `jsonb`; saved views preserve team
+  and custom-field filters.
+- Named automation actors render as Automation badges in both revision history
+  and timeline notes instead of looking like ordinary usernames.
+- The backend moves to Fastify 5 with compatible `@fastify/*` plugins, removes
+  the unused `fastify-autoload`, upgrades otplib 13 and dotenv 17, and builds
+  with TypeScript 7. Jest 30 uses SWC for test transpilation.
+- The web client moves to React 19, React Router 7, Vite 8, Vitest 4, MUI 9,
+  and Data Grid 9.
+- The mobile capture harness adds advanced-filter and revision-history states,
+  deadline/automation/provider-reference fixtures, and full-screen guards for
+  the advanced filter and ticket cockpit.
+
+### Notes
+
+- Schema change: additive nullable/indexed `tickets.due_at`. Run
+  `npx prisma db push` before starting the 2.2 backend. Clearing a manual
+  deadline restores the policy-derived resolution target.
+- See [RELEASE_NOTES_v2.2.0.md](RELEASE_NOTES_v2.2.0.md) for the complete
+  upgrade and verification guide.
+
 ## 2.1.0 — 2026-07-15 — Pocket & Anchor (minor)
 
 AnchorDesk becomes a mobile-first field helpdesk and adds the queue,

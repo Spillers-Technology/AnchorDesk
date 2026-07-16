@@ -19,7 +19,7 @@ services:
     ports:
       - 5432:5432
     volumes:
-      - pgdata:/var/lib/postgresql/data:Z
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-mtapp} -d ${DB_NAME:-anchordesk}"]
       interval: 5s
@@ -35,7 +35,7 @@ services:
       context: ./backend
     # Local compose owns schema application; Kubernetes uses its dedicated
     # prisma-db-push initContainer instead.
-    command: ["sh", "-c", "npx prisma db push --skip-generate && ./node_modules/.bin/ts-node --transpile-only src/index.ts"]
+    command: ["sh", "-c", "npx prisma db push --skip-generate && exec npm start"]
     ports:
       - 8060:8060
     depends_on:

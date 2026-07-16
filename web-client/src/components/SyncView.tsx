@@ -164,20 +164,25 @@ export default function SyncView({ onTicketsChanged }: Props) {
 
   return (
     <Box sx={{ p: 3, maxWidth: 1000 }}>
-      <Typography variant="h5" gutterBottom fontWeight={600}>
+      <Typography variant="h5" gutterBottom sx={{
+        fontWeight: 600
+      }}>
         Sync Management
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+      <Typography
+        variant="body2"
+        sx={{
+          color: "text.secondary",
+          mb: 3
+        }}>
         Sync tickets from external platforms into anchordesk's local database.
         The local database is always the source of truth.
       </Typography>
-
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
           {error}
         </Alert>
       )}
-
       {/* Last sync results */}
       {lastResults.length > 0 && (
         <Box sx={{ mb: 3 }}>
@@ -201,11 +206,12 @@ export default function SyncView({ onTicketsChanged }: Props) {
           ))}
         </Box>
       )}
-
       {/* Providers */}
       <Paper variant="outlined" sx={{ mb: 3, overflowX: "auto" }}>
         <Box sx={{ p: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <Typography variant="subtitle1" fontWeight={600}>
+          <Typography variant="subtitle1" sx={{
+            fontWeight: 600
+          }}>
             Configured Providers
           </Typography>
           <Stack direction="row" spacing={1}>
@@ -227,7 +233,11 @@ export default function SyncView({ onTicketsChanged }: Props) {
         <Divider />
 
         {providers.length === 0 ? (
-          <Typography sx={{ p: 2 }} color="text.secondary">
+          <Typography
+            sx={{
+              color: "text.secondary",
+              p: 2
+            }}>
             No sync providers configured. Add one here to get started.
           </Typography>
         ) : (
@@ -249,7 +259,9 @@ export default function SyncView({ onTicketsChanged }: Props) {
                     <Chip label={p.type} size="small" variant="outlined" />
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{
+                      color: "text.secondary"
+                    }}>
                       {formatDate(p.lastSyncedAt)}
                     </Typography>
                   </TableCell>
@@ -295,11 +307,12 @@ export default function SyncView({ onTicketsChanged }: Props) {
           </Table>
         )}
       </Paper>
-
       {/* Recent sync log */}
       <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Box sx={{ p: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <Typography variant="subtitle1" fontWeight={600}>
+          <Typography variant="subtitle1" sx={{
+            fontWeight: 600
+          }}>
             Recent Sync Activity
           </Typography>
           <Button size="small" onClick={loadLog}>
@@ -309,7 +322,11 @@ export default function SyncView({ onTicketsChanged }: Props) {
         <Divider />
 
         {syncLog.length === 0 ? (
-          <Typography sx={{ p: 2 }} color="text.secondary">
+          <Typography
+            sx={{
+              color: "text.secondary",
+              p: 2
+            }}>
             No sync activity yet.
           </Typography>
         ) : (
@@ -328,7 +345,9 @@ export default function SyncView({ onTicketsChanged }: Props) {
               {syncLog.map((entry) => (
                 <TableRow key={entry.id}>
                   <TableCell>
-                    <Typography variant="body2" color="text.secondary" noWrap>
+                    <Typography variant="body2" noWrap sx={{
+                      color: "text.secondary"
+                    }}>
                       {new Date(entry.syncedAt).toLocaleTimeString()}
                     </Typography>
                   </TableCell>
@@ -347,7 +366,9 @@ export default function SyncView({ onTicketsChanged }: Props) {
                     />
                   </TableCell>
                   <TableCell>
-                    <Stack direction="row" alignItems="center" spacing={0.5}>
+                    <Stack direction="row" spacing={0.5} sx={{
+                      alignItems: "center"
+                    }}>
                       {entry.status === "success" ? (
                         <CheckCircleIcon fontSize="small" color="success" />
                       ) : entry.status === "error" ? (
@@ -357,7 +378,9 @@ export default function SyncView({ onTicketsChanged }: Props) {
                     </Stack>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{
+                      color: "text.secondary"
+                    }}>
                       {entry.message ?? ""}
                     </Typography>
                   </TableCell>
@@ -367,9 +390,7 @@ export default function SyncView({ onTicketsChanged }: Props) {
           </Table>
         )}
       </Paper>
-
       <IntegrationsRoadmap />
-
       <Dialog open={createOpen} onClose={() => !creating && setCreateOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Add sync provider</DialogTitle>
         <DialogContent>

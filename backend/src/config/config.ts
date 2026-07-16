@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 function ticketNumberDigits(value: string | undefined): number {
   const parsed = Number(value ?? 5);

@@ -172,7 +172,7 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
               {/* shrink is forced because these selects use displayEmpty — without it
                   the floating label overlaps the value ("Nontact"/"Unassigneed"). */}
               <InputLabel shrink>Contact</InputLabel>
-              <Select value={contactId} label="Contact" displayEmpty notched
+              <Select<number | ""> value={contactId} label="Contact" displayEmpty notched
                 onChange={(e) => setContactId(e.target.value === "" ? "" : Number(e.target.value))}>
                 <MenuItem value="">None</MenuItem>
                 {contacts.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}{c.title ? ` · ${c.title}` : ""}</MenuItem>)}
@@ -181,7 +181,7 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
           </Stack>
           <FormControl fullWidth size="small">
             <InputLabel shrink>Assignee</InputLabel>
-            <Select value={form.assigneeId} label="Assignee" displayEmpty notched
+            <Select<number | ""> value={form.assigneeId} label="Assignee" displayEmpty notched
               onChange={(e) => setField("assigneeId", e.target.value === "" ? "" : Number(e.target.value))}>
               <MenuItem value="">Unassigned</MenuItem>
               {assignees.map((a) => <MenuItem key={a.id} value={a.id}>{a.displayName || a.username} · {a.role}</MenuItem>)}
@@ -189,7 +189,7 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
           </FormControl>
           <FormControl fullWidth size="small">
             <InputLabel shrink>Team / queue</InputLabel>
-            <Select value={form.teamId} label="Team / queue" displayEmpty notched
+            <Select<number | ""> value={form.teamId} label="Team / queue" displayEmpty notched
               onChange={(e) => setField("teamId", e.target.value === "" ? "" : Number(e.target.value))}>
               <MenuItem value="">No team</MenuItem>
               {teams.map((team) => <MenuItem key={team.id} value={team.id}>{team.name}</MenuItem>)}
@@ -197,7 +197,9 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
           </FormControl>
           {customFieldDefs.length > 0 && (
             <>
-              <Divider><Typography variant="caption" color="text.secondary">custom fields</Typography></Divider>
+              <Divider><Typography variant="caption" sx={{
+                color: "text.secondary"
+              }}>custom fields</Typography></Divider>
               {customFieldDefs.map((def) => (
                 <CreateCustomFieldControl
                   key={def.id}
@@ -247,7 +249,9 @@ function CreateCustomFieldControl({
       type={def.type === "number" ? "number" : def.type === "date" ? "date" : "text"}
       value={value == null ? "" : String(value)}
       onChange={(event) => onChange(def.type === "number" && event.target.value !== "" ? Number(event.target.value) : event.target.value)}
-      InputLabelProps={def.type === "date" ? { shrink: true } : undefined}
+      slotProps={{
+        inputLabel: def.type === "date" ? { shrink: true } : undefined
+      }}
     />
   );
 }

@@ -56,7 +56,7 @@ import SelectAllIcon from "@mui/icons-material/SelectAll";
 import ClearIcon from "@mui/icons-material/Clear";
 import EditNoteIcon from "@mui/icons-material/EditNote";
 import BookmarkAddIcon from "@mui/icons-material/BookmarkAdd";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
@@ -91,6 +91,7 @@ function mapDbTicket(t: Record<string, unknown>): Ticket & { localId: number } {
     dateEntered: String(t.createdAt ?? ""),
     responseDueAt: (t.responseDueAt as string | null) ?? null,
     resolutionDueAt: (t.resolutionDueAt as string | null) ?? null,
+    dueAt: (t.dueAt as string | null) ?? null,
     firstRespondedAt: (t.firstRespondedAt as string | null) ?? null,
     source: String(t.source ?? "local"),
     externalProvider: t.externalProvider ? String(t.externalProvider) : undefined,
@@ -129,6 +130,7 @@ export interface TicketFilterCriteria {
   company?: string;
   labelId?: number;
   teamId?: number;
+  customFields?: Record<string, string | number | boolean>;
   /** POSIX regex matched server-side across ticket text. */
   regex?: string;
   /** Surface closed tickets too (default off keeps the board to live work). */
@@ -164,6 +166,7 @@ function App() {
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [assignees, setAssignees] = useState<api.Assignee[]>([]);
+  const [customFieldDefs, setCustomFieldDefs] = useState<api.CustomFieldDef[]>([]);
   const [savedViews, setSavedViews] = useState<api.SavedView[]>([]);
   const [savedViewId, setSavedViewId] = useState<number | "">("");
   const [saveViewOpen, setSaveViewOpen] = useState(false);
@@ -208,6 +211,7 @@ function App() {
         company: filters.company || undefined,
         labelId: filters.labelId || undefined,
         teamId: filters.teamId || undefined,
+        customFields: filters.customFields,
         regex: filters.regex || undefined,
         includeClosed: filters.includeClosed || undefined,
       });
@@ -347,6 +351,23 @@ function App() {
     }
   };
 
+  const persistReorderedKanbanColumns = async (columns: string[]) => {
+    const previousColumns = kanbanColumns;
+    setKanbanColumns(columns);
+    if (user) setUser({ ...user, kanbanColumns: columns });
+
+    try {
+      const result = await api.setMyKanbanColumns(columns);
+      setKanbanColumns(result.kanbanColumns);
+      if (user) setUser({ ...user, kanbanColumns: result.kanbanColumns });
+      setToast({ message: "Board order saved", severity: "success" });
+    } catch (err) {
+      setKanbanColumns(previousColumns);
+      if (user) setUser({ ...user, kanbanColumns: previousColumns });
+      setToast({ message: `Could not save board order: ${(err as Error).message}`, severity: "error" });
+    }
+  };
+
   const shortenSummary = (summary: string) =>
     summary.length > 100 ? `${summary.slice(0, 100)}...` : summary;
 
@@ -445,6 +466,11 @@ function App() {
 
   useEffect(() => {
     if (!user) return;
+    api.listCustomFields().then(setCustomFieldDefs).catch(() => setCustomFieldDefs([]));
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
     reloadSavedViews();
     setKanbanColumns(Array.isArray(user.kanbanColumns) ? user.kanbanColumns : null);
   }, [user, reloadSavedViews]);
@@ -524,286 +550,284 @@ function App() {
   }
 
   return (
-      <Box sx={{ display: "flex", minHeight: "100vh" }}>
-        <DashboardAppBar
-          drawerOpen={drawerOpen}
-          toggleDrawer={() => setDrawerOpen(!drawerOpen)}
-          currentView={viewMode}
-          viewMode={viewMode}
-          onOpenTicket={openTicketById}
-        />
-        <DashboardDrawer
-          drawerOpen={drawerOpen}
-          toggleDrawer={() => setDrawerOpen(!drawerOpen)}
-          setViewMode={setViewMode}
-          currentView={viewMode}
-          isAdmin={isAdmin}
-          legacyTableView={legacyTableView}
-        />
+    <Box sx={{ display: "flex", minHeight: "100vh" }}>
+      <DashboardAppBar
+        drawerOpen={drawerOpen}
+        toggleDrawer={() => setDrawerOpen(!drawerOpen)}
+        currentView={viewMode}
+        viewMode={viewMode}
+        onOpenTicket={openTicketById}
+      />
+      <DashboardDrawer
+        drawerOpen={drawerOpen}
+        toggleDrawer={() => setDrawerOpen(!drawerOpen)}
+        setViewMode={setViewMode}
+        currentView={viewMode}
+        isAdmin={isAdmin}
+        legacyTableView={legacyTableView}
+      />
+      {/* minWidth: 0 lets wide children (Kanban's fixed columns) scroll inside
+          main instead of stretching the page past the viewport on phones. */}
+      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, minHeight: "100vh", p: { xs: 1.5, sm: 2, md: 3 }, backgroundColor: "background.default" }}>
+        <Toolbar />
 
-        {/* minWidth: 0 lets wide children (Kanban's fixed columns) scroll inside
-            main instead of stretching the page past the viewport on phones. */}
-        <Box component="main" sx={{ flexGrow: 1, minWidth: 0, minHeight: "100vh", p: { xs: 1.5, sm: 2, md: 3 }, backgroundColor: "background.default" }}>
-          <Toolbar />
+        {["cards", "table", "kanban"].includes(viewMode) && (
+          <Paper variant="outlined" sx={{ p: 1, mb: 2, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={viewMode}
+              onChange={(_e, v) => v && setViewMode(v)}
+            >
+              <ToggleButton value="kanban"><Tooltip title="Board"><ViewKanbanIcon fontSize="small" /></Tooltip></ToggleButton>
+              <ToggleButton value="cards"><Tooltip title="Cards"><ViewModuleIcon fontSize="small" /></Tooltip></ToggleButton>
+              {legacyTableView && (
+                <ToggleButton value="table"><Tooltip title="Table (legacy)"><TableRowsIcon fontSize="small" /></Tooltip></ToggleButton>
+              )}
+            </ToggleButtonGroup>
 
-          {["cards", "table", "kanban"].includes(viewMode) && (
-            <Paper variant="outlined" sx={{ p: 1, mb: 2, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-              <ToggleButtonGroup
-                size="small"
-                exclusive
-                value={viewMode}
-                onChange={(_e, v) => v && setViewMode(v)}
-              >
-                <ToggleButton value="kanban"><Tooltip title="Board"><ViewKanbanIcon fontSize="small" /></Tooltip></ToggleButton>
-                <ToggleButton value="cards"><Tooltip title="Cards"><ViewModuleIcon fontSize="small" /></Tooltip></ToggleButton>
-                {legacyTableView && (
-                  <ToggleButton value="table"><Tooltip title="Table (legacy)"><TableRowsIcon fontSize="small" /></Tooltip></ToggleButton>
-                )}
-              </ToggleButtonGroup>
-
-              <TextField
-                size="small"
-                placeholder="Search tickets…"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                sx={{ flexGrow: 1, minWidth: { xs: 140, sm: 200 }, maxWidth: 420 }}
-                InputProps={{
+            <TextField
+              size="small"
+              placeholder="Search tickets…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              sx={{ flexGrow: 1, minWidth: { xs: 140, sm: 200 }, maxWidth: 420 }}
+              slotProps={{
+                input: {
                   startAdornment: (
                     <InputAdornment position="start"><SearchIcon fontSize="small" color="action" /></InputAdornment>
                   ),
-                }}
-              />
+                }
+              }}
+            />
 
-              <Tooltip title="Advanced search">
-                <IconButton onClick={() => setFilterDialogOpen(true)}>
-                  <Badge badgeContent={activeFilterCount} color="primary">
-                    <FilterListIcon />
-                  </Badge>
-                </IconButton>
-              </Tooltip>
+            <Tooltip title="Advanced search">
+              <IconButton onClick={() => setFilterDialogOpen(true)}>
+                <Badge badgeContent={activeFilterCount} color="primary">
+                  <FilterListIcon />
+                </Badge>
+              </IconButton>
+            </Tooltip>
 
-              <TextField
-                select
-                size="small"
-                label="Saved view"
-                value={savedViewId}
-                onChange={(event) => applySavedView(event.target.value === "" ? "" : Number(event.target.value))}
-                sx={{ minWidth: { xs: 145, sm: 180 } }}
-              >
-                <MenuItem value="">Current filters</MenuItem>
-                {savedViews.map((view) => (
-                  <MenuItem key={view.id} value={view.id}>
-                    {view.shared ? "Shared · " : ""}{view.name}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <Tooltip title="Save current search and filters">
-                <IconButton aria-label="Save current view" onClick={() => setSaveViewOpen(true)}><BookmarkAddIcon /></IconButton>
-              </Tooltip>
-              {savedViewId !== "" && (
-                <>
-                  <Tooltip title="Update selected view with current filters">
-                    <IconButton aria-label="Update saved view" onClick={() => void updateCurrentSavedView()}><SaveIcon /></IconButton>
-                  </Tooltip>
-                  <Tooltip title="Delete selected view">
-                    <IconButton aria-label="Delete saved view" onClick={removeSavedView}><DeleteOutlineIcon /></IconButton>
-                  </Tooltip>
-                </>
-              )}
-              {viewMode === "kanban" && (
-                <Tooltip title="Choose board columns">
-                  <IconButton aria-label="Choose board columns" onClick={() => setKanbanColumnsOpen(true)}><ViewColumnIcon /></IconButton>
+            <TextField
+              select
+              size="small"
+              label="Saved view"
+              value={savedViewId}
+              onChange={(event) => applySavedView(event.target.value === "" ? "" : Number(event.target.value))}
+              sx={{ minWidth: { xs: 145, sm: 180 } }}
+            >
+              <MenuItem value="">Current filters</MenuItem>
+              {savedViews.map((view) => (
+                <MenuItem key={view.id} value={view.id}>
+                  {view.shared ? "Shared · " : ""}{view.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <Tooltip title="Save current search and filters">
+              <IconButton aria-label="Save current view" onClick={() => setSaveViewOpen(true)}><BookmarkAddIcon /></IconButton>
+            </Tooltip>
+            {savedViewId !== "" && (
+              <>
+                <Tooltip title="Update selected view with current filters">
+                  <IconButton aria-label="Update saved view" onClick={() => void updateCurrentSavedView()}><SaveIcon /></IconButton>
                 </Tooltip>
-              )}
-
-              <Box sx={{ flexGrow: 1 }} />
-
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setCreateDialogOpen(true)}
-                sx={{ minWidth: { xs: 0, sm: 64 }, px: { xs: 1.25, sm: 2 }, "& .MuiButton-startIcon": { mr: { xs: 0, sm: 1 } } }}
-              >
-                <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>New ticket</Box>
-              </Button>
-            </Paper>
-          )}
-
-          {viewMode === "admin" ? (
-            <AdminView />
-          ) : viewMode === "myday" ? (
-            <MyDayView onOpenTicket={openTicketById} />
-          ) : viewMode === "network" ? (
-            <NetworkView initialCompany={networkCompany} />
-          ) : viewMode === "companies" ? (
-            <CompaniesView
-              onOpenTicket={openTicketById}
-              onViewNetwork={(name) => { setNetworkCompany(name); setViewMode("network"); }}
-            />
-          ) : viewMode === "sync" ? (
-            <SyncView onTicketsChanged={fetchTickets} />
-          ) : (
-            <>
-          {error && <Typography color="error">Error: {error.message}</Typography>}
-          {canWrite && tickets.length > 0 && ["cards", "table", "kanban"].includes(viewMode) && (
-            <BulkSelectionBar
-              selectionMode={bulkSelectionMode}
-              selectedCount={selectedTicketCount}
-              visibleCount={visibleTicketIds.length}
-              busy={bulkBusy}
-              onStartSelection={() => setBulkSelectionMode(true)}
-              onSelectVisible={selectVisibleTickets}
-              onClear={clearBulkSelection}
-              onOpenUpdate={() => setBulkDialogOpen(true)}
-            />
-          )}
-
-          {/* Only blank to a spinner on the first load (nothing to show yet).
-              Background refetches — live WebSocket updates, an optimistic close —
-              keep the current board on screen and swap data in place, so the view
-              never flashes out from under the user. */}
-          {loading && tickets.length === 0 ? (
-            <CircularProgress />
-          ) : viewMode === "table" ? (
-            // DataGrid is virtualized + paginates server-side; it renders its own
-            // footer and empty state, so it sits outside the cards/kanban branch.
-            <TicketTable
-              tickets={tickets}
-              rowCount={total}
-              page={page - 1}
-              pageSize={pageSize}
-              onPageChange={(p) => setPage(p + 1)}
-              onRowClick={handleTicketClick}
-              selectionEnabled={selectionEnabled}
-              selectedIds={selectedIdsArray}
-              onSelectionChange={(ids) => setSelectedTicketIds(new Set(ids))}
-            />
-          ) : tickets.length > 0 ? (
-            viewMode === "cards" ? (
-              <>
-                <Grid container spacing={{ xs: 2, md: 3 }} sx={{ mt: 0 }}>
-                  {tickets.map((ticket) => (
-                    <Grid item xs={12} sm={6} md={4} lg={3} key={ticket.localId}>
-                      <TicketCard
-                        ticket={ticket}
-                        onClick={() => handleTicketClick(ticket)}
-                        shortenedSummary={shortenSummary(ticket.ticketSummary)}
-                        selectionEnabled={selectionEnabled}
-                        selected={selectedTicketIds.has(ticket.localId)}
-                        onToggleSelected={() => toggleTicketSelection(ticket.localId)}
-                      />
-                    </Grid>
-                  ))}
-                </Grid>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 3, flexWrap: "wrap", gap: 1 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
-                  </Typography>
-                  <Pagination
-                    count={Math.max(1, Math.ceil(total / pageSize))}
-                    page={page}
-                    onChange={(_e, p) => setPage(p)}
-                    color="primary"
-                    shape="rounded"
-                  />
-                </Box>
+                <Tooltip title="Delete selected view">
+                  <IconButton aria-label="Delete saved view" onClick={removeSavedView}><DeleteOutlineIcon /></IconButton>
+                </Tooltip>
               </>
-            ) : (
-              // Kanban: bounded to one page; warn when more tickets exist than shown.
-              <>
-                {total > tickets.length && (
-                  <Alert severity="info" sx={{ mb: 2 }}>
-                    Showing {tickets.length} of {total} tickets. Use search or filters to narrow the board.
-                  </Alert>
-                )}
-                <KanbanBoard
-                  tickets={tickets}
-                  columns={kanbanColumns ?? undefined}
-                  onStatusChange={(ticketId, newStatus) => handleStatusChange(ticketId, newStatus)}
-                  onTicketClick={handleTicketClick}
-                  onTicketClose={handleCloseTicket}
-                  selectionEnabled={selectionEnabled}
-                  selectedIds={selectedTicketIds}
-                  onToggleTicketSelected={toggleTicketSelection}
-                />
-              </>
-            )
-          ) : (
-            <Typography variant="body1">No tickets found.</Typography>
-          )}
-            </>
-          )}
-        </Box>
+            )}
+            {viewMode === "kanban" && (
+              <Tooltip title="Choose board columns">
+                <IconButton aria-label="Choose board columns" onClick={() => setKanbanColumnsOpen(true)}><ViewColumnIcon /></IconButton>
+              </Tooltip>
+            )}
 
-        <FilterDialog
-          open={filterDialogOpen}
-          onClose={() => setFilterDialogOpen(false)}
-          value={filters}
-          applyFilters={applyFilters}
-        />
+            <Box sx={{ flexGrow: 1 }} />
 
-        <SaveViewDialog
-          open={saveViewOpen}
-          allowShared={isAdmin}
-          onClose={() => setSaveViewOpen(false)}
-          onSave={saveCurrentView}
-        />
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => setCreateDialogOpen(true)}
+              sx={{ minWidth: { xs: 0, sm: 64 }, px: { xs: 1.25, sm: 2 }, "& .MuiButton-startIcon": { mr: { xs: 0, sm: 1 } } }}
+            >
+              <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>New ticket</Box>
+            </Button>
+          </Paper>
+        )}
 
-        <KanbanColumnsDialog
-          open={kanbanColumnsOpen}
-          value={kanbanColumns}
-          onClose={() => setKanbanColumnsOpen(false)}
-          onSave={saveKanbanColumns}
-        />
-
-        {selectedTicket && (
-          <TicketDialog
-            ticket={selectedTicket}
-            open={ticketDialogOpen}
-            onClose={handleTicketDialogClose}
-            notes={ticketNotes}
-            currentUser={currentUser}
-            onNotesChanged={async () => {
-              if (selectedTicket?.localId != null) setTicketNotes(await fetchTicketNotes(selectedTicket.localId));
-            }}
-            onUpdated={(field) => {
-              fetchTickets();
-              setToast({ message: field === "status" ? "Status updated" : "Ticket updated", severity: "success" });
-            }}
+        {viewMode === "admin" ? (
+          <AdminView />
+        ) : viewMode === "myday" ? (
+          <MyDayView onOpenTicket={openTicketById} />
+        ) : viewMode === "network" ? (
+          <NetworkView initialCompany={networkCompany} />
+        ) : viewMode === "companies" ? (
+          <CompaniesView
+            onOpenTicket={openTicketById}
+            onViewNetwork={(name) => { setNetworkCompany(name); setViewMode("network"); }}
+          />
+        ) : viewMode === "sync" ? (
+          <SyncView onTicketsChanged={fetchTickets} />
+        ) : (
+          <>
+        {error && <Typography color="error">Error: {error.message}</Typography>}
+        {canWrite && tickets.length > 0 && ["cards", "table", "kanban"].includes(viewMode) && (
+          <BulkSelectionBar
+            selectionMode={bulkSelectionMode}
+            selectedCount={selectedTicketCount}
+            visibleCount={visibleTicketIds.length}
+            busy={bulkBusy}
+            onStartSelection={() => setBulkSelectionMode(true)}
+            onSelectVisible={selectVisibleTickets}
+            onClear={clearBulkSelection}
+            onOpenUpdate={() => setBulkDialogOpen(true)}
           />
         )}
 
-        <CreateTicketDialog
-          open={createDialogOpen}
-          onClose={() => setCreateDialogOpen(false)}
-          onCreated={() => {
+        {/* Only blank to a spinner on the first load (nothing to show yet).
+            Background refetches — live WebSocket updates, an optimistic close —
+            keep the current board on screen and swap data in place, so the view
+            never flashes out from under the user. */}
+        {loading && tickets.length === 0 ? (
+          <CircularProgress />
+        ) : viewMode === "table" ? (
+          // DataGrid is virtualized + paginates server-side; it renders its own
+          // footer and empty state, so it sits outside the cards/kanban branch.
+          (<TicketTable
+            tickets={tickets}
+            rowCount={total}
+            page={page - 1}
+            pageSize={pageSize}
+            onPageChange={(p) => setPage(p + 1)}
+            onRowClick={handleTicketClick}
+            selectionEnabled={selectionEnabled}
+            selectedIds={selectedIdsArray}
+            onSelectionChange={(ids) => setSelectedTicketIds(new Set(ids))}
+            customFieldDefs={customFieldDefs}
+          />)
+        ) : tickets.length > 0 ? (
+          viewMode === "cards" ? (
+            <>
+              <Grid container spacing={{ xs: 2, md: 3 }} sx={{ mt: 0 }}>
+                {tickets.map((ticket) => (
+                  <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={ticket.localId}>
+                    <TicketCard
+                      ticket={ticket}
+                      onClick={() => handleTicketClick(ticket)}
+                      shortenedSummary={shortenSummary(ticket.ticketSummary)}
+                      selectionEnabled={selectionEnabled}
+                      selected={selectedTicketIds.has(ticket.localId)}
+                      onToggleSelected={() => toggleTicketSelection(ticket.localId)}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 3, flexWrap: "wrap", gap: 1 }}>
+                <Typography variant="body2" sx={{
+                  color: "text.secondary"
+                }}>
+                  {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
+                </Typography>
+                <Pagination
+                  count={Math.max(1, Math.ceil(total / pageSize))}
+                  page={page}
+                  onChange={(_e, p) => setPage(p)}
+                  color="primary"
+                  shape="rounded"
+                />
+              </Box>
+            </>
+          ) : (
+            // Kanban: bounded to one page; warn when more tickets exist than shown.
+            (<>
+              {total > tickets.length && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Showing {tickets.length} of {total} tickets. Use search or filters to narrow the board.
+                </Alert>
+              )}
+              <KanbanBoard
+                tickets={tickets}
+                columns={kanbanColumns ?? undefined}
+                onColumnsReorder={persistReorderedKanbanColumns}
+                onStatusChange={(ticketId, newStatus) => handleStatusChange(ticketId, newStatus)}
+                onTicketClick={handleTicketClick}
+                onTicketClose={handleCloseTicket}
+                selectionEnabled={selectionEnabled}
+                selectedIds={selectedTicketIds}
+                onToggleTicketSelected={toggleTicketSelection}
+              />
+            </>)
+          )
+        ) : (
+          <Typography variant="body1">No tickets found.</Typography>
+        )}
+          </>
+        )}
+      </Box>
+      <FilterDialog
+        open={filterDialogOpen}
+        onClose={() => setFilterDialogOpen(false)}
+        value={filters}
+        applyFilters={applyFilters}
+      />
+      <SaveViewDialog
+        open={saveViewOpen}
+        allowShared={isAdmin}
+        onClose={() => setSaveViewOpen(false)}
+        onSave={saveCurrentView}
+      />
+      <KanbanColumnsDialog
+        open={kanbanColumnsOpen}
+        value={kanbanColumns}
+        onClose={() => setKanbanColumnsOpen(false)}
+        onSave={saveKanbanColumns}
+      />
+      {selectedTicket && (
+        <TicketDialog
+          ticket={selectedTicket}
+          open={ticketDialogOpen}
+          onClose={handleTicketDialogClose}
+          notes={ticketNotes}
+          currentUser={currentUser}
+          onNotesChanged={async () => {
+            if (selectedTicket?.localId != null) setTicketNotes(await fetchTicketNotes(selectedTicket.localId));
+          }}
+          onUpdated={(field) => {
             fetchTickets();
-            setToast({ message: "Ticket created", severity: "success" });
+            setToast({ message: field === "status" ? "Status updated" : "Ticket updated", severity: "success" });
           }}
         />
-
-        <BulkUpdateDialog
-          open={bulkDialogOpen}
-          count={selectedTicketCount}
-          busy={bulkBusy}
-          assignees={assignees}
-          onClose={() => setBulkDialogOpen(false)}
-          onApply={applyBulkUpdate}
-        />
-
-        <Snackbar
-          open={!!toast}
-          autoHideDuration={4000}
-          onClose={() => setToast(null)}
-          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-        >
-          {toast ? (
-            <Alert onClose={() => setToast(null)} severity={toast.severity} sx={{ width: "100%" }}>
-              {toast.message}
-            </Alert>
-          ) : undefined}
-        </Snackbar>
-      </Box>
+      )}
+      <CreateTicketDialog
+        open={createDialogOpen}
+        onClose={() => setCreateDialogOpen(false)}
+        onCreated={() => {
+          fetchTickets();
+          setToast({ message: "Ticket created", severity: "success" });
+        }}
+      />
+      <BulkUpdateDialog
+        open={bulkDialogOpen}
+        count={selectedTicketCount}
+        busy={bulkBusy}
+        assignees={assignees}
+        onClose={() => setBulkDialogOpen(false)}
+        onApply={applyBulkUpdate}
+      />
+      <Snackbar
+        open={!!toast}
+        autoHideDuration={4000}
+        onClose={() => setToast(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        {toast ? (
+          <Alert onClose={() => setToast(null)} severity={toast.severity} sx={{ width: "100%" }}>
+            {toast.message}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
+    </Box>
   );
 }
 
@@ -829,10 +853,14 @@ function BulkSelectionBar({
   return (
     <Paper variant="outlined" sx={{ p: 1.25, mb: 2, position: "relative", overflow: "hidden" }}>
       {busy && <LinearProgress sx={{ position: "absolute", top: 0, left: 0, right: 0 }} />}
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{
+        alignItems: { xs: "stretch", sm: "center" }
+      }}>
         <Box sx={{ flexGrow: 1 }}>
           <Typography variant="subtitle2">Bulk update</Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{
+            color: "text.secondary"
+          }}>
             {selectionMode ? `${selectedCount} selected on this page` : `${visibleCount} visible tickets`}
           </Typography>
         </Box>
@@ -992,8 +1020,11 @@ function SaveViewDialog({
               label="Share with everyone"
             />
           )}
-          <Typography variant="body2" color="text.secondary">
-            Saves the current search, team, label, status, company, assignee, and closed-ticket filters.
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
+            Saves the current search, team, label, status, company, assignee,
+            custom-field, and closed-ticket filters.
           </Typography>
         </Stack>
       </DialogContent>
@@ -1051,7 +1082,12 @@ function KanbanColumnsDialog({
     <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="xs" fullScreen={isPhone}>
       <DialogTitle>Board columns</DialogTitle>
       <DialogContent dividers>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        <Typography
+          variant="body2"
+          sx={{
+            color: "text.secondary",
+            mb: 1.5
+          }}>
           Choose visible statuses and arrange their left-to-right order.
         </Typography>
         <Stack spacing={0.5}>

@@ -85,12 +85,19 @@ export default function LoginView({ onAuthenticated }: { onAuthenticated: (u: ap
     <Centered>
       <Card sx={{ width: 420, maxWidth: "92vw" }} elevation={6}>
         <CardContent sx={{ p: 4 }}>
-          <Stack alignItems="center" spacing={1.25} sx={{ mb: 3 }}>
+          <Stack
+            spacing={1.25}
+            sx={{
+              alignItems: "center",
+              mb: 3
+            }}>
             <Box sx={{ width: 52, height: 52, borderRadius: 2.5, bgcolor: "primary.main", color: "primary.contrastText", display: "grid", placeItems: "center" }}>
               <AnchorIcon />
             </Box>
             <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: "-.01em" }}>AnchorDesk</Typography>
-            <Typography variant="body2" color="text.secondary">Local-first ticketing</Typography>
+            <Typography variant="body2" sx={{
+              color: "text.secondary"
+            }}>Local-first ticketing</Typography>
           </Stack>
           {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
@@ -145,7 +152,7 @@ export default function LoginView({ onAuthenticated }: { onAuthenticated: (u: ap
             </Stack>
           ) : (
             // enroll
-            <Stack spacing={2}>
+            (<Stack spacing={2}>
               <Alert severity="info">Multi-factor authentication is required. Scan this QR code with an authenticator app, then enter a code to finish.</Alert>
               {enroll && <Box sx={{ textAlign: "center" }}><img src={enroll.qr} alt="TOTP QR code" width={200} height={200} /></Box>}
               {enroll && (
@@ -159,7 +166,7 @@ export default function LoginView({ onAuthenticated }: { onAuthenticated: (u: ap
               <Button variant="contained" disabled={busy || !code} onClick={submitEnroll}>
                 {busy ? <CircularProgress size={22} /> : "Enable & continue"}
               </Button>
-            </Stack>
+            </Stack>)
           )}
         </CardContent>
       </Card>

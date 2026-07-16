@@ -21,7 +21,9 @@ export default function SyncBadges({ ticket, header = false }: SyncBadgesProps) 
   const state = ticket.syncState ? SYNC_STATE_META[ticket.syncState as SyncState] : undefined;
 
   return (
-    <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+    <Stack direction="row" spacing={0.5} useFlexGap sx={{
+      flexWrap: "wrap"
+    }}>
       {providers.map((provider) => (
         <Chip
           key={provider}

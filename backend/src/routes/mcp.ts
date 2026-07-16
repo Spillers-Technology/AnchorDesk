@@ -71,11 +71,15 @@ function buildMcpServer(actor: string, userId: number): McpServer {
       assignee: z.string().optional(),
       teamId: z.number().int().optional().describe('Route the ticket to a team/queue (see list_teams)'),
       customFields: z.record(z.string(), z.unknown()).optional().describe('Custom field values keyed by field key (see list_custom_fields)'),
+      dueAt: z.string().datetime({ offset: true }).optional().describe('Manual deadline (ISO 8601) — overrides the SLA resolution target while set'),
     },
     async (args) => {
       const changedBy = actor;
       try {
-        const ticket = await tickets.create(args, changedBy);
+        const ticket = await tickets.create(
+          { ...args, dueAt: args.dueAt === undefined ? undefined : new Date(args.dueAt) },
+          changedBy,
+        );
         return { content: [{ type: 'text', text: JSON.stringify(ticket, null, 2) }] };
       } catch (err) {
         if (err instanceof CustomFieldValidationError) {
@@ -100,11 +104,16 @@ function buildMcpServer(actor: string, userId: number): McpServer {
       companyName: z.string().optional(),
       teamId: z.number().int().nullable().optional().describe('Route to a team/queue; null clears it (see list_teams)'),
       customFields: z.record(z.string(), z.unknown()).optional().describe('Partial custom field values to merge; null clears a key (see list_custom_fields)'),
+      dueAt: z.string().datetime({ offset: true }).nullable().optional().describe('Manual deadline (ISO 8601) — overrides the SLA resolution target; null clears it (falls back to SLA)'),
     },
-    async ({ id, ...fields }) => {
+    async ({ id, dueAt, ...fields }) => {
       const changedBy = actor;
       try {
-        const updated = await tickets.update(id, fields, changedBy);
+        const updated = await tickets.update(
+          id,
+          { ...fields, dueAt: dueAt === undefined ? undefined : dueAt === null ? null : new Date(dueAt) },
+          changedBy,
+        );
         return { content: [{ type: 'text', text: JSON.stringify(updated, null, 2) }] };
       } catch (err) {
         if (err instanceof CustomFieldValidationError) {
@@ -285,6 +294,9 @@ export async function mcpRoutes(app: FastifyInstance) {
   // already resolved req.user from the personal access token on the upgrade, so
   // the whole session acts as that user and audits under them (mcp channel).
   app.get('/mcp/sse', async (req, reply) => {
+    // The SSE transport owns the raw response for the life of the stream;
+    // hijack so Fastify 5 doesn't also try to manage/serialize the reply.
+    reply.hijack();
     const transport = new SSEServerTransport('/mcp/messages', reply.raw);
     transports.set(transport.sessionId, transport);
 
@@ -302,6 +314,8 @@ export async function mcpRoutes(app: FastifyInstance) {
     if (!transport) {
       return reply.status(404).send({ error: 'Session not found' });
     }
+    // handlePostMessage writes the response to reply.raw directly.
+    reply.hijack();
     await transport.handlePostMessage(req.raw, reply.raw, req.body);
   });
 }

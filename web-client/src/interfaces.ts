@@ -58,6 +58,8 @@ export interface Ticket {
   // SLA deadlines (1.7.0) — drive the live SLA chip on lists/cards/board.
   responseDueAt?: string | null;
   resolutionDueAt?: string | null;
+  /** Manual deadline. While set, it replaces the SLA resolution deadline. */
+  dueAt?: string | null;
   firstRespondedAt?: string | null;
   source?: string;
   externalProvider?: string;

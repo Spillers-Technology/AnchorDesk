@@ -9,7 +9,7 @@ import {
   generateRecoveryCodes,
   hashRecoveryCode,
 } from '../totp';
-import { authenticator } from 'otplib';
+import { generateSync } from 'otplib';
 
 describe('password hashing', () => {
   it('hashes and verifies a valid password', async () => {
@@ -17,7 +17,7 @@ describe('password hashing', () => {
     expect(hash).not.toContain('correct horse battery'); // never plaintext
     expect(await verifyPassword('correct horse battery', hash)).toBe(true);
     expect(await verifyPassword('wrong password!!', hash)).toBe(false);
-  });
+  }, 15_000); // Three cost-12 bcrypt operations can exceed Jest's 5s default on loaded CI runners.
 
   it('rejects passwords below the minimum length', async () => {
     await expect(hashPassword('a'.repeat(MIN_PASSWORD_LENGTH - 1))).rejects.toThrow();
@@ -36,14 +36,14 @@ describe('TOTP', () => {
     expect(url).toMatch(/^otpauth:\/\/totp\//);
     expect(url).toContain('AnchorDesk');
 
-    const code = authenticator.generate(secret);
+    const code = generateSync({ secret });
     expect(verifyToken(secret, code)).toBe(true);
     expect(verifyToken(secret, '000000')).toBe(false);
   });
 
   it('tolerates spaces in the submitted code', () => {
     const secret = generateSecret();
-    const code = authenticator.generate(secret);
+    const code = generateSync({ secret });
     const spaced = `${code.slice(0, 3)} ${code.slice(3)}`;
     expect(verifyToken(secret, spaced)).toBe(true);
   });

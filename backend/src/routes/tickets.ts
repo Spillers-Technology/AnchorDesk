@@ -9,6 +9,7 @@ import { parseId } from '../util/ids';
 import { isPlainRecord } from '../util/objects';
 import { hasPrismaCode } from '../util/prismaErrors';
 import { CustomFieldValidationError } from '../services/customFields';
+import * as customFieldRepo from '../repositories/customFieldRepository';
 
 interface IdParam { id: string }
 interface NoteIdParam { id: string; noteId: string }
@@ -19,7 +20,7 @@ function positiveInteger(raw: string | undefined, fallback: number): number | nu
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
-function validateTicketInput(value: unknown, creating: boolean): string | null {
+export function validateTicketInput(value: unknown, creating: boolean): string | null {
   if (!isPlainRecord(value)) return 'request body must be an object';
   if (creating && (typeof value.title !== 'string' || !value.title.trim())) return 'title is required';
   const strings = ['title', 'summary', 'description', 'status', 'priority', 'companyName', 'assignee'] as const;
@@ -36,7 +37,48 @@ function validateTicketInput(value: unknown, creating: boolean): string | null {
   if (value.customFields !== undefined && !isPlainRecord(value.customFields)) {
     return 'customFields must be an object';
   }
+  if (value.dueAt !== undefined && value.dueAt !== null) {
+    if (typeof value.dueAt !== 'string' || Number.isNaN(Date.parse(value.dueAt))) {
+      return 'dueAt must be an ISO 8601 datetime string or null';
+    }
+  }
   return null;
+}
+
+/** JSON carries dueAt as an ISO string (or null to clear); the repo wants a Date. */
+function normalizeDueAt(value: Record<string, unknown>): void {
+  if (typeof value.dueAt === 'string') value.dueAt = new Date(value.dueAt);
+}
+
+/**
+ * Parse `cf.<key>=value` query params into typed equality filters using the
+ * active field definitions. Unknown keys and uncoercible values are a 400
+ * (returned as a string error) rather than silently matching nothing.
+ */
+async function parseCustomFieldFilters(
+  query: Record<string, string>,
+): Promise<Record<string, string | number | boolean> | string | null> {
+  const raw = Object.entries(query).filter(([k]) => k.startsWith('cf.'));
+  if (!raw.length) return null;
+  const defs = await customFieldRepo.list();
+  const byKey = new Map(defs.map((d) => [d.key, d]));
+  const filters: Record<string, string | number | boolean> = {};
+  for (const [param, value] of raw) {
+    const key = param.slice(3);
+    const def = byKey.get(key);
+    if (!def) return `unknown custom field: ${key}`;
+    if (def.type === 'number') {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return `${param} must be a number`;
+      filters[key] = n;
+    } else if (def.type === 'boolean') {
+      if (value !== 'true' && value !== 'false') return `${param} must be true or false`;
+      filters[key] = value === 'true';
+    } else {
+      filters[key] = value; // text / select / date compare as stored strings
+    }
+  }
+  return filters;
 }
 
 export async function ticketRoutes(server: FastifyInstance) {
@@ -53,6 +95,8 @@ export async function ticketRoutes(server: FastifyInstance) {
     if (query.labelId !== undefined && labelId === null) return reply.status(400).send({ error: 'labelId must be a positive integer' });
     if (query.teamId !== undefined && teamId === null) return reply.status(400).send({ error: 'teamId must be a positive integer' });
     if (query.regex && query.regex.length > 500) return reply.status(400).send({ error: 'regex must be at most 500 characters' });
+    const customFieldEquals = await parseCustomFieldFilters(query);
+    if (typeof customFieldEquals === 'string') return reply.status(400).send({ error: customFieldEquals });
     const pageSize = Math.min(requestedPageSize, 200);
     const result = await ticketRepo.listPaged({
       status: query.status,
@@ -62,6 +106,7 @@ export async function ticketRoutes(server: FastifyInstance) {
       regex: query.regex,
       labelId: labelId ?? undefined,
       teamId: teamId ?? undefined,
+      customFieldEquals: customFieldEquals ?? undefined,
       includeDeleted: query.includeDeleted === 'true',
       // Default working views hide closed tickets; opt in with includeClosed=true
       // (or by selecting a specific status, which always wins).
@@ -96,6 +141,7 @@ export async function ticketRoutes(server: FastifyInstance) {
   server.post('/tickets', async (req: FastifyRequest, reply: FastifyReply) => {
     const validationError = validateTicketInput(req.body, true);
     if (validationError) return reply.status(400).send({ error: validationError });
+    normalizeDueAt(req.body as Record<string, unknown>);
     const body = req.body as ticketRepo.CreateTicketInput;
 
     try {
@@ -114,6 +160,7 @@ export async function ticketRoutes(server: FastifyInstance) {
     if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
     const validationError = validateTicketInput(req.body, false);
     if (validationError) return reply.status(400).send({ error: validationError });
+    normalizeDueAt(req.body as Record<string, unknown>);
     let ticket;
     try {
       ticket = await ticketRepo.update(id, req.body as ticketRepo.UpdateTicketInput, req.actorSub);

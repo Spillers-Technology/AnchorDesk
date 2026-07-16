@@ -29,19 +29,28 @@ export interface TicketListOptions {
   includeClosed?: boolean;
   /** Internal: constrain to a pre-resolved id set (e.g. regex-matched ids). */
   idIn?: number[];
+  /** Equality filters on Ticket.customFields, keyed by field key. Values must
+   *  already be coerced to the definition's type (route layer's job). */
+  customFieldEquals?: Record<string, string | number | boolean>;
   page?: number;
   pageSize?: number;
 }
 
 /** Build the Prisma where-clause shared by list() and count() so paging totals
- *  always match the rows returned. */
-function buildWhere(filters: Omit<TicketListOptions, 'page' | 'pageSize'>): Prisma.TicketWhereInput {
+ *  always match the rows returned. Exported for direct unit testing. */
+export function buildWhere(filters: Omit<TicketListOptions, 'page' | 'pageSize'>): Prisma.TicketWhereInput {
   const where: Prisma.TicketWhereInput = {};
   if (filters.assignee) where.assignee = { contains: filters.assignee };
   if (filters.companyName) where.companyName = { contains: filters.companyName };
   if (filters.source) where.source = filters.source;
   if (filters.labelId) where.labels = { some: { labelId: filters.labelId } };
   if (filters.teamId) where.teamId = filters.teamId;
+  if (filters.customFieldEquals && Object.keys(filters.customFieldEquals).length) {
+    // One JSONB path-equality per field; AND so multiple filters all apply.
+    where.AND = Object.entries(filters.customFieldEquals).map(([key, value]) => ({
+      customFields: { path: [key], equals: value },
+    }));
+  }
   // A regex filter resolves to a concrete id set upstream (Prisma has no POSIX
   // regex operator); an empty set must match nothing, not everything.
   if (filters.idIn) where.id = { in: filters.idIn.length ? filters.idIn : [-1] };
@@ -116,6 +125,8 @@ export interface CreateTicketInput {
   teamId?: number | null;
   /** Partial custom-field value map; validated against CustomFieldDef. */
   customFields?: Record<string, unknown>;
+  /** Manual deadline — overrides the SLA resolution target while set. */
+  dueAt?: Date | null;
   source?: TicketSource;
   ticketNumber?: string;
   externalId?: string;
@@ -136,6 +147,8 @@ export interface UpdateTicketInput {
   teamId?: number | null;
   /** Partial custom-field value map; merged into the stored map (null clears a key). */
   customFields?: Record<string, unknown>;
+  /** Manual deadline — overrides the SLA resolution target; null falls back to SLA. */
+  dueAt?: Date | null;
   closedAt?: Date | null;
 }
 
@@ -323,6 +336,7 @@ export async function create(input: CreateTicketInput, actorSub: string) {
       slaPolicyId: sla.slaPolicyId ?? undefined,
       responseDueAt: sla.responseDueAt,
       resolutionDueAt: sla.resolutionDueAt,
+      dueAt: input.dueAt ?? undefined,
     },
   });
 
@@ -349,6 +363,7 @@ export async function update(id: number, input: UpdateTicketInput, actorSub: str
     contactId: input.contactId,
     assigneeId: input.assigneeId,
     teamId: input.teamId,
+    dueAt: input.dueAt,
     closedAt: input.closedAt,
     // Custom fields merge per-key into the stored map (null clears a key) and
     // are validated against the definitions — never a raw spread.

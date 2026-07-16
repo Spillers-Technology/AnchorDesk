@@ -2,6 +2,7 @@ import React from "react";
 import { Card, CardContent, Typography, Box, Chip, Stack, Checkbox, Tooltip } from "@mui/material";
 import BusinessIcon from "@mui/icons-material/Business";
 import PersonIcon from "@mui/icons-material/Person";
+import GroupsIcon from "@mui/icons-material/Groups";
 import { Ticket } from "../interfaces";
 import SlaChip from "./SlaChip";
 import SyncBadges from "./SyncBadges";
@@ -51,7 +52,6 @@ const TicketCard: React.FC<TicketCardProps> = ({
               event.stopPropagation();
               onToggleSelected?.();
             }}
-            inputProps={{ "aria-label": selected ? "Deselect ticket" : "Select ticket" }}
             sx={{
               position: "absolute",
               top: 6,
@@ -63,19 +63,33 @@ const TicketCard: React.FC<TicketCardProps> = ({
               p: 0.25,
               "&:hover": { bgcolor: "background.paper" },
             }}
+            slotProps={{
+              input: { "aria-label": selected ? "Deselect ticket" : "Select ticket" }
+            }}
           />
         </Tooltip>
       )}
       <CardContent sx={{ flexGrow: 1, width: "100%" }}>
-          <Stack direction="row" spacing={1} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
+          <Stack
+            direction="row"
+            spacing={1}
+            useFlexGap
+            sx={{
+              flexWrap: "wrap",
+              mb: 1
+            }}>
             <StatusChip status={ticket.status} />
             <PriorityChip priority={ticket.priority || "Medium"} variant="outlined" />
             <SlaChip
               responseDueAt={ticket.responseDueAt}
               resolutionDueAt={ticket.resolutionDueAt}
+              dueAt={ticket.dueAt}
               firstRespondedAt={ticket.firstRespondedAt}
               status={ticket.status}
             />
+            {ticket.team && (
+              <Chip size="small" variant="outlined" icon={<GroupsIcon />} label={ticket.team.name} />
+            )}
             <SyncBadges ticket={ticket} />
             {(ticket.labels ?? []).map((tl) => (
               <Chip key={tl.label.id} size="small" label={tl.label.name}
@@ -87,27 +101,35 @@ const TicketCard: React.FC<TicketCardProps> = ({
             {ticket.ticketTitle}
           </Typography>
           {shortenedSummary && (
-            <Typography variant="body2" color="text.secondary">{shortenedSummary}</Typography>
+            <Typography variant="body2" sx={{
+              color: "text.secondary"
+            }}>{shortenedSummary}</Typography>
           )}
 
           <Stack spacing={0.5} sx={{ mt: 2 }}>
             {company && (
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
                 <BusinessIcon fontSize="small" color="action" />
-                <Typography variant="body2" color="text.secondary" noWrap>{company}</Typography>
+                <Typography variant="body2" noWrap sx={{
+                  color: "text.secondary"
+                }}>{company}</Typography>
               </Box>
             )}
             {ticket.assignee && (
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
                 <PersonIcon fontSize="small" color="action" />
-                <Typography variant="body2" color="text.secondary" noWrap>{ticket.assignee}</Typography>
+                <Typography variant="body2" noWrap sx={{
+                  color: "text.secondary"
+                }}>{ticket.assignee}</Typography>
               </Box>
             )}
           </Stack>
         </CardContent>
-        <Box sx={{ px: 2, py: 1, borderTop: 1, borderColor: "divider", width: "100%" }}>
-          <Typography variant="caption" color="text.secondary">#{ticket.ticketnumber} · {date}</Typography>
-        </Box>
+      <Box sx={{ px: 2, py: 1, borderTop: 1, borderColor: "divider", width: "100%" }}>
+        <Typography variant="caption" sx={{
+          color: "text.secondary"
+        }}>#{ticket.ticketnumber} · {date}</Typography>
+      </Box>
     </Card>
   );
 };

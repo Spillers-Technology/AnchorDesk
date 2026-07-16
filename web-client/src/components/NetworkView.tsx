@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Box, Chip, CircularProgress, Divider, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 import * as api from "../api/client";
+import { externalReferencesForDevice, type ExternalReference } from "../deviceExternalRefs";
 import { serviceName } from "../deviceServices";
+import { SYNC_PROVIDER_LABELS } from "../syncBadges";
 import { NetworkMap, type NetworkMapDevice } from "./NetworkMap";
 import { StatusChip } from "./TicketSignals";
 
@@ -22,6 +24,9 @@ interface Device {
   probeId?: number | null;
   firstSeenAt?: string | null;
   lastSeenAt?: string | null;
+  externalId?: string | null;
+  externalProvider?: string | null;
+  externalRefs?: api.DeviceExternalRef[];
 }
 
 interface Probe {
@@ -55,6 +60,10 @@ function toMapDevice(device: Device): NetworkMapDevice | null {
   };
 }
 
+function providerLabel(provider: string): string {
+  return SYNC_PROVIDER_LABELS[provider] ?? provider;
+}
+
 export default function NetworkView({ initialCompany }: { initialCompany?: string }) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [probes, setProbes] = useState<Probe[]>([]);
@@ -63,6 +72,7 @@ export default function NetworkView({ initialCompany }: { initialCompany?: strin
   const [group, setGroup] = useState(initialCompany ? `company:${initialCompany}` : "all");
   const [selected, setSelected] = useState<Device | null>(null);
   const [deviceTickets, setDeviceTickets] = useState<LinkedTicket[]>([]);
+  const [deviceRefs, setDeviceRefs] = useState<ExternalReference[]>([]);
 
   useEffect(() => {
     if (initialCompany) setGroup(`company:${initialCompany}`);
@@ -107,20 +117,29 @@ export default function NetworkView({ initialCompany }: { initialCompany?: strin
     : group.startsWith("company:") ? group.slice(8) : "All networks";
 
   const selectDevice = useCallback((ip: string | null) => {
-    setSelected(ip ? filtered.find((device) => device.ipAddress === ip) ?? null : null);
+    const next = ip ? filtered.find((device) => device.ipAddress === ip) ?? null : null;
+    setSelected(next);
+    setDeviceRefs(next ? externalReferencesForDevice(next) : []);
   }, [filtered]);
 
   useEffect(() => {
     if (!selected) {
       setDeviceTickets([]);
+      setDeviceRefs([]);
       return;
     }
+    let cancelled = false;
     api.getDevice(selected.id)
       .then((row) => {
+        if (cancelled) return;
         const links = (row as unknown as { ticketLinks?: { ticket: LinkedTicket }[] }).ticketLinks ?? [];
         setDeviceTickets(links.map((link) => link.ticket));
+        setDeviceRefs(externalReferencesForDevice(row));
       })
-      .catch(() => setDeviceTickets([]));
+      .catch(() => {
+        if (!cancelled) setDeviceTickets([]);
+      });
+    return () => { cancelled = true; };
   }, [selected]);
 
   if (loading) return <CircularProgress />;
@@ -128,10 +147,20 @@ export default function NetworkView({ initialCompany }: { initialCompany?: strin
 
   return (
     <Box>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }} flexWrap="wrap" gap={1}>
+      <Stack
+        direction="row"
+        sx={{
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 1,
+          mb: 2
+        }}>
         <Box>
           <Typography variant="h5">Network</Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>
             Device type, open services, and availability at a glance
           </Typography>
         </Box>
@@ -142,7 +171,6 @@ export default function NetworkView({ initialCompany }: { initialCompany?: strin
           {groups.companies.map((company) => <MenuItem key={`company:${company}`} value={`company:${company}`}>Company: {company}</MenuItem>)}
         </TextField>
       </Stack>
-
       {devices.length === 0 ? (
         <Alert severity="info">No devices yet. Register a netviz probe, sync an RMM, or add a device manually.</Alert>
       ) : mapped.length === 0 ? (
@@ -152,24 +180,65 @@ export default function NetworkView({ initialCompany }: { initialCompany?: strin
           <NetworkMap devices={mapped} cidr={mapLabel} onSelectDevice={selectDevice} />
           {selected && (
             <Paper variant="outlined" sx={{ mt: 2, p: 2 }}>
-              <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" gap={2}>
-                <Box>
-                  <Typography variant="subtitle1" fontWeight={700}>{selected.displayName || selected.hostname || selected.ipAddress}</Typography>
-                  <Stack direction="row" spacing={1} sx={{ mt: 0.75 }}>
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                sx={{
+                  justifyContent: "space-between",
+                  gap: 2
+                }}>
+                <Box sx={{ minWidth: 0, flex: { sm: "1 1 280px" } }}>
+                  <Typography variant="subtitle1" sx={{
+                    fontWeight: 700
+                  }}>{selected.displayName || selected.hostname || selected.ipAddress}</Typography>
+                  <Stack direction="row" spacing={1} useFlexGap sx={{ mt: 0.75, flexWrap: "wrap" }}>
                     <Chip size="small" label={selected.companyName || "Unassigned company"} />
-                    <Chip size="small" label={selected.source} variant="outlined" />
+                    <Chip size="small" label={providerLabel(selected.source)} variant="outlined" />
                   </Stack>
+                  <Typography variant="subtitle2" sx={{ color: "text.secondary", mt: 1.5, mb: 0.5 }}>
+                    External references {deviceRefs.length > 0 && `(${deviceRefs.length})`}
+                  </Typography>
+                  {deviceRefs.length === 0 ? (
+                    <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                      No external system references.
+                    </Typography>
+                  ) : (
+                    <Stack spacing={0.5}>
+                      {deviceRefs.map((ref) => (
+                        <Stack
+                          key={`${ref.provider}:${ref.externalId}`}
+                          direction="row"
+                          spacing={0.75}
+                          useFlexGap
+                          sx={{ alignItems: "center", flexWrap: "wrap", minWidth: 0 }}
+                        >
+                          <Chip size="small" variant="outlined" color="primary" label={providerLabel(ref.provider)} />
+                          <Typography
+                            variant="caption"
+                            sx={{ color: "text.secondary", fontFamily: "monospace", overflowWrap: "anywhere", minWidth: 0 }}
+                          >
+                            {ref.externalId}
+                          </Typography>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  )}
                 </Box>
                 <Box sx={{ minWidth: { sm: 320 } }}>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  <Typography variant="subtitle2" gutterBottom sx={{
+                    color: "text.secondary"
+                  }}>
                     Linked tickets {deviceTickets.length > 0 && `(${deviceTickets.length})`}
                   </Typography>
                   {deviceTickets.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">No linked tickets.</Typography>
+                    <Typography variant="body2" sx={{
+                      color: "text.secondary"
+                    }}>No linked tickets.</Typography>
                   ) : (
                     <Stack spacing={0.75}>
                       {deviceTickets.map((ticket) => (
-                        <Stack key={ticket.id} direction="row" alignItems="center" spacing={1}>
+                        <Stack key={ticket.id} direction="row" spacing={1} sx={{
+                          alignItems: "center"
+                        }}>
                           <StatusChip status={ticket.status} />
                           <Typography variant="body2" noWrap>#{ticket.id} {ticket.title}</Typography>
                         </Stack>

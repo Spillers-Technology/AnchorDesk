@@ -8,6 +8,11 @@
  *  - response   — active until firstRespondedAt is set
  *  - resolution — active until the ticket reaches a terminal status
  *
+ * A manual ticket deadline (dueAt) overrides the SLA resolution target — see
+ * effectiveResolutionDueAt. Note: editing a deadline does not reset the dedupe
+ * set, so an alert that already fired for a ticket's resolution clock won't
+ * re-fire until restart (same limitation as an SLA recompute).
+ *
  * An in-memory set dedupes alerts so each (ticket, clock, level) fires once per
  * process lifetime instead of every tick. Single-replica, like the other
  * schedulers; back the dedupe set with the DB if you scale out.
@@ -15,6 +20,7 @@
 import { FastifyBaseLogger } from 'fastify';
 import { prisma } from '../db/prisma';
 import { publish } from './realtime/eventBus';
+import { effectiveResolutionDueAt } from './sla';
 
 const POLL_INTERVAL_MS = 60_000;
 const TERMINAL_STATUSES = ['Closed', 'Resolved', 'Completed', 'Cancelled', 'Deleted'];
@@ -53,7 +59,11 @@ async function tick(log: FastifyBaseLogger) {
     const tickets = await prisma.ticket.findMany({
       where: {
         status: { notIn: TERMINAL_STATUSES },
-        OR: [{ responseDueAt: { not: null } }, { resolutionDueAt: { not: null } }],
+        OR: [
+          { responseDueAt: { not: null } },
+          { resolutionDueAt: { not: null } },
+          { dueAt: { not: null } },
+        ],
       },
       select: {
         id: true,
@@ -61,6 +71,7 @@ async function tick(log: FastifyBaseLogger) {
         firstRespondedAt: true,
         responseDueAt: true,
         resolutionDueAt: true,
+        dueAt: true,
       },
     });
 
@@ -69,8 +80,9 @@ async function tick(log: FastifyBaseLogger) {
         const level = evaluate(t.createdAt, t.responseDueAt, now);
         if (level) fire(t.id, 'response', level);
       }
-      if (t.resolutionDueAt) {
-        const level = evaluate(t.createdAt, t.resolutionDueAt, now);
+      const resolutionDue = effectiveResolutionDueAt(t);
+      if (resolutionDue) {
+        const level = evaluate(t.createdAt, resolutionDue, now);
         if (level) fire(t.id, 'resolution', level);
       }
     }
