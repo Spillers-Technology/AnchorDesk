@@ -2,7 +2,10 @@
  * Pure condition evaluation for automation rules — no DB, unit-tested.
  * A rule's `conditions` is an all-of array matched against a flat snapshot of
  * the ticket (plus event fields for SLA triggers). Field names:
- *   status, priority, companyName, assignee, teamId, source, labelIds, dueAt,
+ *   status, priority, companyName, assignee, teamId, source, labelIds,
+ *   dueAt           (the manual deadline only — unset unless a human set one)
+ *   effectiveDueAt  (the deadline the resolution clock runs against:
+ *                    manual dueAt when set, else the SLA resolution target)
  *   custom.<key>  (ticket custom fields)
  *   kind, level   (sla_at_risk / sla_breached triggers: response|resolution)
  */
@@ -30,8 +33,9 @@ export type EvalContext = Record<string, unknown>;
 const CONDITION_OPS: ConditionOp[] = ['eq', 'neq', 'contains', 'in', 'gte', 'lte', 'set', 'unset'];
 const BUILTIN_FIELDS = new Set([
   'status', 'priority', 'companyName', 'assignee', 'assigneeId', 'teamId',
-  'source', 'title', 'labelIds', 'kind', 'level', 'dueAt',
+  'source', 'title', 'labelIds', 'kind', 'level', 'dueAt', 'effectiveDueAt',
 ]);
+const DATETIME_FIELDS = new Set(['dueAt', 'effectiveDueAt']);
 const CUSTOM_FIELD_RE = /^custom\.[a-z][a-z0-9_]{0,59}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -55,9 +59,9 @@ export function validateRuleCondition(value: unknown): string | null {
     return 'condition in needs a non-empty value array (maximum 100)';
   }
   if (op === 'gte' || op === 'lte') {
-    if (value.field === 'dueAt') {
+    if (typeof value.field === 'string' && DATETIME_FIELDS.has(value.field)) {
       if (typeof value.value !== 'string' || Number.isNaN(Date.parse(value.value))) {
-        return `condition ${op} on dueAt needs an ISO 8601 datetime value`;
+        return `condition ${op} on ${value.field} needs an ISO 8601 datetime value`;
       }
     } else if (!Number.isFinite(Number(value.value))) {
       return `condition ${op} needs a numeric value`;
@@ -196,9 +200,12 @@ export function ticketContext(ticket: {
     teamId: ticket.teamId ?? null,
     source: ticket.source ?? null,
     title: ticket.title ?? null,
-    // The effective resolution deadline (manual override, else SLA target) as
-    // an ISO string so set/unset and datetime gte/lte conditions work.
-    dueAt: (ticket.dueAt ?? ticket.resolutionDueAt)?.toISOString() ?? null,
+    // dueAt is the manual deadline only, so "dueAt set" means a human set a
+    // date; effectiveDueAt is what the resolution clock actually runs against
+    // (manual override, else SLA target). ISO strings so set/unset and
+    // datetime gte/lte conditions work.
+    dueAt: ticket.dueAt?.toISOString() ?? null,
+    effectiveDueAt: (ticket.dueAt ?? ticket.resolutionDueAt)?.toISOString() ?? null,
     labelIds: (ticket.labels ?? []).map((l) => l.labelId),
   };
   const custom = ticket.customFields;

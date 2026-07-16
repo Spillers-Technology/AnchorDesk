@@ -1,5 +1,50 @@
 # Changelog
 
+## 2.3.0 — 2026-07-16 — Compass Calibration (minor)
+
+A follow-up pass on Clock & Compass: the MCP surface reaches parity with the
+2.2 REST filters, custom-field filtering survives its own lifecycle, manual
+deadlines stop leaking into sync, and the project site splits into a product
+landing page and a documentation hub.
+
+### Added
+
+- **MCP `list_tickets` accepts `customFields`** — exact-match typed filters
+  validated against the definitions, sharing one coercion path with REST
+  (`coerceCustomFieldFilters`), so saved views containing custom-field filters
+  can be replayed by agents as the tool description promises.
+- The printable ticket export shows the effective due date, marked
+  "(manual deadline)" when a human override is active.
+- The GitHub Pages site is now two pages: a product landing page
+  (`docs/index.html`) and a documentation hub (`docs/documentation.html`).
+- `docs/admin-rework-2.5.md` records the admin console assessment, the
+  ticket-checklist specification, and the rework plan.
+
+### Changed
+
+- **Automation conditions:** `dueAt` now matches only a human-set manual
+  deadline; a new `effectiveDueAt` field carries the deadline the resolution
+  clock actually runs against (manual override, else SLA target). Existing
+  rules that used `dueAt` to mean "has any deadline" should switch to
+  `effectiveDueAt`.
+- Filtering on **archived** custom fields works again: archiving preserves
+  ticket data, so `cf.<key>` filters and saved views over that data no longer
+  return 400.
+- Local-only ticket edits (`dueAt`, team, custom fields, company/contact
+  links) no longer mark an external ticket sync-pending or trigger a
+  reconcile — only fields two-way sync actually fingerprints and pushes do,
+  so setting a deadline can no longer manufacture a sync conflict.
+- A repeated `cf.<key>` query parameter is rejected with a 400 instead of
+  silently matching nothing.
+- Web client TypeScript 5.2 → 6.0.3 with typescript-eslint 7 → 8 (TypeScript 7
+  is blocked for the web until typescript-eslint supports it; the backend
+  already builds with 7).
+
+### Fixed
+
+- CLAUDE.md architecture diagram no longer lists inbound IMAP as "planned" —
+  `imapService` has shipped since 1.6.
+
 ## 2.2.0 — 2026-07-15 — Clock & Compass (minor)
 
 AnchorDesk adds an explicit promise date to each ticket, surfaces more of the

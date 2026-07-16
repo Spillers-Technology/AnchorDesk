@@ -136,7 +136,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
       reloadFull();
       onNotesChanged?.();
       onUpdated?.("sync");
-    } catch (e) {
+    } catch {
       /* surfaced via the badge on next reload */
     } finally {
       setSyncing(false);
@@ -150,7 +150,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
       reloadFull();
       onNotesChanged?.();
       onUpdated?.("sync");
-    } catch (e) {
+    } catch {
       /* surfaced via the badge on next reload */
     } finally {
       setSyncing(false);

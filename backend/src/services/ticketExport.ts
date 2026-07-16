@@ -7,6 +7,7 @@
 import { prisma } from '../db/prisma';
 import { readToBuffer } from './storage';
 import { sanitizeEmailHtml } from './mail/sanitizeHtml';
+import { effectiveResolutionDueAt } from './sla';
 
 function esc(s: unknown): string {
   return String(s ?? '')
@@ -51,6 +52,13 @@ export async function renderTicketHtml(ticketId: number): Promise<string | null>
       /* skip an unreadable image */
     }
   }
+
+  // The record carries the deadline the resolution clock ran against, marked
+  // when a human overrode the SLA target.
+  const effectiveDue = effectiveResolutionDueAt(ticket);
+  const dueRow = effectiveDue
+    ? `<div>Due</div><div>${new Date(effectiveDue).toLocaleString()}${ticket.dueAt ? ' (manual deadline)' : ''}</div>`
+    : '';
 
   const labelChips = ticket.labels
     .map((l) => `<span class="chip" style="background:${esc(l.label.color)}">${esc(l.label.name)}</span>`)
@@ -113,6 +121,7 @@ export async function renderTicketHtml(ticketId: number): Promise<string | null>
     <div>Priority</div><div>${esc(ticket.priority ?? '—')}</div>
     <div>Assignee</div><div>${esc(ticket.assignee ?? 'Unassigned')}</div>
     <div>Created</div><div>${new Date(ticket.createdAt).toLocaleString()}</div>
+    ${dueRow}
   </div>
   ${ticket.description ? `<h3>Description</h3><div class="body">${renderMaybeHtml(ticket.description)}</div>` : ''}
   <h3>Activity</h3>
