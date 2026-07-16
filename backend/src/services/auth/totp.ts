@@ -9,18 +9,20 @@
  * the raw codes exactly once at enrollment.
  */
 import { createHash, randomBytes } from 'crypto';
-import { authenticator } from 'otplib';
+import { generateSecret as otpGenerateSecret, generateURI, verifySync } from 'otplib';
 import QRCode from 'qrcode';
 
-// Allow ±1 time-step (±30s) of clock drift between server and authenticator.
-authenticator.options = { window: 1 };
+// Allow ±30s of clock drift between server and authenticator (otplib 12's
+// `window: 1` expressed in v13's epochTolerance seconds). Secrets stay base32,
+// so codes enrolled under v12 keep verifying unchanged.
+const EPOCH_TOLERANCE_SECONDS = 30;
 
 export function generateSecret(): string {
-  return authenticator.generateSecret();
+  return otpGenerateSecret();
 }
 
 export function buildOtpauthUrl(account: string, issuer: string, secret: string): string {
-  return authenticator.keyuri(account, issuer, secret);
+  return generateURI({ issuer, label: account, secret });
 }
 
 export async function qrDataUrl(otpauthUrl: string): Promise<string> {
@@ -30,7 +32,11 @@ export async function qrDataUrl(otpauthUrl: string): Promise<string> {
 export function verifyToken(secret: string, token: string): boolean {
   if (!secret || !token) return false;
   try {
-    return authenticator.check(token.replace(/\s/g, ''), secret);
+    return verifySync({
+      secret,
+      token: token.replace(/\s/g, ''),
+      epochTolerance: EPOCH_TOLERANCE_SECONDS,
+    }).valid;
   } catch {
     return false;
   }

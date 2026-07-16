@@ -9,7 +9,7 @@ import {
   generateRecoveryCodes,
   hashRecoveryCode,
 } from '../totp';
-import { authenticator } from 'otplib';
+import { generateSync } from 'otplib';
 
 describe('password hashing', () => {
   it('hashes and verifies a valid password', async () => {
@@ -36,14 +36,14 @@ describe('TOTP', () => {
     expect(url).toMatch(/^otpauth:\/\/totp\//);
     expect(url).toContain('AnchorDesk');
 
-    const code = authenticator.generate(secret);
+    const code = generateSync({ secret });
     expect(verifyToken(secret, code)).toBe(true);
     expect(verifyToken(secret, '000000')).toBe(false);
   });
 
   it('tolerates spaces in the submitted code', () => {
     const secret = generateSecret();
-    const code = authenticator.generate(secret);
+    const code = generateSync({ secret });
     const spaced = `${code.slice(0, 3)} ${code.slice(3)}`;
     expect(verifyToken(secret, spaced)).toBe(true);
   });
