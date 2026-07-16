@@ -1,7 +1,7 @@
 // ./components/KanbanBoard.tsx
 import React, { useState } from "react";
 import { Box, Typography, IconButton, Tooltip } from "@mui/material";
-import { keyframes } from "@mui/system";
+import { keyframes } from "@mui/material/styles";
 import TaskAltIcon from "@mui/icons-material/TaskAlt";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { Ticket } from "../interfaces";
