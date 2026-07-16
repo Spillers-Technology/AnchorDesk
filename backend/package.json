@@ -5,7 +5,7 @@
   "scripts": {
     "test": "jest --runInBand",
     "build": "tsc -p tsconfig.json --outDir dist",
-    "start": "nodemon --transpile-only src/index.ts",
+    "start": "tsx watch src/index.ts",
     "start:prod": "node dist/src/index.js"
   },
   "keywords": [
@@ -42,18 +42,18 @@
     "jest": "^30.4.2",
     "mailparser": "^3.9.14",
     "nodemailer": "^9.0.3",
-    "nodemon": "^3.1.14",
     "openid-client": "^6.8.4",
     "otplib": "^13.4.1",
     "qrcode": "^1.5.4",
-    "sanitize-html": "^2.17.6",
-    "ts-node": "^10.9.2"
+    "sanitize-html": "^2.17.6"
   },
   "devDependencies": {
+    "@swc/core": "^1.15.43",
+    "@swc/jest": "^0.2.39",
     "@types/bcryptjs": "^2.4.6",
     "@types/jest": "^30.0.0",
     "@types/mailparser": "^3.4.6",
-    "@types/node": "^22.5.5",
+    "@types/node": "^22.20.1",
     "@types/nodemailer": "^8.0.1",
     "@types/qrcode": "^1.5.6",
     "@types/sanitize-html": "^2.16.1",
@@ -63,7 +63,7 @@
     "eslint-plugin-prettier": "^5.5.6",
     "prettier": "^3.9.5",
     "prisma": "^6.19.3",
-    "ts-jest": "^29.4.11",
-    "typescript": "^5.5.4"
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2"
   }
 }
