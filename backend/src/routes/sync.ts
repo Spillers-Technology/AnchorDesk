@@ -29,7 +29,7 @@ export async function syncRoutes(server: FastifyInstance) {
       const results = await runAllSync();
       return reply.send(results);
     } catch (err) {
-      server.log.error('Sync failed:', err);
+      server.log.error({ err }, 'Sync failed');
       return reply.status(500).send({ error: (err as Error).message });
     }
   });

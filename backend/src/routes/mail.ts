@@ -61,7 +61,7 @@ export async function mailRoutes(server: FastifyInstance) {
     } catch (err) {
       const e = err as { statusCode?: number; responseCode?: number; response?: string; message: string };
       if (e.statusCode === 404) return reply.status(404).send({ error: e.message });
-      server.log.error('Email send failed:', err);
+      server.log.error({ err }, 'Email send failed');
       // A 5xx from the relay when a send-from identity was chosen almost always
       // means the relay won't let us send as that address (sender != the
       // authenticated account). Surface that clearly instead of a bare 502.

@@ -8,13 +8,13 @@ import { FastifyInstance, FastifyRequest } from 'fastify';
 import { register } from '../services/realtime/wsHub';
 
 export async function wsRoutes(server: FastifyInstance) {
-  server.get('/ws', { websocket: true }, (connection, req: FastifyRequest) => {
+  server.get('/ws', { websocket: true }, (socket, req: FastifyRequest) => {
     const userId = req.user?.id;
     if (userId === undefined || userId === null) {
-      connection.socket.close();
+      socket.close();
       return;
     }
-    register(userId, connection.socket);
-    connection.socket.send(JSON.stringify({ type: 'connected' }));
+    register(userId, socket);
+    socket.send(JSON.stringify({ type: 'connected' }));
   });
 }

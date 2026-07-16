@@ -285,6 +285,9 @@ export async function mcpRoutes(app: FastifyInstance) {
   // already resolved req.user from the personal access token on the upgrade, so
   // the whole session acts as that user and audits under them (mcp channel).
   app.get('/mcp/sse', async (req, reply) => {
+    // The SSE transport owns the raw response for the life of the stream;
+    // hijack so Fastify 5 doesn't also try to manage/serialize the reply.
+    reply.hijack();
     const transport = new SSEServerTransport('/mcp/messages', reply.raw);
     transports.set(transport.sessionId, transport);
 
@@ -302,6 +305,8 @@ export async function mcpRoutes(app: FastifyInstance) {
     if (!transport) {
       return reply.status(404).send({ error: 'Session not found' });
     }
+    // handlePostMessage writes the response to reply.raw directly.
+    reply.hijack();
     await transport.handlePostMessage(req.raw, reply.raw, req.body);
   });
 }
