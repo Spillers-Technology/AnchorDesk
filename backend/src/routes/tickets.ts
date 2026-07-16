@@ -8,11 +8,16 @@ import { sanitizeEmailHtml, htmlToText } from '../services/mail/sanitizeHtml';
 import { parseId } from '../util/ids';
 import { isPlainRecord } from '../util/objects';
 import { hasPrismaCode } from '../util/prismaErrors';
-import { CustomFieldValidationError } from '../services/customFields';
+import { CustomFieldValidationError, coerceCustomFieldFilters } from '../services/customFields';
 import * as customFieldRepo from '../repositories/customFieldRepository';
 
 interface IdParam { id: string }
 interface NoteIdParam { id: string; noteId: string }
+
+/** The ticket fields two-way sync fingerprints and can push/pull (see
+ *  twoWaySync remoteHash + pushLocal); assigneeId is included because it
+ *  re-denormalizes the synced assignee string. */
+const SYNCED_TICKET_FIELDS = ['status', 'priority', 'assignee', 'assigneeId', 'title', 'description'] as const;
 
 function positiveInteger(raw: string | undefined, fallback: number): number | null {
   if (raw === undefined) return fallback;
@@ -51,34 +56,30 @@ function normalizeDueAt(value: Record<string, unknown>): void {
 }
 
 /**
- * Parse `cf.<key>=value` query params into typed equality filters using the
- * active field definitions. Unknown keys and uncoercible values are a 400
- * (returned as a string error) rather than silently matching nothing.
+ * Parse `cf.<key>=value` query params into typed equality filters. Unknown
+ * keys and uncoercible values are a 400 (returned as a string error) rather
+ * than silently matching nothing. Definitions include archived fields —
+ * archiving preserves ticket data, so saved views over it keep working. A
+ * repeated param arrives from Fastify as an array and is rejected: equality
+ * filters take exactly one value.
  */
 async function parseCustomFieldFilters(
-  query: Record<string, string>,
+  query: Record<string, unknown>,
 ): Promise<Record<string, string | number | boolean> | string | null> {
   const raw = Object.entries(query).filter(([k]) => k.startsWith('cf.'));
   if (!raw.length) return null;
-  const defs = await customFieldRepo.list();
-  const byKey = new Map(defs.map((d) => [d.key, d]));
-  const filters: Record<string, string | number | boolean> = {};
+  const input: Record<string, unknown> = {};
   for (const [param, value] of raw) {
-    const key = param.slice(3);
-    const def = byKey.get(key);
-    if (!def) return `unknown custom field: ${key}`;
-    if (def.type === 'number') {
-      const n = Number(value);
-      if (!Number.isFinite(n)) return `${param} must be a number`;
-      filters[key] = n;
-    } else if (def.type === 'boolean') {
-      if (value !== 'true' && value !== 'false') return `${param} must be true or false`;
-      filters[key] = value === 'true';
-    } else {
-      filters[key] = value; // text / select / date compare as stored strings
-    }
+    if (Array.isArray(value)) return `${param} may only be given once`;
+    input[param.slice(3)] = value;
   }
-  return filters;
+  const defs = await customFieldRepo.list({ includeArchived: true });
+  try {
+    return coerceCustomFieldFilters(defs, input);
+  } catch (err) {
+    if (err instanceof CustomFieldValidationError) return err.message;
+    throw err;
+  }
 }
 
 export async function ticketRoutes(server: FastifyInstance) {
@@ -173,8 +174,13 @@ export async function ticketRoutes(server: FastifyInstance) {
 
     // Two-way sync: a local edit to an external ticket becomes pending, then we
     // kick a reconcile (which pushes, or flags a conflict if the remote also
-    // moved). Fire-and-forget so the edit response stays snappy.
-    if (ticket.externalId && ticket.externalProvider) {
+    // moved). Fire-and-forget so the edit response stays snappy. Only fields
+    // that participate in sync (the remote-hash set) count — a dueAt/team/
+    // custom-field edit is local-only and must not manufacture a conflict.
+    const touchedSyncedField = SYNCED_TICKET_FIELDS.some(
+      (field) => (req.body as Record<string, unknown>)[field] !== undefined,
+    );
+    if (touchedSyncedField && ticket.externalId && ticket.externalProvider) {
       await ticketRepo.markPending(id);
       void twoWaySync
         .reconcileTicket(id, { actor: req.actorSub })

@@ -53,16 +53,24 @@ describe('automation condition evaluation', () => {
     });
   });
 
-  it('exposes the effective deadline as dueAt (manual override beats SLA)', () => {
+  it('exposes dueAt as the manual deadline only and effectiveDueAt with SLA fallback', () => {
     const manual = new Date('2026-07-18T09:00:00Z');
     const sla = new Date('2026-07-20T12:00:00Z');
+    // dueAt: only a human-set deadline counts, so "dueAt set" doesn't match
+    // every SLA'd ticket.
     expect(ticketContext({ dueAt: manual, resolutionDueAt: sla }).dueAt).toBe(manual.toISOString());
-    expect(ticketContext({ dueAt: null, resolutionDueAt: sla }).dueAt).toBe(sla.toISOString());
-    expect(ticketContext({})).toMatchObject({ dueAt: null });
+    expect(ticketContext({ dueAt: null, resolutionDueAt: sla }).dueAt).toBeNull();
+    // effectiveDueAt: the clock the scheduler runs against (manual beats SLA).
+    expect(ticketContext({ dueAt: manual, resolutionDueAt: sla }).effectiveDueAt).toBe(manual.toISOString());
+    expect(ticketContext({ dueAt: null, resolutionDueAt: sla }).effectiveDueAt).toBe(sla.toISOString());
+    expect(ticketContext({})).toMatchObject({ dueAt: null, effectiveDueAt: null });
     // set/unset and datetime lte conditions work against the ISO string.
     const ctx = ticketContext({ dueAt: manual, resolutionDueAt: null });
     expect(evaluateConditions([{ field: 'dueAt', op: 'set' }], ctx)).toBe(true);
     expect(evaluateConditions([{ field: 'dueAt', op: 'lte', value: '2026-07-19T00:00:00Z' }], ctx)).toBe(true);
+    const slaOnly = ticketContext({ dueAt: null, resolutionDueAt: sla });
+    expect(evaluateConditions([{ field: 'dueAt', op: 'set' }], slaOnly)).toBe(false);
+    expect(evaluateConditions([{ field: 'effectiveDueAt', op: 'set' }], slaOnly)).toBe(true);
   });
 });
 
@@ -72,6 +80,7 @@ describe('automation rule JSON validation', () => {
     expect(validateRuleCondition({ field: 'custom.site', op: 'set' })).toBeNull();
     expect(validateRuleCondition({ field: 'labelIds', op: 'in', value: [2, 3] })).toBeNull();
     expect(validateRuleCondition({ field: 'dueAt', op: 'lte', value: '2026-07-19T00:00:00Z' })).toBeNull();
+    expect(validateRuleCondition({ field: 'effectiveDueAt', op: 'gte', value: '2026-07-19T00:00:00Z' })).toBeNull();
   });
 
   it.each([

@@ -1494,7 +1494,7 @@ function AutomationEditorDialog({
             onChange={(event) => setConditions(event.target.value)}
             multiline
             minRows={5}
-            helperText='JSON array, e.g. [{"field":"priority","op":"eq","value":"Urgent"}]. Use custom.<key> for custom fields.'
+            helperText='JSON array, e.g. [{"field":"priority","op":"eq","value":"Urgent"}]. Use custom.<key> for custom fields; dueAt = manual deadline only, effectiveDueAt = manual or SLA target.'
             slotProps={{
               input: { sx: { fontFamily: "monospace", fontSize: 13 } }
             }}

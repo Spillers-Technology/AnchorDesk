@@ -92,6 +92,39 @@ export function validateCustomFieldValues(
 }
 
 /**
+ * Coerce a map of custom-field *filter* values (REST `cf.<key>` params or MCP
+ * customFields args) into the typed equality values buildWhere expects.
+ * Archived definitions are accepted — archiving preserves ticket data, so
+ * saved views and searches over that data must keep working. Unknown keys and
+ * uncoercible values throw rather than silently matching nothing.
+ */
+export function coerceCustomFieldFilters(
+  defs: Pick<CustomFieldDef, 'key' | 'label' | 'type'>[],
+  input: Record<string, unknown>,
+): Record<string, string | number | boolean> {
+  const byKey = new Map(defs.map((d) => [d.key, d]));
+  const filters: Record<string, string | number | boolean> = {};
+  for (const [key, raw] of Object.entries(input)) {
+    const def = byKey.get(key);
+    if (!def) throw new CustomFieldValidationError(`unknown custom field: ${key}`);
+    if (def.type === 'number') {
+      const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+      if (!Number.isFinite(n)) throw new CustomFieldValidationError(`${key} must be a number`);
+      filters[key] = n;
+    } else if (def.type === 'boolean') {
+      if (typeof raw === 'boolean') filters[key] = raw;
+      else if (raw === 'true' || raw === 'false') filters[key] = raw === 'true';
+      else throw new CustomFieldValidationError(`${key} must be true or false`);
+    } else {
+      // text / select / date compare as stored strings.
+      if (typeof raw !== 'string' || !raw) throw new CustomFieldValidationError(`${key} must be a single string value`);
+      filters[key] = raw;
+    }
+  }
+  return filters;
+}
+
+/**
  * Merge an incoming partial value map into the existing stored map, validating
  * against the live definitions. Keys set to null are removed from storage.
  */

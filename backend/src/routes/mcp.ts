@@ -9,7 +9,7 @@ import * as labels from '../repositories/labelRepository';
 import * as teams from '../repositories/teamRepository';
 import * as customFields from '../repositories/customFieldRepository';
 import * as savedViews from '../repositories/savedViewRepository';
-import { CustomFieldValidationError } from '../services/customFields';
+import { CustomFieldValidationError, coerceCustomFieldFilters } from '../services/customFields';
 import * as ticketMail from '../services/mail/ticketMail';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
 import { actorFor } from '../middleware/auth';
@@ -35,13 +35,27 @@ function buildMcpServer(actor: string, userId: number): McpServer {
       regex: z.string().max(500).optional().describe('Case-insensitive POSIX regular expression across ticket text'),
       labelId: z.number().int().optional().describe('Filter to tickets carrying this label id (see list_labels)'),
       teamId: z.number().int().optional().describe('Filter to tickets routed to this team/queue (see list_teams)'),
+      customFields: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional()
+        .describe('Exact-match custom field filters keyed by field key (see list_custom_fields); combine with other filters or replay a saved view'),
       includeClosed: z.boolean().optional().default(false).describe('Include Closed tickets when no explicit status is selected'),
       includeDeleted: z.boolean().optional().default(false).describe('Include soft-deleted tickets'),
       page: z.number().int().min(1).optional().default(1),
       pageSize: z.number().int().min(1).max(100).optional().default(20),
     },
-    async (args) => {
-      const result = await tickets.listPaged(args);
+    async ({ customFields: cfFilters, ...args }) => {
+      let customFieldEquals;
+      if (cfFilters && Object.keys(cfFilters).length) {
+        const defs = await customFields.list({ includeArchived: true });
+        try {
+          customFieldEquals = coerceCustomFieldFilters(defs, cfFilters);
+        } catch (err) {
+          if (err instanceof CustomFieldValidationError) {
+            return { content: [{ type: 'text', text: err.message }], isError: true };
+          }
+          throw err;
+        }
+      }
+      const result = await tickets.listPaged({ ...args, customFieldEquals });
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     },
   );

@@ -1,5 +1,6 @@
 import {
   CustomFieldValidationError,
+  coerceCustomFieldFilters,
   validateCustomFieldValues,
 } from './customFields';
 
@@ -48,5 +49,30 @@ describe('validateCustomFieldValues', () => {
   it('rejects arrays and null instead of treating them as field maps', () => {
     expect(() => validateCustomFieldValues(defs, [] as unknown as Record<string, unknown>)).toThrow(CustomFieldValidationError);
     expect(() => validateCustomFieldValues(defs, null as unknown as Record<string, unknown>)).toThrow('must be an object');
+  });
+});
+
+describe('coerceCustomFieldFilters', () => {
+  const filterDefs = defs as unknown as Parameters<typeof coerceCustomFieldFilters>[0];
+
+  it('coerces query-string and typed values per definition type', () => {
+    expect(coerceCustomFieldFilters(filterDefs, { seats: '12', managed: 'true', site: 'HQ' }))
+      .toEqual({ seats: 12, managed: true, site: 'HQ' });
+    expect(coerceCustomFieldFilters(filterDefs, { seats: 12, managed: false }))
+      .toEqual({ seats: 12, managed: false });
+  });
+
+  it('accepts archived fields — archiving preserves ticket data, so filters over it keep working', () => {
+    expect(coerceCustomFieldFilters(filterDefs, { legacy: 'old-value' })).toEqual({ legacy: 'old-value' });
+  });
+
+  it.each([
+    [{ surprise: 'x' }, 'unknown custom field'],
+    [{ seats: 'many' }, 'must be a number'],
+    [{ managed: 'yep' }, 'must be true or false'],
+    [{ site: ['a', 'b'] }, 'single string value'],
+    [{ site: '' }, 'single string value'],
+  ])('rejects uncoercible filter input %#', (input, message) => {
+    expect(() => coerceCustomFieldFilters(filterDefs, input as Record<string, unknown>)).toThrow(message);
   });
 });
