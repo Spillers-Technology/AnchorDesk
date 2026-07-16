@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AnchorDesk Documentation - releases, platform, and guides</title>
+<meta name="description" content="AnchorDesk documentation hub: current release details, platform capabilities, architecture, quickstart, themes, integration status, and extension guides." />
+<meta name="theme-color" content="#4f46e5" />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="AnchorDesk Documentation" />
+<meta property="og:description" content="Release details, platform capabilities, quickstart, integration status, and extension guides for the AnchorDesk self-hosted service desk." />
+<meta property="og:url" content="https://spillerstech.us/AnchorDesk/documentation.html" />
+<meta property="og:image" content="https://spillerstech.us/AnchorDesk/assets/screenshots/anchordesk-board.jpg" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Roboto+Mono:wght@400;500&amp;display=swap" rel="stylesheet" />
+<link rel="icon" type="image/png" href="anchordesk-favicon.png" />
+
+<style>
+  :root {
+    --ink: #17202a;
+    --muted: #607084;
+    --canvas: #f7f8fb;
+    --surface: #ffffff;
+    --surface-2: #eef2f7;
+    --line: #dfe5ee;
+    --primary: #4f46e5;
+    --primary-dark: #312e81;
+    --sky: #0ea5e9;
+    --green: #16a34a;
+    --amber: #d97706;
+    --red: #dc2626;
+    --shadow: 0 18px 45px rgba(23, 32, 42, 0.16);
+    --maxw: 1180px;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: "Inter", system-ui, -apple-system, Segoe UI, sans-serif;
+    color: var(--ink);
+    background: var(--canvas);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--primary); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  img { max-width: 100%; display: block; }
+  code, .mono { font-family: "Roboto Mono", ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar {
+    height: 62px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--ink);
+    font-weight: 800;
+  }
+  .brand svg { width: 30px; height: 30px; flex: 0 0 auto; }
+  .nav {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .nav a {
+    color: #344154;
+    font-size: 0.94rem;
+    font-weight: 600;
+    padding: 8px 10px;
+    border-radius: 8px;
+  }
+  .nav a:hover {
+    background: var(--surface-2);
+    text-decoration: none;
+  }
+  .nav .nav-cta {
+    color: #fff;
+    background: var(--primary);
+    margin-left: 6px;
+  }
+  .nav .nav-cta:hover { background: var(--primary-dark); }
+
+  .page-hero {
+    background: #111827;
+    color: #fff;
+    padding: 64px 0 56px;
+  }
+  .page-hero h1 {
+    margin: 0 0 12px;
+    font-size: 2.9rem;
+    line-height: 1.08;
+    font-weight: 800;
+  }
+  .page-hero p {
+    max-width: 640px;
+    margin: 0;
+    color: #cbd5e1;
+    font-size: 1.12rem;
+  }
+  .page-hero .crumb {
+    display: inline-block;
+    margin-bottom: 18px;
+    color: #a5b4fc;
+    font-weight: 700;
+    font-size: 0.9rem;
+  }
+
+  section { padding: 72px 0; }
+  .band { background: #fff; }
+  .section-head {
+    max-width: 760px;
+    margin-bottom: 34px;
+  }
+  .kicker {
+    color: var(--primary);
+    font-size: 0.82rem;
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+  h2 {
+    margin: 0;
+    font-size: 2.15rem;
+    line-height: 1.12;
+  }
+  .section-head p {
+    color: var(--muted);
+    font-size: 1.05rem;
+    margin: 12px 0 0;
+  }
+
+  .release-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .tile,
+  .feature,
+  .integration {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px;
+  }
+  .tile strong,
+  .feature strong,
+  .integration strong {
+    display: block;
+    font-size: 1.02rem;
+    margin-bottom: 6px;
+  }
+  .tile p,
+  .feature p,
+  .integration p {
+    color: var(--muted);
+    margin: 0;
+    font-size: 0.94rem;
+  }
+  .status-line {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+    color: var(--primary);
+    font-size: 0.82rem;
+    font-weight: 800;
+  }
+  .status-line i {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .status-line.green { color: var(--green); }
+  .status-line.amber { color: var(--amber); }
+  .status-line.red { color: var(--red); }
+  .status-line.sky { color: var(--sky); }
+
+  .theme-deck {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .theme-card {
+    --tb: #f4f5f9; --tp: #ffffff; --ti: #1f2430; --tm: #5b6472; --ta: #4f46e5; --ts: #0ea5e9;
+    min-height: 180px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--tb);
+    color: var(--ti);
+    box-shadow: 0 8px 20px rgba(23, 32, 42, 0.08);
+  }
+  .theme-card[data-palette="default-dark"] { --tb:#0f1116; --tp:#181b24; --ti:#e7e9f2; --tm:#a5abbd; --ta:#818cf8; --ts:#38bdf8; }
+  .theme-card[data-palette="solarized-light"] { --tb:#fdf6e3; --tp:#fbf3df; --ti:#586e75; --tm:#657b83; --ta:#268bd2; --ts:#2aa198; }
+  .theme-card[data-palette="solarized-dark"] { --tb:#002b36; --tp:#073642; --ti:#93a1a1; --tm:#839496; --ta:#268bd2; --ts:#2aa198; }
+  .theme-card[data-palette="nord"] { --tb:#2e3440; --tp:#3b4252; --ti:#e5e9f0; --tm:#b8c0d0; --ta:#88c0d0; --ts:#81a1c1; }
+  .theme-card[data-palette="gruvbox"] { --tb:#282828; --tp:#32302f; --ti:#ebdbb2; --tm:#a89984; --ta:#83a598; --ts:#fe8019; }
+  .theme-card[data-palette="dracula"] { --tb:#282a36; --tp:#343746; --ti:#f8f8f2; --tm:#a6accd; --ta:#bd93f9; --ts:#ff79c6; }
+  .theme-bar { display:flex; align-items:center; gap:7px; padding:10px 12px; background:var(--ta); color:var(--tb); font-size:.76rem; font-weight:800; }
+  .theme-anchor { width:18px; height:18px; display:grid; place-items:center; border-radius:5px; background:var(--tp); color:var(--ta); }
+  .theme-body { display:grid; grid-template-columns:46px 1fr; min-height:140px; }
+  .theme-rail { border-right:1px solid color-mix(in srgb, var(--tm) 28%, transparent); padding:12px 10px; }
+  .theme-rail i { display:block; width:22px; height:4px; margin-bottom:10px; border-radius:4px; background:var(--tm); opacity:.55; }
+  .theme-content { padding:14px; }
+  .theme-content strong { display:block; margin-bottom:3px; color:var(--ti); }
+  .theme-content small { color:var(--tm); }
+  .theme-ticket { margin-top:14px; padding:10px; border:1px solid color-mix(in srgb, var(--tm) 28%, transparent); border-radius:7px; background:var(--tp); }
+  .theme-signals { display:flex; gap:6px; margin-bottom:8px; }
+  .theme-signals span { width:34px; height:6px; border-radius:8px; background:var(--ta); }
+  .theme-signals span+span { width:24px; background:var(--ts); }
+  .theme-line { width:82%; height:5px; border-radius:5px; background:var(--tm); opacity:.38; }
+
+  .motion-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    align-items: stretch;
+  }
+  .motion {
+    min-height: 260px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #0f172a;
+    color: #e5edf7;
+    padding: 18px;
+    overflow: hidden;
+    position: relative;
+  }
+  .motion h3 { margin: 0 0 12px; color: #fff; }
+  .mini-columns {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .mini-col {
+    min-height: 170px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .mini-col b {
+    display: block;
+    color: #bad8ff;
+    font-size: 0.75rem;
+    margin-bottom: 10px;
+  }
+  .mini-card {
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+    padding: 9px;
+    font-size: 0.82rem;
+    box-shadow: 0 12px 22px rgba(0, 0, 0, 0.18);
+  }
+  .mini-card small {
+    display: block;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .mini-card.fall {
+    animation: fallOff 4.6s cubic-bezier(0.45, 0, 0.65, 1) infinite;
+    transform-origin: 50% 0%;
+  }
+  .oauth-flow {
+    display: grid;
+    gap: 10px;
+    max-width: 470px;
+  }
+  .flow-step {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 11px 12px;
+  }
+  .flow-step span {
+    color: #cbd5e1;
+    font-size: 0.9rem;
+  }
+  .pulse {
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    background: var(--green);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+
+  .features {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .feature {
+    min-height: 176px;
+  }
+  .feature em {
+    display: inline-block;
+    font-style: normal;
+    font-weight: 800;
+    color: var(--primary);
+    margin-bottom: 10px;
+  }
+
+  .how {
+    display: grid;
+    grid-template-columns: 0.95fr 1.05fr;
+    gap: 28px;
+    align-items: stretch;
+  }
+  .steps {
+    display: grid;
+    gap: 12px;
+  }
+  .step {
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 15px;
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 8px;
+  }
+  .step .num {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    background: var(--surface-2);
+    display: grid;
+    place-items: center;
+    color: var(--primary);
+    font-weight: 800;
+  }
+  .step strong { display: block; margin-bottom: 3px; }
+  .step p { margin: 0; color: var(--muted); font-size: 0.94rem; }
+  .codecard {
+    background: #111827;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  .codebar {
+    height: 42px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 14px;
+    background: #0b1020;
+  }
+  .codebar span {
+    width: 11px;
+    height: 11px;
+    border-radius: 999px;
+    background: #475569;
+  }
+  .codebar span:nth-child(1) { background: #ef4444; }
+  .codebar span:nth-child(2) { background: #f59e0b; }
+  .codebar span:nth-child(3) { background: #22c55e; }
+  pre {
+    margin: 0;
+    padding: 20px;
+    overflow: auto;
+    color: #e5edf7;
+    font-size: 0.88rem;
+    line-height: 1.7;
+  }
+  pre .c { color: #94a3b8; }
+  pre .v { color: #93c5fd; }
+
+  .integrations {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .integration {
+    min-height: 132px;
+  }
+  .integration .tag {
+    display: inline-flex;
+    margin-bottom: 10px;
+    padding: 3px 7px;
+    border-radius: 6px;
+    background: #e8f7ee;
+    color: #116b32;
+    font-size: 0.76rem;
+    font-weight: 800;
+  }
+  .integration .tag.alpha {
+    background: #fff4d6;
+    color: #8a5200;
+  }
+  .integration .tag.core {
+    background: #e0f2fe;
+    color: #075985;
+  }
+
+  .docs-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .doc-link {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 16px;
+    color: var(--ink);
+    font-weight: 800;
+  }
+  .doc-link:hover {
+    border-color: var(--primary);
+    text-decoration: none;
+  }
+  .doc-link span {
+    display: block;
+    color: var(--muted);
+    font-weight: 500;
+    margin-top: 6px;
+    font-size: 0.9rem;
+  }
+
+  footer {
+    border-top: 1px solid var(--line);
+    background: #fff;
+    padding: 28px 0;
+    color: var(--muted);
+  }
+  footer .wrap {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  footer nav {
+    margin-left: auto;
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  @keyframes fallOff {
+    0%, 58% { transform: translateY(0) rotate(0deg); opacity: 1; }
+    66% { transform: translateY(-9px) rotate(-4deg); opacity: 1; }
+    88%, 100% { transform: translateY(250px) rotate(15deg); opacity: 0; }
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.5); }
+    50% { box-shadow: 0 0 0 10px rgba(22, 163, 74, 0); }
+  }
+
+  @media (max-width: 980px) {
+    .nav a:not(.nav-cta) { display: none; }
+    .release-grid,
+    .features,
+    .integrations,
+    .docs-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .theme-deck,
+    .motion-row,
+    .how { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 640px) {
+    .wrap { padding: 0 18px; }
+    .page-hero h1 { font-size: 2.1rem; }
+    section { padding: 56px 0; }
+    h2 { font-size: 1.75rem; }
+    .release-grid,
+    .features,
+    .integrations,
+    .docs-grid { grid-template-columns: 1fr; }
+    footer nav { margin-left: 0; width: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+  }
+</style>
+<!-- OpenReplay Tracking Code (replay.spillerstech.us) -->
+<script>
+  var initOpts = {
+    projectKey: "vQsdaVKqB3x2jUBKW4xd",
+    ingestPoint: "https://replay.spillerstech.us/ingest",
+    defaultInputMode: 0,
+    obscureTextNumbers: false,
+    obscureTextEmails: false,
+  };
+  var startOpts = { userID: "" };
+  (function(A,s,a,y,e,r){
+    r=window.OpenReplay=[e,r,y,[s-1, e]];
+    s=document.createElement('script');s.src=A;s.async=!a;
+    document.getElementsByTagName('head')[0].appendChild(s);
+    r.start=function(v){r.push([0])};
+    r.stop=function(v){r.push([1])};
+    r.setUserID=function(id){r.push([2,id])};
+    r.setUserAnonymousID=function(id){r.push([3,id])};
+    r.setMetadata=function(k,v){r.push([4,k,v])};
+    r.event=function(k,p,i){r.push([5,k,p,i])};
+    r.issue=function(k,p){r.push([6,k,p])};
+    r.isActive=function(){return false};
+    r.getSessionToken=function(){};
+  })("//static.openreplay.com/18.0.17/openreplay-assist.js",1,0,initOpts,startOpts);
+  OpenReplay.start();
+  OpenReplay.setMetadata("project", "AnchorDesk");
+</script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="logo" viewBox="0 0 24 24">
+    <rect width="24" height="24" rx="5" fill="#4f46e5"/>
+    <path d="M12 5v14M6 9a6 6 0 0 1 12 0c0 4-3 6-6 9-3-3-6-5-6-9z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
+  </symbol>
+</svg>
+
+<header>
+  <div class="wrap topbar">
+    <a class="brand" href="index.html" aria-label="AnchorDesk home"><svg><use href="#logo"/></svg> AnchorDesk</a>
+    <nav class="nav" aria-label="Primary">
+      <a href="#release">v2.2</a>
+      <a href="#platform">Platform</a>
+      <a href="#how">Quickstart</a>
+      <a href="#themes">Themes</a>
+      <a href="#integrations">Integrations</a>
+      <a href="#guides">Guides</a>
+      <a href="index.html">Home</a>
+      <a class="nav-cta" href="https://github.com/Spillers-Technology/AnchorDesk" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <div class="page-hero">
+    <div class="wrap">
+      <span class="crumb"><a href="index.html" style="color:inherit">AnchorDesk</a> / Documentation</span>
+      <h1>Everything under the hood, in one place.</h1>
+      <p>Release details, platform capabilities, setup, theming, integration status, and extension guides for the current AnchorDesk release line.</p>
+    </div>
+  </div>
+
+  <section id="release">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">Current release — v2.3 Compass Calibration</div>
+        <h2>Every promise has a clock, and now the whole stack agrees on it.</h2>
+        <p>The 2.2 Clock &amp; Compass line added manual deadlines, queue/field visibility, and modern foundations; 2.3 calibrates it — MCP reaches parity with the REST filters, custom-field filtering survives archiving, and manual deadlines stay out of two-way sync.</p>
+      </div>
+      <div class="release-grid">
+        <article class="tile">
+          <div class="status-line green"><i></i> Manual ticket deadlines</div>
+          <strong>The date people promised is now the date AnchorDesk follows.</strong>
+          <p>Set or clear a deadline in the ticket cockpit, REST, or MCP. It replaces the resolution target in live chips, scheduling, automation, and the Due column without disturbing the response SLA.</p>
+        </article>
+        <article class="tile">
+          <div class="status-line sky"><i></i> Queue and field visibility</div>
+          <strong>Configuration data shows up before you open the editor.</strong>
+          <p>Team badges, a Team column, dynamic custom-field columns, and typed advanced filters make queue slices and customer-specific facts visible in daily ticket views.</p>
+        </article>
+        <article class="tile">
+          <div class="status-line amber"><i></i> Workflow signals</div>
+          <strong>Rule actions and device identities explain themselves.</strong>
+          <p>Named Automation badges clarify history and notes, Network shows every external provider reference, map nodes carry type indicators, and Kanban columns reorder directly.</p>
+        </article>
+        <article class="tile">
+          <div class="status-line red"><i></i> Modern release foundations</div>
+          <strong>Fastify 5 and React 19 anchor the next release line.</strong>
+          <p>TypeScript 7 plus Jest/SWC modernize the backend; Router 7, Vite 8, Vitest 4, MUI 9, and Data Grid 9 refresh the web while the five-device mobile matrix adds more states.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="platform" class="band">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">Platform</div>
+        <h2>Helpdesk, operations console, and agent surface in one system.</h2>
+        <p>AnchorDesk can run standalone, then attach the pieces of your MSP or IT stack as adapters.</p>
+      </div>
+      <div class="features">
+        <article class="feature"><em>Tickets</em><strong>Local-first ticketing</strong><p>Create, set manual deadlines, route to teams, assign, capture and filter typed custom fields, save views, label, bulk update, and work tickets from card, board, and optional table views.</p></article>
+        <article class="feature"><em>Email</em><strong>Threaded IMAP and SMTP</strong><p>Poll multiple mailboxes, dedupe by Message-ID, tag subjects with public ticket numbers, and reply with identities, templates, signatures, Cc/Bcc, and inline images.</p></article>
+        <article class="feature"><em>Devices</em><strong>Configuration records and network map</strong><p>Asset data stays local while probes and RMMs refresh operational context; map type indicators and the selected-device reference list expose what each provider knows.</p></article>
+        <article class="feature"><em>RMM</em><strong>One device, multiple providers</strong><p>Tactical RMM, NinjaOne, and Datto identities merge onto one device; technicians select the provider for live snapshots, scripts, or quick jobs.</p></article>
+        <article class="feature"><em>Sync</em><strong>Two-way PSA issue sync</strong><p>ConnectWise Manage and Jira Cloud can pull and push ticket state, hold conflicts, and ask a human to keep local or remote changes.</p></article>
+        <article class="feature"><em>Identity</em><strong>SSO, MFA, RBAC, MCP OAuth</strong><p>Local accounts, OIDC, SAML, TOTP MFA, personal access tokens, and built-in OAuth for MCP all resolve to a real user and role.</p></article>
+        <article class="feature"><em>Agents</em><strong>Workflow-complete MCP</strong><p>Authenticated agents can work deadlines, tickets, notes, time, email, labels, teams, custom fields, saved views, ranked search, and audit history.</p></article>
+        <article class="feature"><em>Automation</em><strong>Rules and SLA escalation</strong><p>Ticket, note, SLA-warning, and breach events can update, route, label, annotate, or notify with named Automation attribution and a loop guard.</p></article>
+        <article class="feature"><em>Realtime</em><strong>WebSockets and notifications</strong><p>Ticket lists, board cards, open modals, the notification bell, SLA state, and automation results update without refresh.</p></article>
+        <article class="feature"><em>Files</em><strong>Attachments and export</strong><p>Drag/drop files onto tickets, store bytes locally or in S3-compatible storage, and export a printable ticket with safe inline activity.</p></article>
+        <article class="feature"><em>Audit</em><strong>Actor-attributed history</strong><p>Managed changes append before/after values with the user and channel, including web, API token, MCP, and named automation activity.</p></article>
+        <article class="feature"><em>Mobile</em><strong>Pocket-sized helpdesk</strong><p>Mobile-first by requirement: 95 states across five touch profiles verify advanced search, ticket history/cockpit, the composer, touch Kanban, and a pinch-zoomable network map from 344px upward.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">How it works</div>
+        <h2>The database is the core. Integrations are adapters.</h2>
+      </div>
+      <div class="how">
+        <div class="steps">
+          <div class="step"><div class="num">1</div><div><strong>Tickets land locally</strong><p>UI, IMAP, ConnectWise, Jira, and API-created tickets normalize into PostgreSQL.</p></div></div>
+          <div class="step"><div class="num">2</div><div><strong>Queues and rules move the work</strong><p>Teams, saved views, custom fields, and audited automation translate service-desk policy into the local workflow.</p></div></div>
+          <div class="step"><div class="num">3</div><div><strong>Device identities converge</strong><p>Provider references merge RMM and probe observations into one asset record linked to companies and tickets.</p></div></div>
+          <div class="step"><div class="num">4</div><div><strong>People and agents act in context</strong><p>Technicians and OAuth/PAT-authenticated MCP clients share RBAC, audit attribution, and the same ticket workflow primitives.</p></div></div>
+        </div>
+        <div class="codecard">
+          <div class="codebar"><span></span><span></span><span></span></div>
+<pre><span class="c"># PostgreSQL and Adminer</span>
+docker compose up -d db adminer
+
+<span class="c"># Backend config and schema</span>
+cp backend/.env.example backend/.env
+cd backend
+npm ci
+npx prisma db push
+npm start              <span class="c"># :8060</span>
+
+<span class="c"># Web client</span>
+cd ../web-client
+npm ci
+npm run dev            <span class="c"># :5173</span>
+
+<span class="c"># Current images</span>
+ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.3.0</span>
+ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.3.0</span></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="themes" class="band">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">Appearance</div>
+        <h2>One workspace shape. Seven distinct atmospheres.</h2>
+        <p>Palette changes are personal, not cosmetic shortcuts: canvas, surfaces, text, dividers, accents, and semantic states are tuned together while layout stays familiar. Pick yours under Account &rarr; Appearance.</p>
+      </div>
+      <div class="theme-deck" aria-label="AnchorDesk theme palette previews">
+        <article class="theme-card" data-palette="default-light"><div class="theme-bar"><span class="theme-anchor">⚓</span> Default Light</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Bright watch</strong><small>Cool white · indigo</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+        <article class="theme-card" data-palette="default-dark"><div class="theme-bar"><span class="theme-anchor">⚓</span> Default Dark</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Night watch</strong><small>Slate · periwinkle</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+        <article class="theme-card" data-palette="solarized-light"><div class="theme-bar"><span class="theme-anchor">⚓</span> Solarized Light</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Paper chart</strong><small>Warm ivory · blue</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+        <article class="theme-card" data-palette="solarized-dark"><div class="theme-bar"><span class="theme-anchor">⚓</span> Solarized Dark</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Deep water</strong><small>Blue-black · cyan</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+        <article class="theme-card" data-palette="nord"><div class="theme-bar"><span class="theme-anchor">⚓</span> Nord</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Arctic bridge</strong><small>Frost · polar night</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+        <article class="theme-card" data-palette="gruvbox"><div class="theme-bar"><span class="theme-anchor">⚓</span> Gruvbox</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Signal room</strong><small>Charcoal · amber</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+        <article class="theme-card" data-palette="dracula"><div class="theme-bar"><span class="theme-anchor">⚓</span> Dracula</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>After hours</strong><small>Ink · violet · pink</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">Motion cues</div>
+        <h2>A little movement where it helps.</h2>
+        <p>The app favors practical feedback: closing work falls off the board, and OAuth/MCP discovery has a short, explicit consent loop.</p>
+      </div>
+      <div class="motion-row">
+        <article class="motion">
+          <h3>Kanban close animation</h3>
+          <div class="mini-columns" aria-hidden="true">
+            <div class="mini-col"><b>NEW</b><div class="mini-card">Shared mailbox signature<small>#10483</small></div></div>
+            <div class="mini-col"><b>IN PROGRESS</b><div class="mini-card">VPN tunnel renegotiates<small>#10482</small></div></div>
+            <div class="mini-col"><b>RESOLVED</b><div class="mini-card fall">Conference display online<small>#10486</small></div></div>
+          </div>
+        </article>
+        <article class="motion">
+          <h3>MCP OAuth handshake</h3>
+          <div class="oauth-flow" aria-hidden="true">
+            <div class="flow-step"><strong>Client discovers metadata</strong><span>/.well-known</span><div class="pulse"></div></div>
+            <div class="flow-step"><strong>Dynamic registration</strong><span>/oauth/register</span><div class="pulse"></div></div>
+            <div class="flow-step"><strong>User grants consent</strong><span>/oauth/authorize</span><div class="pulse"></div></div>
+            <div class="flow-step"><strong>Token works as the user</strong><span>/mcp/sse</span><div class="pulse"></div></div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="integrations" class="band">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">Integrations</div>
+        <h2>Use the tools you already run.</h2>
+        <p>Credentials seed from environment variables and can be managed later from Admin. Alpha providers are gated until configured.</p>
+      </div>
+      <div class="integrations">
+        <article class="integration"><span class="tag">Available</span><strong>IMAP + SMTP</strong><p>Email-to-ticket, shared/personal send-from identities, templates, signatures, inline images, and attachments.</p></article>
+        <article class="integration"><span class="tag">Available</span><strong>ConnectWise Manage</strong><p>Inbound and outbound ticket sync with notes, sync states, and conflict handling.</p></article>
+        <article class="integration"><span class="tag alpha">Alpha</span><strong>Jira Cloud</strong><p>Two-way issue sync using Jira Cloud v3, ADF bodies, and status transitions.</p></article>
+        <article class="integration"><span class="tag">Available</span><strong>Tactical RMM</strong><p>Device sync, live agent snapshots, script catalog, run-now, scheduled jobs, and ticket output.</p></article>
+        <article class="integration"><span class="tag alpha">Alpha</span><strong>NinjaOne</strong><p>OAuth client credentials, device sync, live snapshots, and saved automation script runs.</p></article>
+        <article class="integration"><span class="tag alpha">Alpha</span><strong>Datto RMM</strong><p>Device sync and async quick jobs by component UID, with job status retained.</p></article>
+        <article class="integration"><span class="tag">Available</span><strong>netviz probes</strong><p>LAN discovery posts devices into AnchorDesk and feeds the radial Network view.</p></article>
+        <article class="integration"><span class="tag core">Storage</span><strong>S3-compatible files</strong><p>Local disk, AWS S3, MinIO, Cloudflare R2, and Backblaze B2 are supported attachment stores.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section id="guides">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">Guides</div>
+        <h2>Go deeper.</h2>
+        <p>Start with the README for setup, then branch into architecture, MCP auth, schema, mobile verification, and provider extension docs.</p>
+      </div>
+      <div class="docs-grid">
+        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Quickstart<span>Local Compose, backend config, schema push, and web client.</span></a>
+        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/RELEASE_NOTES_v2.3.0.md" target="_blank" rel="noopener">2.3 release guide<span>Compass Calibration changes, automation-condition upgrade note, and image tags.</span></a>
+        <a class="doc-link" href="architecture.md">Architecture<span>Source-of-truth database, auth flow, adapters, repositories, and delivery status.</span></a>
+        <a class="doc-link" href="mcp-auth.md">MCP Auth<span>Personal tokens and built-in OAuth authorization-code + PKCE flow.</span></a>
+        <a class="doc-link" href="providers.md">Providers<span>How to add ticket sync providers and identity-safe device/RMM adapters.</span></a>
+        <a class="doc-link" href="schema.md">Database schema<span>Tables, relations, and the audit/event model behind the source of truth.</span></a>
+        <a class="doc-link" href="mobile.md">Mobile contract<span>The 360px rule, five-device screenshot matrix, and phone-width test guards.</span></a>
+        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog<span>Every release line from first anchor drop to Clock &amp; Compass.</span></a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="index.html"><svg><use href="#logo"/></svg> AnchorDesk</a>
+    <span>MIT (c) Joseph Spillers &middot; a <a href="https://spillerstech.us/">Spillers Technology</a> product</span>
+    <nav aria-label="Footer">
+      <a href="index.html">Home</a>
+      <a href="https://spillerstech.us/">spillerstech.us</a>
+      <a href="https://github.com/Spillers-Technology/AnchorDesk" target="_blank" rel="noopener">GitHub</a>
+      <a href="architecture.md">Architecture</a>
+      <a href="mcp-auth.md">MCP Auth</a>
+      <a href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

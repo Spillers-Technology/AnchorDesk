@@ -85,7 +85,7 @@ PostgreSQL :5432  ← source of truth
      ├── TacticalRmmProvider  (device sync + script runner)
      ├── NinjaOneProvider     (device sync + script runner — OAuth2 client-credentials)
      ├── DattoRmmProvider     (device sync + quick-job runner — OAuth2 password grant)
-     └── ImapProvider         (planned)
+     └── imapService          (inbound mail → tickets since 1.6; scheduler-driven, not a TicketProvider)
 ```
 
 GoF patterns in use:

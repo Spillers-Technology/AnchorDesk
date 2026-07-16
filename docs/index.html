@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AnchorDesk - local-first ticketing and IT operations</title>
-<meta name="description" content="AnchorDesk is a self-hosted, mobile-first ticketing and IT operations platform with manual deadlines, team queues, custom fields, automation, email-to-ticket, multi-RMM device records, OAuth-ready MCP, and PostgreSQL as the local source of truth." />
+<title>AnchorDesk - the ticketing system that syncs with your whole stack</title>
+<meta name="description" content="AnchorDesk is a modern, self-hosted ticketing system for MSPs and IT teams. Two-way sync with ConnectWise and Jira, devices from Tactical RMM, NinjaOne, and Datto, email-to-ticket, SLA automation, and AI-agent access — with your data in your PostgreSQL." />
 <meta name="theme-color" content="#4f46e5" />
 
 <meta property="og:type" content="website" />
-<meta property="og:title" content="AnchorDesk - local-first ticketing and IT operations" />
-<meta property="og:description" content="AnchorDesk 2.2 Clock &amp; Compass: manual deadlines, richer ticket and device context, direct Kanban ordering, modern React/Fastify foundations, and a broader mobile verification contract." />
+<meta property="og:title" content="AnchorDesk - the ticketing system that syncs with your whole stack" />
+<meta property="og:description" content="A modern, self-hosted service desk with two-way PSA sync, multi-RMM device context, email-to-ticket, SLA automation, and AI-agent access. Free and open source." />
 <meta property="og:url" content="https://spillerstech.us/AnchorDesk/" />
 <meta property="og:image" content="https://spillerstech.us/AnchorDesk/assets/screenshots/anchordesk-board.jpg" />
 
@@ -30,8 +30,6 @@
     --primary-dark: #312e81;
     --sky: #0ea5e9;
     --green: #16a34a;
-    --amber: #d97706;
-    --red: #dc2626;
     --shadow: 0 18px 45px rgba(23, 32, 42, 0.16);
     --maxw: 1180px;
   }
@@ -51,17 +49,6 @@
   img { max-width: 100%; display: block; }
   code, .mono { font-family: "Roboto Mono", ui-monospace, SFMono-Regular, Consolas, monospace; }
   .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
 
   header {
     position: sticky;
@@ -111,7 +98,7 @@
 
   .hero {
     position: relative;
-    min-height: 76vh;
+    min-height: 78vh;
     display: grid;
     align-items: center;
     overflow: hidden;
@@ -142,7 +129,7 @@
   .hero-content {
     position: relative;
     z-index: 1;
-    max-width: 720px;
+    max-width: 760px;
     padding: 86px 0 112px;
   }
   .release {
@@ -166,12 +153,12 @@
   }
   .hero h1 {
     margin: 22px 0 16px;
-    font-size: 4.4rem;
-    line-height: 1;
+    font-size: 3.6rem;
+    line-height: 1.06;
     font-weight: 800;
   }
   .hero .lead {
-    max-width: 650px;
+    max-width: 660px;
     margin: 0;
     color: #e5edf7;
     font-size: 1.24rem;
@@ -239,52 +226,69 @@
     margin: 12px 0 0;
   }
 
-  .release-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 16px;
+  .logo-strip {
+    padding: 34px 0;
+    background: #fff;
+    border-bottom: 1px solid var(--line);
   }
-  .tile,
-  .feature,
-  .integration {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 18px;
-  }
-  .tile strong,
-  .feature strong,
-  .integration strong {
-    display: block;
-    font-size: 1.02rem;
-    margin-bottom: 6px;
-  }
-  .tile p,
-  .feature p,
-  .integration p {
-    color: var(--muted);
-    margin: 0;
-    font-size: 0.94rem;
-  }
-  .status-line {
+  .logo-strip .wrap {
     display: flex;
-    gap: 8px;
+    flex-wrap: wrap;
     align-items: center;
-    margin-bottom: 12px;
-    color: var(--primary);
+    justify-content: center;
+    gap: 10px 14px;
+  }
+  .logo-strip .label {
+    width: 100%;
+    text-align: center;
+    color: var(--muted);
     font-size: 0.82rem;
     font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
   }
-  .status-line i {
-    width: 10px;
-    height: 10px;
+  .logo-chip {
+    border: 1px solid var(--line);
+    background: var(--canvas);
     border-radius: 999px;
-    background: currentColor;
+    padding: 8px 16px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #344154;
   }
-  .status-line.green { color: var(--green); }
-  .status-line.amber { color: var(--amber); }
-  .status-line.red { color: var(--red); }
-  .status-line.sky { color: var(--sky); }
+
+  .pillars {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+  }
+  .pillar {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 26px 24px;
+    box-shadow: 0 8px 20px rgba(23, 32, 42, 0.06);
+  }
+  .pillar .icon {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    background: var(--surface-2);
+    font-size: 1.4rem;
+    margin-bottom: 16px;
+  }
+  .pillar h3 {
+    margin: 0 0 10px;
+    font-size: 1.28rem;
+  }
+  .pillar p {
+    color: var(--muted);
+    margin: 0;
+    font-size: 0.98rem;
+  }
 
   .shots {
     display: grid;
@@ -319,147 +323,17 @@
     font-size: 0.94rem;
   }
 
-  .theme-deck {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px;
-  }
-  .theme-card {
-    --tb: #f4f5f9; --tp: #ffffff; --ti: #1f2430; --tm: #5b6472; --ta: #4f46e5; --ts: #0ea5e9;
-    min-height: 180px;
-    overflow: hidden;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--tb);
-    color: var(--ti);
-    box-shadow: 0 8px 20px rgba(23, 32, 42, 0.08);
-  }
-  .theme-card[data-palette="default-dark"] { --tb:#0f1116; --tp:#181b24; --ti:#e7e9f2; --tm:#a5abbd; --ta:#818cf8; --ts:#38bdf8; }
-  .theme-card[data-palette="solarized-light"] { --tb:#fdf6e3; --tp:#fbf3df; --ti:#586e75; --tm:#657b83; --ta:#268bd2; --ts:#2aa198; }
-  .theme-card[data-palette="solarized-dark"] { --tb:#002b36; --tp:#073642; --ti:#93a1a1; --tm:#839496; --ta:#268bd2; --ts:#2aa198; }
-  .theme-card[data-palette="nord"] { --tb:#2e3440; --tp:#3b4252; --ti:#e5e9f0; --tm:#b8c0d0; --ta:#88c0d0; --ts:#81a1c1; }
-  .theme-card[data-palette="gruvbox"] { --tb:#282828; --tp:#32302f; --ti:#ebdbb2; --tm:#a89984; --ta:#83a598; --ts:#fe8019; }
-  .theme-card[data-palette="dracula"] { --tb:#282a36; --tp:#343746; --ti:#f8f8f2; --tm:#a6accd; --ta:#bd93f9; --ts:#ff79c6; }
-  .theme-bar { display:flex; align-items:center; gap:7px; padding:10px 12px; background:var(--ta); color:var(--tb); font-size:.76rem; font-weight:800; }
-  .theme-anchor { width:18px; height:18px; display:grid; place-items:center; border-radius:5px; background:var(--tp); color:var(--ta); }
-  .theme-body { display:grid; grid-template-columns:46px 1fr; min-height:140px; }
-  .theme-rail { border-right:1px solid color-mix(in srgb, var(--tm) 28%, transparent); padding:12px 10px; }
-  .theme-rail i { display:block; width:22px; height:4px; margin-bottom:10px; border-radius:4px; background:var(--tm); opacity:.55; }
-  .theme-content { padding:14px; }
-  .theme-content strong { display:block; margin-bottom:3px; color:var(--ti); }
-  .theme-content small { color:var(--tm); }
-  .theme-ticket { margin-top:14px; padding:10px; border:1px solid color-mix(in srgb, var(--tm) 28%, transparent); border-radius:7px; background:var(--tp); }
-  .theme-signals { display:flex; gap:6px; margin-bottom:8px; }
-  .theme-signals span { width:34px; height:6px; border-radius:8px; background:var(--ta); }
-  .theme-signals span+span { width:24px; background:var(--ts); }
-  .theme-line { width:82%; height:5px; border-radius:5px; background:var(--tm); opacity:.38; }
-
-  .motion-row {
+  .quick {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 22px;
-    align-items: stretch;
-  }
-  .motion {
-    min-height: 260px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: #0f172a;
-    color: #e5edf7;
-    padding: 18px;
-    overflow: hidden;
-    position: relative;
-  }
-  .motion h3 { margin: 0 0 12px; color: #fff; }
-  .mini-columns {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-  }
-  .mini-col {
-    min-height: 170px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 8px;
-    padding: 10px;
-    background: rgba(255, 255, 255, 0.05);
-  }
-  .mini-col b {
-    display: block;
-    color: #bad8ff;
-    font-size: 0.75rem;
-    margin-bottom: 10px;
-  }
-  .mini-card {
-    border-radius: 8px;
-    background: #fff;
-    color: var(--ink);
-    padding: 9px;
-    font-size: 0.82rem;
-    box-shadow: 0 12px 22px rgba(0, 0, 0, 0.18);
-  }
-  .mini-card small {
-    display: block;
-    color: var(--muted);
-    margin-top: 4px;
-  }
-  .mini-card.fall {
-    animation: fallOff 4.6s cubic-bezier(0.45, 0, 0.65, 1) infinite;
-    transform-origin: 50% 0%;
-  }
-  .oauth-flow {
-    display: grid;
-    gap: 10px;
-    max-width: 470px;
-  }
-  .flow-step {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
-    padding: 11px 12px;
-  }
-  .flow-step span {
-    color: #cbd5e1;
-    font-size: 0.9rem;
-  }
-  .pulse {
-    width: 12px;
-    height: 12px;
-    border-radius: 999px;
-    background: var(--green);
-    animation: pulse 1.6s ease-in-out infinite;
-  }
-
-  .features {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px;
-  }
-  .feature {
-    min-height: 176px;
-  }
-  .feature em {
-    display: inline-block;
-    font-style: normal;
-    font-weight: 800;
-    color: var(--primary);
-    margin-bottom: 10px;
-  }
-
-  .how {
-    display: grid;
-    grid-template-columns: 0.95fr 1.05fr;
     gap: 28px;
-    align-items: stretch;
+    align-items: center;
   }
-  .steps {
+  .quick-points {
     display: grid;
     gap: 12px;
   }
-  .step {
+  .point {
     display: grid;
     grid-template-columns: 34px 1fr;
     gap: 12px;
@@ -469,7 +343,7 @@
     background: #fff;
     border-radius: 8px;
   }
-  .step .num {
+  .point .num {
     width: 34px;
     height: 34px;
     border-radius: 8px;
@@ -479,8 +353,8 @@
     color: var(--primary);
     font-weight: 800;
   }
-  .step strong { display: block; margin-bottom: 3px; }
-  .step p { margin: 0; color: var(--muted); font-size: 0.94rem; }
+  .point strong { display: block; margin-bottom: 3px; }
+  .point p { margin: 0; color: var(--muted); font-size: 0.94rem; }
   .codecard {
     background: #111827;
     border-radius: 8px;
@@ -509,63 +383,10 @@
     padding: 20px;
     overflow: auto;
     color: #e5edf7;
-    font-size: 0.88rem;
+    font-size: 0.92rem;
     line-height: 1.7;
   }
   pre .c { color: #94a3b8; }
-  pre .v { color: #93c5fd; }
-
-  .integrations {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 14px;
-  }
-  .integration {
-    min-height: 132px;
-  }
-  .integration .tag {
-    display: inline-flex;
-    margin-bottom: 10px;
-    padding: 3px 7px;
-    border-radius: 6px;
-    background: #e8f7ee;
-    color: #116b32;
-    font-size: 0.76rem;
-    font-weight: 800;
-  }
-  .integration .tag.alpha {
-    background: #fff4d6;
-    color: #8a5200;
-  }
-  .integration .tag.core {
-    background: #e0f2fe;
-    color: #075985;
-  }
-
-  .docs-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 14px;
-  }
-  .doc-link {
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: #fff;
-    padding: 16px;
-    color: var(--ink);
-    font-weight: 800;
-  }
-  .doc-link:hover {
-    border-color: var(--primary);
-    text-decoration: none;
-  }
-  .doc-link span {
-    display: block;
-    color: var(--muted);
-    font-weight: 500;
-    margin-top: 6px;
-    font-size: 0.9rem;
-  }
 
   .cta-band {
     background: #111827;
@@ -603,27 +424,13 @@
     from { background-position: center top; }
     to { background-position: center 18%; }
   }
-  @keyframes fallOff {
-    0%, 58% { transform: translateY(0) rotate(0deg); opacity: 1; }
-    66% { transform: translateY(-9px) rotate(-4deg); opacity: 1; }
-    88%, 100% { transform: translateY(250px) rotate(15deg); opacity: 0; }
-  }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.5); }
-    50% { box-shadow: 0 0 0 10px rgba(22, 163, 74, 0); }
-  }
 
   @media (max-width: 980px) {
     .nav a:not(.nav-cta) { display: none; }
-    .hero h1 { font-size: 3.2rem; }
-    .release-grid,
-    .features,
-    .integrations,
-    .docs-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .hero h1 { font-size: 2.8rem; }
+    .pillars { grid-template-columns: 1fr; }
     .shots,
-    .theme-deck,
-    .motion-row,
-    .how { grid-template-columns: 1fr; }
+    .quick { grid-template-columns: 1fr; }
   }
   @media (max-width: 640px) {
     .wrap { padding: 0 18px; }
@@ -635,15 +442,11 @@
       background-position: 38% top;
     }
     .hero-content { padding: 42px 0 56px; }
-    .hero h1 { font-size: 2.45rem; }
+    .hero h1 { font-size: 2.1rem; }
     .hero .lead { font-size: 1.05rem; }
     .hero-meta { display: none; }
     section { padding: 62px 0; }
     h2 { font-size: 1.85rem; }
-    .release-grid,
-    .features,
-    .integrations,
-    .docs-grid { grid-template-columns: 1fr; }
     .cta-band { display: block; padding: 24px; }
     .cta-band .actions { margin-top: 20px; }
     footer nav { margin-left: 0; width: 100%; }
@@ -698,12 +501,10 @@
   <div class="wrap topbar">
     <a class="brand" href="#top" aria-label="AnchorDesk home"><svg><use href="#logo"/></svg> AnchorDesk</a>
     <nav class="nav" aria-label="Primary">
-      <a href="#release">v2.2</a>
-      <a href="#themes">Themes</a>
-      <a href="#views">Views</a>
-      <a href="#platform">Platform</a>
-      <a href="#integrations">Integrations</a>
-      <a href="#docs">Docs</a>
+      <a href="#why">Why AnchorDesk</a>
+      <a href="#views">Screenshots</a>
+      <a href="#quickstart">Get started</a>
+      <a href="documentation.html">Documentation</a>
       <a href="https://spillerstech.us/#products">Managed hosting</a>
       <a class="nav-cta" href="https://github.com/Spillers-Technology/AnchorDesk" target="_blank" rel="noopener">GitHub</a>
     </nav>
@@ -714,72 +515,61 @@
   <section class="hero" aria-labelledby="hero-title">
     <div class="wrap">
       <div class="hero-content">
-        <div class="release"><span></span> v2.2.0 Clock &amp; Compass — explicit deadlines and clearer operational context</div>
-        <h1 id="hero-title">AnchorDesk</h1>
-        <p class="lead">A self-hosted, mobile-first service desk where PostgreSQL is the source of truth, deadlines and queues keep work pointed in the right direction, tickets know the machines behind them, and MCP/OAuth gives agents a first-class way in.</p>
+        <div class="release"><span></span> Free &amp; open source &middot; MIT &middot; v2.3 now shipping</div>
+        <h1 id="hero-title">The ticketing system that syncs with your whole stack.</h1>
+        <p class="lead">AnchorDesk is a modern, self-hosted service desk built for MSPs and IT teams. Two-way ticket sync with the PSAs you already use, device context from every RMM you run, email that becomes tickets — and your data stays on your hardware.</p>
         <div class="actions">
-          <a class="btn primary" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Start self-hosting</a>
-          <a class="btn secondary" href="#views">See current screens</a>
+          <a class="btn primary" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Get started free</a>
+          <a class="btn secondary" href="https://spillerstech.us/#products">Get it hosted for you</a>
         </div>
-        <div class="hero-meta" aria-label="Platform highlights">
-          <span>React 19 + MUI 9</span>
-          <span>Fastify 5 + Prisma</span>
-          <span>PostgreSQL core</span>
-          <span>Manual deadlines</span>
-          <span>Multi-RMM context</span>
-          <span>MCP workflows</span>
+        <div class="hero-meta" aria-label="Product highlights">
+          <span>Two-way PSA sync</span>
+          <span>Multi-RMM devices</span>
+          <span>Email-to-ticket</span>
+          <span>SLA + automation</span>
+          <span>AI-agent ready</span>
+          <span>Works on your phone</span>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="release">
+  <div class="logo-strip" aria-label="Integrations">
     <div class="wrap">
-      <div class="section-head">
-        <div class="kicker">Current release</div>
-        <h2>v2.2 gives every promise a clock and every queue more context.</h2>
-        <p>Clock &amp; Compass adds manual deadlines across REST, MCP, SLA evaluation, and the UI; surfaces teams, custom fields, automation actors, and provider identities; and modernizes both application stacks.</p>
-      </div>
-      <div class="release-grid">
-        <article class="tile">
-          <div class="status-line green"><i></i> Manual ticket deadlines</div>
-          <strong>The date people promised is now the date AnchorDesk follows.</strong>
-          <p>Set or clear a deadline in the ticket cockpit, REST, or MCP. It replaces the resolution target in live chips, scheduling, automation, and the Due column without disturbing the response SLA.</p>
-        </article>
-        <article class="tile">
-          <div class="status-line sky"><i></i> Queue and field visibility</div>
-          <strong>Configuration data shows up before you open the editor.</strong>
-          <p>Team badges, a Team column, dynamic custom-field columns, and typed advanced filters make queue slices and customer-specific facts visible in daily ticket views.</p>
-        </article>
-        <article class="tile">
-          <div class="status-line amber"><i></i> Workflow signals</div>
-          <strong>Rule actions and device identities explain themselves.</strong>
-          <p>Named Automation badges clarify history and notes, Network shows every external provider reference, map nodes carry type indicators, and Kanban columns reorder directly.</p>
-        </article>
-        <article class="tile">
-          <div class="status-line red"><i></i> Modern release foundations</div>
-          <strong>Fastify 5 and React 19 anchor the next release line.</strong>
-          <p>TypeScript 7 plus Jest/SWC modernize the backend; Router 7, Vite 8, Vitest 4, MUI 9, and Data Grid 9 refresh the web while the five-device mobile matrix adds more states.</p>
-        </article>
-      </div>
+      <div class="label">Plays nice with the tools you already run</div>
+      <span class="logo-chip">ConnectWise Manage</span>
+      <span class="logo-chip">Jira Cloud</span>
+      <span class="logo-chip">Tactical RMM</span>
+      <span class="logo-chip">NinjaOne</span>
+      <span class="logo-chip">Datto RMM</span>
+      <span class="logo-chip">Any IMAP / SMTP mail</span>
+      <span class="logo-chip">S3-compatible storage</span>
     </div>
-  </section>
+  </div>
 
-  <section id="themes" class="band">
+  <section id="why">
     <div class="wrap">
       <div class="section-head">
-        <div class="kicker">Now in multiple colors</div>
-        <h2>One workspace shape. Seven distinct atmospheres.</h2>
-        <p>Palette changes are personal, not cosmetic shortcuts: canvas, surfaces, text, dividers, accents, and semantic states are tuned together while layout stays familiar.</p>
+        <div class="kicker">Why AnchorDesk</div>
+        <h2>One desk. Every system. Zero lock-in.</h2>
+        <p>Most helpdesks make you choose: their cloud, their workflow, their price per seat. AnchorDesk anchors everything to a database you own and treats every other system as a plug-in.</p>
       </div>
-      <div class="theme-deck" aria-label="AnchorDesk theme palette previews">
-        <article class="theme-card" data-palette="default-light"><div class="theme-bar"><span class="theme-anchor">⚓</span> Default Light</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Bright watch</strong><small>Cool white · indigo</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
-        <article class="theme-card" data-palette="default-dark"><div class="theme-bar"><span class="theme-anchor">⚓</span> Default Dark</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Night watch</strong><small>Slate · periwinkle</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
-        <article class="theme-card" data-palette="solarized-light"><div class="theme-bar"><span class="theme-anchor">⚓</span> Solarized Light</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Paper chart</strong><small>Warm ivory · blue</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
-        <article class="theme-card" data-palette="solarized-dark"><div class="theme-bar"><span class="theme-anchor">⚓</span> Solarized Dark</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Deep water</strong><small>Blue-black · cyan</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
-        <article class="theme-card" data-palette="nord"><div class="theme-bar"><span class="theme-anchor">⚓</span> Nord</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Arctic bridge</strong><small>Frost · polar night</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
-        <article class="theme-card" data-palette="gruvbox"><div class="theme-bar"><span class="theme-anchor">⚓</span> Gruvbox</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>Signal room</strong><small>Charcoal · amber</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
-        <article class="theme-card" data-palette="dracula"><div class="theme-bar"><span class="theme-anchor">⚓</span> Dracula</div><div class="theme-body"><div class="theme-rail"><i></i><i></i><i></i></div><div class="theme-content"><strong>After hours</strong><small>Ink · violet · pink</small><div class="theme-ticket"><div class="theme-signals"><span></span><span></span></div><div class="theme-line"></div></div></div></div></article>
+      <div class="pillars">
+        <article class="pillar">
+          <div class="icon">⚓</div>
+          <h3>Own your service desk</h3>
+          <p>Self-hosted on your Docker or Kubernetes, with PostgreSQL as the single source of truth and a full audit trail on every change. MIT-licensed, no per-seat rent, no data hostage situations — export a printable ticket or the whole database whenever you like.</p>
+        </article>
+        <article class="pillar">
+          <div class="icon">🔄</div>
+          <h3>Sync both ways, keep the peace</h3>
+          <p>Tickets flow to and from ConnectWise and Jira with conflict handling a human approves. Devices from Tactical RMM, NinjaOne, and Datto merge into one record per machine, so every ticket knows the hardware behind it — and you can run scripts on it without leaving the ticket.</p>
+        </article>
+        <article class="pillar">
+          <div class="icon">⚡</div>
+          <h3>Move faster with less clicking</h3>
+          <p>Email becomes threaded tickets automatically. SLA clocks, manual deadlines, and automation rules keep promises visible and escalations hands-free. Live updates hit every screen instantly, it all works from a phone, and AI agents connect securely over MCP to work tickets like a technician.</p>
+        </article>
       </div>
     </div>
   </section>
@@ -787,169 +577,67 @@
   <section id="views" class="band">
     <div class="wrap">
       <div class="section-head">
-        <div class="kicker">Current render views</div>
-        <h2>Fresh product shots from the React app.</h2>
-        <p>These are generated from the current web client with mocked API data, so the GitHub Pages site can carry screenshots without needing a live backend.</p>
+        <div class="kicker">See it in action</div>
+        <h2>Built to be worked in all day.</h2>
+        <p>Real screens from the current release — click any shot to zoom.</p>
       </div>
       <div class="shots">
         <figure class="shot wide">
           <button class="lightbox-trigger" type="button" data-lightbox>
             <img src="assets/screenshots/anchordesk-board.jpg" alt="AnchorDesk Kanban board with ticket cards, SLA chips, sync badges, labels, and bulk update controls." />
           </button>
-          <figcaption><strong>Clear Deck board</strong><span>Closed work stays out of the default flow, cards carry deadline, team, SLA, label, source, and sync context, and status columns reorder by direct drag handle.</span></figcaption>
+          <figcaption><strong>A board that runs the day</strong><span>Drag tickets between statuses, reorder columns to match your workflow, and read deadlines, teams, SLA state, and sync status at a glance.</span></figcaption>
         </figure>
         <figure class="shot">
           <button class="lightbox-trigger" type="button" data-lightbox>
             <img src="assets/screenshots/anchordesk-ticket-modal.jpg" alt="AnchorDesk ticket modal showing rich description, activity notes, linked devices, attachments, and ticket metadata." />
           </button>
-          <figcaption><strong>Ticket cockpit</strong><span>A manual deadline, team routing, typed custom fields, rich descriptions, automation-aware activity, linked multi-RMM devices, time, files, mail, and sync controls live in one modal.</span></figcaption>
+          <figcaption><strong>Everything about a ticket, one screen</strong><span>Conversation, deadlines, devices, files, time, and email — no tab juggling.</span></figcaption>
         </figure>
         <figure class="shot">
           <button class="lightbox-trigger" type="button" data-lightbox>
             <img src="assets/screenshots/anchordesk-my-day.jpg" alt="AnchorDesk My Day time view with placed time blocks, gap bands, duration-only entries, and day summary." />
           </button>
-          <figcaption><strong>My Day</strong><span>Logged time sits on a vertical clock, overlap lanes stay readable, and gap bands make unlogged stretches obvious.</span></figcaption>
+          <figcaption><strong>Time tracking people actually do</strong><span>Logged work sits on a visual clock, and unlogged gaps call themselves out before invoicing does.</span></figcaption>
         </figure>
         <figure class="shot">
           <button class="lightbox-trigger" type="button" data-lightbox>
             <img src="assets/screenshots/anchordesk-network.jpg" alt="AnchorDesk network map with radial device layout, status-colored nodes, and selected device details." />
           </button>
-          <figcaption><strong>Network map</strong><span>Type indicators speed up the radial scan; the focused device exposes linked tickets and every provider-specific identity merged into its local configuration record.</span></figcaption>
+          <figcaption><strong>See the network behind the tickets</strong><span>Discovered and RMM-synced devices on one live map, linked straight to the tickets they cause.</span></figcaption>
         </figure>
         <figure class="shot">
           <button class="lightbox-trigger" type="button" data-lightbox>
             <img src="assets/screenshots/anchordesk-sync.jpg" alt="AnchorDesk sync management screen with ConnectWise and Jira providers, recent sync activity, and integrations roadmap." />
           </button>
-          <figcaption><strong>Sync surface</strong><span>ConnectWise and Jira two-way providers share one operational view with recent activity, manual runs, and honest integration status.</span></figcaption>
+          <figcaption><strong>Integrations you can trust</strong><span>Every provider shows its real status and recent activity — no mystery sync jobs.</span></figcaption>
         </figure>
       </div>
     </div>
   </section>
 
-  <section>
+  <section id="quickstart">
     <div class="wrap">
       <div class="section-head">
-        <div class="kicker">Motion cues</div>
-        <h2>A little movement where it helps.</h2>
-        <p>The app favors practical feedback: closing work falls off the board, and OAuth/MCP discovery has a short, explicit consent loop.</p>
+        <div class="kicker">Get started</div>
+        <h2>Up and running before the coffee cools.</h2>
+        <p>One Compose file brings up the database, backend, and web client. Connect your mail and integrations from the admin screen when you're ready.</p>
       </div>
-      <div class="motion-row">
-        <article class="motion">
-          <h3>Kanban close animation</h3>
-          <div class="mini-columns" aria-hidden="true">
-            <div class="mini-col"><b>NEW</b><div class="mini-card">Shared mailbox signature<small>#10483</small></div></div>
-            <div class="mini-col"><b>IN PROGRESS</b><div class="mini-card">VPN tunnel renegotiates<small>#10482</small></div></div>
-            <div class="mini-col"><b>RESOLVED</b><div class="mini-card fall">Conference display online<small>#10486</small></div></div>
-          </div>
-        </article>
-        <article class="motion">
-          <h3>MCP OAuth handshake</h3>
-          <div class="oauth-flow" aria-hidden="true">
-            <div class="flow-step"><strong>Client discovers metadata</strong><span>/.well-known</span><div class="pulse"></div></div>
-            <div class="flow-step"><strong>Dynamic registration</strong><span>/oauth/register</span><div class="pulse"></div></div>
-            <div class="flow-step"><strong>User grants consent</strong><span>/oauth/authorize</span><div class="pulse"></div></div>
-            <div class="flow-step"><strong>Token works as the user</strong><span>/mcp/sse</span><div class="pulse"></div></div>
-          </div>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <section id="platform" class="band">
-    <div class="wrap">
-      <div class="section-head">
-        <div class="kicker">Platform</div>
-        <h2>Helpdesk, operations console, and agent surface in one system.</h2>
-        <p>AnchorDesk can run standalone, then attach the pieces of your MSP or IT stack as adapters.</p>
-      </div>
-      <div class="features">
-        <article class="feature"><em>Tickets</em><strong>Local-first ticketing</strong><p>Create, set manual deadlines, route to teams, assign, capture and filter typed custom fields, save views, label, bulk update, and work tickets from card, board, and optional table views.</p></article>
-        <article class="feature"><em>Email</em><strong>Threaded IMAP and SMTP</strong><p>Poll multiple mailboxes, dedupe by Message-ID, tag subjects with public ticket numbers, and reply with identities, templates, signatures, Cc/Bcc, and inline images.</p></article>
-        <article class="feature"><em>Devices</em><strong>Configuration records and network map</strong><p>Asset data stays local while probes and RMMs refresh operational context; map type indicators and the selected-device reference list expose what each provider knows.</p></article>
-        <article class="feature"><em>RMM</em><strong>One device, multiple providers</strong><p>Tactical RMM, NinjaOne, and Datto identities merge onto one device; technicians select the provider for live snapshots, scripts, or quick jobs.</p></article>
-        <article class="feature"><em>Sync</em><strong>Two-way PSA issue sync</strong><p>ConnectWise Manage and Jira Cloud can pull and push ticket state, hold conflicts, and ask a human to keep local or remote changes.</p></article>
-        <article class="feature"><em>Identity</em><strong>SSO, MFA, RBAC, MCP OAuth</strong><p>Local accounts, OIDC, SAML, TOTP MFA, personal access tokens, and built-in OAuth for MCP all resolve to a real user and role.</p></article>
-        <article class="feature"><em>Agents</em><strong>Workflow-complete MCP</strong><p>Authenticated agents can work deadlines, tickets, notes, time, email, labels, teams, custom fields, saved views, ranked search, and audit history.</p></article>
-        <article class="feature"><em>Automation</em><strong>Rules and SLA escalation</strong><p>Ticket, note, SLA-warning, and breach events can update, route, label, annotate, or notify with named Automation attribution and a loop guard.</p></article>
-        <article class="feature"><em>Realtime</em><strong>WebSockets and notifications</strong><p>Ticket lists, board cards, open modals, the notification bell, SLA state, and automation results update without refresh.</p></article>
-        <article class="feature"><em>Files</em><strong>Attachments and export</strong><p>Drag/drop files onto tickets, store bytes locally or in S3-compatible storage, and export a printable ticket with safe inline activity.</p></article>
-        <article class="feature"><em>Audit</em><strong>Actor-attributed history</strong><p>Managed changes append before/after values with the user and channel, including web, API token, MCP, and named automation activity.</p></article>
-        <article class="feature"><em>Mobile</em><strong>Pocket-sized helpdesk</strong><p>Mobile-first by requirement: 95 states across five touch profiles verify advanced search, ticket history/cockpit, the composer, touch Kanban, and a pinch-zoomable network map from 344px upward.</p></article>
-      </div>
-    </div>
-  </section>
-
-  <section id="how">
-    <div class="wrap">
-      <div class="section-head">
-        <div class="kicker">How it works</div>
-        <h2>The database is the core. Integrations are adapters.</h2>
-      </div>
-      <div class="how">
-        <div class="steps">
-          <div class="step"><div class="num">1</div><div><strong>Tickets land locally</strong><p>UI, IMAP, ConnectWise, Jira, and API-created tickets normalize into PostgreSQL.</p></div></div>
-          <div class="step"><div class="num">2</div><div><strong>Queues and rules move the work</strong><p>Teams, saved views, custom fields, and audited automation translate service-desk policy into the local workflow.</p></div></div>
-          <div class="step"><div class="num">3</div><div><strong>Device identities converge</strong><p>Provider references merge RMM and probe observations into one asset record linked to companies and tickets.</p></div></div>
-          <div class="step"><div class="num">4</div><div><strong>People and agents act in context</strong><p>Technicians and OAuth/PAT-authenticated MCP clients share RBAC, audit attribution, and the same ticket workflow primitives.</p></div></div>
+      <div class="quick">
+        <div class="quick-points">
+          <div class="point"><div class="num">1</div><div><strong>Launch the stack</strong><p>Docker Compose or Kubernetes manifests, with prebuilt images on GHCR.</p></div></div>
+          <div class="point"><div class="num">2</div><div><strong>Connect your tools</strong><p>Point it at your mailboxes, PSA, and RMMs from Admin — credentials stay on your server.</p></div></div>
+          <div class="point"><div class="num">3</div><div><strong>Work the queue</strong><p>Invite the team with SSO and MFA, set SLA policies, and let automation handle the busywork.</p></div></div>
         </div>
         <div class="codecard">
           <div class="codebar"><span></span><span></span><span></span></div>
-<pre><span class="c"># PostgreSQL and Adminer</span>
-docker compose up -d db adminer
+<pre><span class="c"># The whole stack, one command</span>
+git clone https://github.com/Spillers-Technology/AnchorDesk
+cd AnchorDesk
+docker compose up --build
 
-<span class="c"># Backend config and schema</span>
-cp backend/.env.example backend/.env
-cd backend
-npm ci
-npx prisma db push
-npm start              <span class="c"># :8060</span>
-
-<span class="c"># Web client</span>
-cd ../web-client
-npm ci
-npm run dev            <span class="c"># :5173</span>
-
-<span class="c"># Current images</span>
-ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.2.0</span>
-ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.2.0</span></pre>
+<span class="c"># Web on :5173 · API on :8060 · PostgreSQL on :5432</span></pre>
         </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="integrations" class="band">
-    <div class="wrap">
-      <div class="section-head">
-        <div class="kicker">Integrations</div>
-        <h2>Use the tools you already run.</h2>
-        <p>Credentials seed from environment variables and can be managed later from Admin. Alpha providers are gated until configured.</p>
-      </div>
-      <div class="integrations">
-        <article class="integration"><span class="tag">Available</span><strong>IMAP + SMTP</strong><p>Email-to-ticket, shared/personal send-from identities, templates, signatures, inline images, and attachments.</p></article>
-        <article class="integration"><span class="tag">Available</span><strong>ConnectWise Manage</strong><p>Inbound and outbound ticket sync with notes, sync states, and conflict handling.</p></article>
-        <article class="integration"><span class="tag alpha">Alpha</span><strong>Jira Cloud</strong><p>Two-way issue sync using Jira Cloud v3, ADF bodies, and status transitions.</p></article>
-        <article class="integration"><span class="tag">Available</span><strong>Tactical RMM</strong><p>Device sync, live agent snapshots, script catalog, run-now, scheduled jobs, and ticket output.</p></article>
-        <article class="integration"><span class="tag alpha">Alpha</span><strong>NinjaOne</strong><p>OAuth client credentials, device sync, live snapshots, and saved automation script runs.</p></article>
-        <article class="integration"><span class="tag alpha">Alpha</span><strong>Datto RMM</strong><p>Device sync and async quick jobs by component UID, with job status retained.</p></article>
-        <article class="integration"><span class="tag">Available</span><strong>netviz probes</strong><p>LAN discovery posts devices into AnchorDesk and feeds the radial Network view.</p></article>
-        <article class="integration"><span class="tag core">Storage</span><strong>S3-compatible files</strong><p>Local disk, AWS S3, MinIO, Cloudflare R2, and Backblaze B2 are supported attachment stores.</p></article>
-      </div>
-    </div>
-  </section>
-
-  <section id="docs">
-    <div class="wrap">
-      <div class="section-head">
-        <div class="kicker">Documentation</div>
-        <h2>Updated docs for the current shape.</h2>
-        <p>Start with the README for setup, then branch into architecture, MCP auth, schema, and provider extension docs.</p>
-      </div>
-      <div class="docs-grid">
-        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Quickstart<span>Local Compose, backend config, schema push, and web client.</span></a>
-        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/RELEASE_NOTES_v2.2.0.md" target="_blank" rel="noopener">2.2 release guide<span>Clock &amp; Compass features, upgrade notes, image tags, and verification target.</span></a>
-        <a class="doc-link" href="architecture.md">Architecture<span>Source-of-truth database, auth flow, adapters, repositories, and delivery status.</span></a>
-        <a class="doc-link" href="mcp-auth.md">MCP Auth<span>Personal tokens and built-in OAuth authorization-code + PKCE flow.</span></a>
-        <a class="doc-link" href="providers.md">Providers<span>How to add ticket sync providers and identity-safe device/RMM adapters.</span></a>
       </div>
     </div>
   </section>
@@ -958,12 +646,12 @@ ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.2.0</span></
     <div class="wrap">
       <div class="cta-band">
         <div>
-          <h2>Run it on your own stack.</h2>
-          <p>Free and open source under MIT, with Docker Compose, Kubernetes manifests, GHCR images, and docs that now match the current app. Rather not run it yourself? <a href="https://spillerstech.us/#products">Spillers Technology hosts it</a> &mdash; provisioning, upgrades, backups, and monitoring included.</p>
+          <h2>Your desk. Your data. Your call.</h2>
+          <p>Free and open source under MIT. Run it yourself in minutes, or <a href="https://spillerstech.us/#products">let Spillers Technology host it</a> — provisioning, upgrades, backups, and monitoring included. Curious how it works? <a href="documentation.html">Read the documentation</a>.</p>
         </div>
         <div class="actions">
-          <a class="btn primary" href="https://github.com/Spillers-Technology/AnchorDesk" target="_blank" rel="noopener">Clone the repo</a>
-          <a class="btn secondary" href="https://github.com/Spillers-Technology/AnchorDesk/releases" target="_blank" rel="noopener">Release notes</a>
+          <a class="btn primary" href="https://github.com/Spillers-Technology/AnchorDesk" target="_blank" rel="noopener">Start free on GitHub</a>
+          <a class="btn secondary" href="https://spillerstech.us/#products">Talk hosting</a>
         </div>
       </div>
     </div>
@@ -975,10 +663,9 @@ ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.2.0</span></
     <a class="brand" href="#top"><svg><use href="#logo"/></svg> AnchorDesk</a>
     <span>MIT (c) Joseph Spillers &middot; a <a href="https://spillerstech.us/">Spillers Technology</a> product</span>
     <nav aria-label="Footer">
+      <a href="documentation.html">Documentation</a>
       <a href="https://spillerstech.us/">spillerstech.us</a>
       <a href="https://github.com/Spillers-Technology/AnchorDesk" target="_blank" rel="noopener">GitHub</a>
-      <a href="architecture.md">Architecture</a>
-      <a href="mcp-auth.md">MCP Auth</a>
       <a href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
     </nav>
   </div>
