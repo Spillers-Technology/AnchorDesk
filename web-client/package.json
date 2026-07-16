@@ -30,7 +30,7 @@
     "dompurify": "^3.4.11",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-router-dom": "^6.26.2"
+    "react-router-dom": "^7.18.1"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",
