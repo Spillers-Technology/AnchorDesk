@@ -10,7 +10,8 @@ mocked `/api/*` responses (no backend or database needed):
   **My Day**, **Companies**, **Network**, **Sync**.
 - **`capture-mobile-media.mjs`** — the **mobile verification matrix**
   ([docs/mobile.md](../mobile.md)): **login**, **board**, **saved views**,
-  **Kanban columns**, **ticket**, **composer**, **cards**, **My Day**,
+  **Kanban columns**, **advanced filters**, **ticket**, **ticket history**,
+  **composer**, **cards**, **My Day**,
   **Companies**, **Network**, **Sync**, and the **Admin** dashboard, teams,
   custom fields, automations, devices, and device-asset editor across five
   touch device profiles (Galaxy 360, iPhone 393, Pixel 412, folded foldable
@@ -57,7 +58,7 @@ renders), `freezeAnimations(page)` (deterministic screenshots), `loadPlaywright(
 
    ```bash
    node docs/scripts/capture-product-media.mjs   # desktop hero shots
-   node docs/scripts/capture-mobile-media.mjs    # mobile matrix (85 shots)
+   node docs/scripts/capture-mobile-media.mjs    # mobile matrix (95 shots)
    ```
 
    Review the desktop diff before committing. While iterating on a mobile fix,

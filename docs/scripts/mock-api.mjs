@@ -154,6 +154,7 @@ const ticketRows = [
     syncState: null,
     responseDueAt: daysFromNow(0, 18),
     resolutionDueAt: daysFromNow(1, 15),
+    dueAt: daysFromNow(0, 17, 30),
     firstRespondedAt: daysFromNow(0, 9, 14),
     createdAt: daysFromNow(0, 8, 42),
     labels: [{ label: labels[1] }],
@@ -315,6 +316,16 @@ const notesByTicket = {
       minutes: 35,
       timeStart: daysFromNow(0, 9, 40),
       timeStop: daysFromNow(0, 10, 15),
+    },
+    {
+      id: 504,
+      ticketId: 101,
+      createdAt: daysFromNow(0, 10, 18),
+      content: "Raised priority and routed the ticket to Network Operations.",
+      htmlContent: "<p>Raised priority and routed the ticket to <strong>Network Operations</strong>.</p>",
+      author: "automation:Escalate production impact",
+      authorId: null,
+      noteType: "internal",
     },
   ],
 };
@@ -788,10 +799,15 @@ export async function handleApi(route) {
     const includeClosed = url.searchParams.get("includeClosed") === "true";
     const status = url.searchParams.get("status");
     const teamId = url.searchParams.get("teamId");
+    const customFieldFilters = [...url.searchParams.entries()].filter(([key]) => key.startsWith("cf."));
     const q = (url.searchParams.get("q") || "").toLowerCase();
     let items = ticketRows.filter((t) => includeClosed || t.status !== "Closed");
     if (status) items = items.filter((t) => t.status === status);
     if (teamId) items = items.filter((t) => t.teamId === Number(teamId));
+    for (const [param, value] of customFieldFilters) {
+      const key = param.slice(3);
+      items = items.filter((ticket) => String(ticket.customFields?.[key] ?? "") === value);
+    }
     if (q) {
       items = items.filter((t) =>
         [t.title, t.summary, t.description, t.companyName, t.ticketNumber, t.priority]
@@ -848,6 +864,32 @@ export async function handleApi(route) {
         storageBackend: "local",
         createdBy: "Jess Spillers",
         createdAt: daysFromNow(0, 10, 6),
+      },
+    ]);
+  }
+
+  match = apiPath.match(/^\/tickets\/(\d+)\/history$/);
+  if (method === "GET" && match) {
+    return json(route, [
+      {
+        id: "9002",
+        entityType: "ticket",
+        entityId: Number(match[1]),
+        action: "update",
+        changedBy: "automation:Escalate production impact",
+        oldValue: { priority: "Medium", teamId: null },
+        newValue: { priority: "High", teamId: 1 },
+        occurredAt: daysFromNow(0, 10, 18),
+      },
+      {
+        id: "9001",
+        entityType: "ticket",
+        entityId: Number(match[1]),
+        action: "create",
+        changedBy: "Jess Spillers",
+        oldValue: null,
+        newValue: { status: "New", priority: "Medium" },
+        occurredAt: daysFromNow(0, 8, 42),
       },
     ]);
   }

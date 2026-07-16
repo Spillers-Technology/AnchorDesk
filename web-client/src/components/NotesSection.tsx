@@ -17,6 +17,7 @@ import { ArrowDownward, ArrowUpward, Edit, Save, Undo } from "@mui/icons-materia
 import CallReceivedIcon from "@mui/icons-material/CallReceived";
 import CallMadeIcon from "@mui/icons-material/CallMade";
 import ReplyIcon from "@mui/icons-material/Reply";
+import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import { Note } from "../interfaces";
 import { isRichTextEmpty, toEditorHtml } from "../html";
 import HtmlContent from "./HtmlContent";
@@ -104,7 +105,6 @@ const NotesSection: React.FC<NotesSectionProps> = ({
         </Typography>
       </Box>
       {editError && <Alert severity="error" sx={{ mb: 1 }}>{editError}</Alert>}
-
       {notes.length > 0 ? (
         <List
           disablePadding
@@ -136,8 +136,17 @@ const NotesSection: React.FC<NotesSectionProps> = ({
                       {new Date(note.dateCreated).toLocaleTimeString()}{" "}
                       {new Date(note.dateCreated).toLocaleDateString()}
                     </Typography>
-                    <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                      {note.authorName}
+                    <Typography component="div" variant="body2" sx={{ color: "text.secondary" }}>
+                      {note.authorName.startsWith("automation:") ? (
+                        <Chip
+                          size="small"
+                          color="secondary"
+                          variant="outlined"
+                          icon={<AutoFixHighIcon />}
+                          label={`Automation · ${note.authorName.slice("automation:".length) || "Unnamed rule"}`}
+                          sx={{ maxWidth: "100%", "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis" } }}
+                        />
+                      ) : note.authorName}
                     </Typography>
                     <Typography variant="body2" sx={{ color: "text.secondary" }}>
                       {note.type === "timeEntry"
@@ -158,7 +167,9 @@ const NotesSection: React.FC<NotesSectionProps> = ({
                           }
                           minHeight={140}
                         />
-                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                        <Stack direction="row" spacing={1} sx={{
+                          justifyContent: "flex-end"
+                        }}>
                           <Button size="small" startIcon={<Undo />} onClick={() => handleRevertNote(note.id)}>
                             Cancel
                           </Button>
@@ -222,7 +233,13 @@ function EmailBubble({ note, onReply }: { note: Note; onReply?: (note: Note) => 
           borderColor: outbound ? "primary.main" : "divider",
         }}
         >
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{
+            alignItems: "center",
+            mb: 0.5
+          }}>
           <Chip
             size="small"
             icon={outbound ? <CallMadeIcon /> : <CallReceivedIcon />}
@@ -230,15 +247,27 @@ function EmailBubble({ note, onReply }: { note: Note; onReply?: (note: Note) => 
             color={outbound ? "primary" : "default"}
             variant="outlined"
           />
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{
+            color: "text.secondary"
+          }}>
             {new Date(note.dateCreated).toLocaleString()}
           </Typography>
         </Stack>
-        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+        <Typography
+          variant="caption"
+          sx={{
+            color: "text.secondary",
+            display: "block"
+          }}>
           <strong>From:</strong> {note.emailFrom || note.authorName}
         </Typography>
         {note.emailTo && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+          <Typography
+            variant="caption"
+            sx={{
+              color: "text.secondary",
+              display: "block"
+            }}>
             <strong>To:</strong> {note.emailTo}
           </Typography>
         )}

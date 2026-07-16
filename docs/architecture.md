@@ -218,4 +218,5 @@ api/client.ts — all fetch() calls go through here
 | 1.17.0 | Rich-text ticket modal, separate rich note composer, bulk ticket updates, unified contact picker, and server-side HTML sanitizing | **Done** |
 | 2.0.0 | Per-user palettes, mandatory ticket-company resolution, contact/composer completion, workflow signifiers, and OUI-enriched Canvas network map | **Done** |
 | 2.1.0 | Mobile-first UI, team queues, custom fields, automation/SLA escalation, saved views/Kanban preferences, expanded MCP tools, and multi-RMM configuration records | **Done** |
+| 2.2.0 | Manual resolution-deadline overrides across REST/MCP/SLA/UI, team and custom-field read-side filters, visible automation/device provenance, draggable Kanban columns, map type indicators, and runtime modernization | **Done** |
 | Roadmap | Postgres LISTEN/NOTIFY for live probe status | Planned |

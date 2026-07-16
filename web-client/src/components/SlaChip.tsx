@@ -10,6 +10,8 @@ import AccessTimeIcon from "@mui/icons-material/AccessTime";
 interface SlaChipProps {
   responseDueAt?: string | null;
   resolutionDueAt?: string | null;
+  /** Manual deadline; overrides only the resolution clock, not response SLA. */
+  dueAt?: string | null;
   firstRespondedAt?: string | null;
   status?: string;
   size?: "small" | "medium";
@@ -28,7 +30,28 @@ function fmtDelta(ms: number): string {
   return `${d}d ${h % 24}h`;
 }
 
-export default function SlaChip({ responseDueAt, resolutionDueAt, firstRespondedAt, status, size = "small" }: SlaChipProps) {
+export interface ActiveDeadline {
+  kind: "Response" | "Resolution" | "Deadline";
+  due: string;
+  manual: boolean;
+}
+
+/** Pick the active clock while keeping the response SLA independent. */
+export function activeDeadline({
+  responseDueAt,
+  resolutionDueAt,
+  dueAt,
+  firstRespondedAt,
+}: Pick<SlaChipProps, "responseDueAt" | "resolutionDueAt" | "dueAt" | "firstRespondedAt">): ActiveDeadline | null {
+  if (!firstRespondedAt && responseDueAt) {
+    return { kind: "Response", due: responseDueAt, manual: false };
+  }
+  if (dueAt) return { kind: "Deadline", due: dueAt, manual: true };
+  if (resolutionDueAt) return { kind: "Resolution", due: resolutionDueAt, manual: false };
+  return null;
+}
+
+export default function SlaChip({ responseDueAt, resolutionDueAt, dueAt, firstRespondedAt, status, size = "small" }: SlaChipProps) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30_000);
@@ -37,21 +60,20 @@ export default function SlaChip({ responseDueAt, resolutionDueAt, firstResponded
 
   if (status && TERMINAL.includes(status)) return null;
 
-  // Active clock: response until the first reply lands, then resolution.
-  const clock = !firstRespondedAt && responseDueAt
-    ? { kind: "Response", due: responseDueAt }
-    : resolutionDueAt
-      ? { kind: "Resolution", due: resolutionDueAt }
-      : null;
+  // Active clock: response until the first reply lands, then the manual
+  // deadline when present, otherwise the policy-derived resolution target.
+  const clock = activeDeadline({ responseDueAt, resolutionDueAt, dueAt, firstRespondedAt });
   if (!clock) return null;
 
-  const remaining = new Date(clock.due).getTime() - now;
+  const dueTime = new Date(clock.due).getTime();
+  if (!Number.isFinite(dueTime)) return null;
+  const remaining = dueTime - now;
   const breached = remaining < 0;
   const warning = !breached && remaining < 60 * 60_000; // within an hour
 
   const color = breached ? "error" : warning ? "warning" : "success";
   const label = breached ? `${clock.kind} overdue ${fmtDelta(remaining)}` : `${clock.kind} ${fmtDelta(remaining)}`;
-  const tip = `${clock.kind} SLA ${breached ? "breached" : "due"} ${new Date(clock.due).toLocaleString()}`;
+  const tip = `${clock.manual ? "Manual deadline" : `${clock.kind} SLA`} ${breached ? "breached" : "due"} ${new Date(clock.due).toLocaleString()}`;
 
   return (
     <Tooltip title={tip}>

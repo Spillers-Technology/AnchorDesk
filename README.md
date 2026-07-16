@@ -28,25 +28,17 @@ And it travels: the web client is **mobile-first**, so triaging the board, reply
 <img width="360" alt="AnchorDesk Kanban board on a phone: full toolbar, SLA and label chips, and touch-visible card actions at 412px" src="docs/assets/screenshots/anchordesk-mobile-board.jpg" />
 </div>
 
-## What ships in v2.1.0
+## What ships in v2.2.0
 
-- **📱 Mobile-first web client** — the board, ticket cockpit, email composer, and admin console are fully usable from a 344px folded foldable up through Pixel, iPhone, and Galaxy phones and tablets: dialogs go full-screen on phones, the network map pinch-zooms (with on-screen zoom buttons), touch affordances never hide behind hover, and a Playwright device matrix verifies every view at five viewports ([docs/mobile.md](docs/mobile.md)).
-- **👥 Team queues** — route work to a team independently of the individual assignee, manage membership in Admin, and filter tickets or drive automations by queue.
-- **🧩 Custom ticket fields** — admins define validated text, number, boolean, date, and select fields; values travel through the ticket dialog, REST API, automation conditions, audit trail, and MCP tools.
-- **⚙️ Automation + SLA escalation** — event rules react to ticket changes, notes, and SLA warnings/breaches, then update, route, label, annotate, or notify through the normal audited/live-update pipeline.
-- **🔖 Saved workspaces** — personal and admin-published shared views persist ticket filters, while each technician can choose and order the status columns on their Kanban board.
-- **🧰 Configuration records across RMMs** — lifecycle fields (asset tag, serial, make/model, location, purchase/warranty dates, and notes) stay local while provider-specific external references unify Tactical RMM, NinjaOne, Datto RMM, and probe observations of the same physical device.
-- **🤖 Broader MCP workflows** — authenticated agents can use labels, teams, custom fields, saved views, ranked search, and audit history in addition to ticket, note, time, and email operations.
-- **🎨 Seven personal palettes** — Default Light/Dark, Solarized Light/Dark, Nord, Gruvbox, and Dracula apply instantly from the account menu and follow each user.
-- **🧠 Device intelligence + Canvas map** — lazy OUI vendor resolution, service/port fingerprinting, non-destructive device classification, and the interactive netviz cluster map with zoom, pan, labels, and linked-ticket context.
-- **🏢 Complete company/contact flow** — every new ticket resolves to a real company, inbound email recognizes sender domains, contacts edit inline, primary selection is atomic, and fresh email chooses the right recipient.
-- **🚦 Faster workflow scanning** — status dots and priority icons carry meaning across cards, tables, and selectors; the ticket activity feed is a compact chronological rail.
-- **📝 Rich-text ticket cockpit** — descriptions, internal notes, and outbound email now share one rich editor with a visual/source-HTML toggle. Saved descriptions and rich notes are sanitized server-side; previews strip HTML; printable exports preserve safe formatting.
-- **🗒️ Notes are separate from email** — the activity card has its own rich note composer, and editing an existing note now persists.
-- **☑️ Bulk ticket updates** — select visible tickets from cards, Kanban, or the legacy table and update status, priority, and assignee in one page-scoped operation.
-- **👤 Unified contact picker** — the ticket modal's Contact field now matches the Company picker: searchable, pick-or-create, and displays email/phone for the selected contact.
+- **⏰ Manual ticket deadlines** — set or clear a promise date in the ticket cockpit, REST API, or MCP tools. The manual date overrides the SLA resolution target everywhere it is consumed, while the response SLA stays independent; live chips and the table's Due column make the active clock explicit.
+- **👀 Queue and field context on the read side** — team badges and a Team column keep routing visible, while active custom fields become typed table columns and advanced-search controls backed by validated PostgreSQL `jsonb` equality filters.
+- **🪄 Visible automation attribution** — revision history and timeline notes render named Automation badges, so rule-driven changes no longer look like ordinary user activity.
+- **🧭 Provider-aware Network view** — a selected device lists all Tactical, NinjaOne, Datto, and probe references, while emoji device-type indicators make the Canvas map faster to scan without replacing labels, colors, or status rings.
+- **↔️ Direct Kanban column ordering** — drag column handles to change the board vocabulary's left-to-right order and save it to the existing per-user preference.
+- **📱 A broader mobile contract** — the five-device capture matrix now includes advanced search and ticket history, with deadline/automation/provider-reference fixtures and phone-width guards for the full ticket cockpit ([docs/mobile.md](docs/mobile.md)).
+- **🧱 Modernized application stacks** — Fastify 5 and matching plugins, otplib 13, dotenv 17, TypeScript 7 plus Jest 30/SWC on the backend; React 19, Router 7, Vite 8, Vitest 4, MUI 9, and Data Grid 9 on the web.
 
-**Also landed recently:** built-in OAuth 2.0 authorization-code + PKCE for MCP clients such as ChatGPT (1.16), OAuth protected-resource metadata for hosted domains (1.15), NinjaOne and Datto RMM plus two-way ConnectWise/Jira ticket sync (1.14), the page-filling **Clear Deck** board with regex advanced search (1.13), the **My Day** time day-spread and company-scoped device linking (1.12), and built-in **personal access tokens** for MCP/agent auth (1.10).
+**Also landed recently:** v2.1's mobile-first foundation, team queues, custom fields, saved views, automation/SLA escalation, expanded MCP tools, and multi-RMM configuration records; seven personal palettes and the OUI-enriched Canvas map (2.0); built-in OAuth 2.0 authorization-code + PKCE for MCP clients such as ChatGPT (1.16); and two-way ConnectWise/Jira ticket sync plus NinjaOne/Datto RMM adapters (1.14).
 
 The core platform also includes:
 
@@ -58,7 +50,7 @@ The core platform also includes:
 - **🔎 Fuzzy search** — typo-tolerant Postgres `pg_trgm` search combined with full-text, reaching across priority, ticket number, and the conversation/timeline.
 - **📎 Attachments** — drag-and-drop files onto a ticket or attach them to an outgoing email; inbound email attachments are captured automatically. Bytes live on local disk or any **S3-compatible** store (AWS S3, MinIO, Cloudflare R2, Backblaze B2), selectable by env var or in **Admin → Integrations**.
 - **🔔 Live updates & notifications** — a WebSocket channel pushes ticket, note, and SLA changes in real time: lists, the Kanban board, and the open ticket update without a refresh, and a notification bell alerts you to assignments, customer replies, and SLA risk.
-- **⏰ SLA tracking** — per-priority / per-company response & resolution targets with live countdown chips (green → amber → red) on lists, cards, the board, and the ticket; warning/breach events can notify directly or drive escalation rules.
+- **⏰ SLA tracking + manual deadlines** — per-priority / per-company response & resolution targets with live countdown chips (green → amber → red) on lists, cards, the board, and the ticket; an explicit ticket deadline can override the resolution target without changing the response clock, and warning/breach events can notify directly or drive escalation rules.
 - **🎫 Local-first ticketing** — create and edit tickets, route teams, assign technicians, manage custom fields and notes, save filtered views, and use card/table/Kanban layouts. The list is server-paginated with server-side search and filtering, so it scales past large ticket counts.
 - **🧰 Ticket cockpit** — one ticket view with status, priority, source, company & contact, assignee picker, activity timeline, time tracking, linked devices, script jobs, and email.
 - **🏢 Companies & contacts (CRM)** — first-class company and contact records, company pages, company-scoped tickets and devices, and inline contact creation from a ticket.
@@ -102,7 +94,7 @@ See [docs/architecture.md](docs/architecture.md) for the full diagram and ration
 
 ## Quickstart
 
-**Prerequisites:** Node.js 22 (the CI baseline) and Docker with Compose.
+**Prerequisites:** Node.js 22.12 or newer (the CI baseline) and Docker with Compose.
 
 Create a root `.env` for Compose:
 
@@ -143,8 +135,8 @@ Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxie
 
 For the complete Compose stack, run `docker compose up --build`. Tagged release images are published as:
 
-- `ghcr.io/spillers-technology/anchordesk-backend:2.1.0`
-- `ghcr.io/spillers-technology/anchordesk-web-client:2.1.0`
+- `ghcr.io/spillers-technology/anchordesk-backend:2.2.0`
+- `ghcr.io/spillers-technology/anchordesk-web-client:2.2.0`
 
 ## Configuration
 
@@ -176,14 +168,14 @@ Local tickets are the source of truth. Integrations ingest into or act on those 
 |---|---|
 | **Auth** | `POST /auth/login`, `/auth/mfa/*`, `/auth/oidc/*`, `/auth/saml/*`, `/oauth/*`, `GET /auth/me`, `POST /auth/logout` |
 | **Admin** | `/admin/overview`, `/admin/audit`, user CRUD, auth settings, integration settings, and mailbox CRUD/polling |
-| **Tickets** | `GET/POST /tickets` (paginated `{ items, total, page, pageSize }`; includes team filtering), `GET /tickets/search?q=`, `GET/PATCH/DELETE /tickets/:id`, ticket history, notes, and `/tickets/:id/time` |
+| **Tickets** | `GET/POST /tickets` (paginated `{ items, total, page, pageSize }`; filters include `teamId` and typed `cf.<key>` equality), `GET /tickets/search?q=`, `GET/PATCH/DELETE /tickets/:id` (`dueAt` is an ISO 8601 manual deadline; `null` clears it), ticket history, notes, and `/tickets/:id/time` |
 | **Workflow** | Team/membership CRUD under `/teams`; custom-field definitions under `/custom-fields`; admin rules under `/automations`; personal/shared filters under `/views`; per-user columns at `PUT /auth/kanban-columns` |
 | **Devices** | Device CRUD/history, `/devices/:id/external-refs`, provider-selectable `/devices/:id/live`, and ticket link/unlink routes |
 | **Probes** | `POST/PATCH /probes`, `POST /probe/heartbeat`, and `POST /probe/devices` |
 | **Scripts** | Tactical catalog, device sync, immediate/scheduled jobs, and job history |
 | **Mail** | SMTP status and `POST /tickets/:id/email`; IMAP polling is managed under `/mailboxes` |
 | **Sync** | Provider list/status, inbound sync runs, and sync logs; legacy read-only `/cw/tickets/*` routes remain available |
-| **MCP** | SSE transport at `/mcp/sse` with client messages at `/mcp/messages`; OAuth protected-resource metadata at `/.well-known/oauth-protected-resource`; authorization-server metadata at `/.well-known/oauth-authorization-server` |
+| **MCP** | SSE transport at `/mcp/sse` with client messages at `/mcp/messages`; `create_ticket` / `update_ticket` accept manual `dueAt`; OAuth protected-resource metadata at `/.well-known/oauth-protected-resource`; authorization-server metadata at `/.well-known/oauth-authorization-server` |
 | **Health** | `GET /ping` → `pong` |
 
 Probes authenticate with an `X-Probe-Key` API key and are exempt from browser auth. Other routes require a session cookie or bearer token (personal access token or OIDC bearer where configured) unless `OIDC_DISABLED=true`. `readonly` users cannot mutate data, and sensitive administration and sync operations require the `admin` role.
@@ -210,7 +202,7 @@ The wire contract lives in [backend/src/providers/NetVizProvider.ts](backend/src
 - [docs/mcp-auth.md](docs/mcp-auth.md) — MCP personal-token and built-in OAuth setup
 - [docs/schema.md](docs/schema.md) — database schema
 - [docs/providers.md](docs/providers.md) — adding a sync provider
-- [RELEASE_NOTES_v2.1.0.md](RELEASE_NOTES_v2.1.0.md) — 2.1 upgrade and verification guide
+- [RELEASE_NOTES_v2.2.0.md](RELEASE_NOTES_v2.2.0.md) — 2.2 upgrade and verification guide
 - [CLAUDE.md](CLAUDE.md) — developer reference
 
 ## Contributing

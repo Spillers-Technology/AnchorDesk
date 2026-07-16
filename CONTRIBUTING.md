@@ -5,7 +5,7 @@ integration ideas, and pull requests are all welcome.
 
 ## Before you build
 
-- Use Node.js 22, matching the GitHub Actions baseline.
+- Use Node.js 22.12 or newer, matching the GitHub Actions baseline.
 - Search the existing issues first.
 - Small, focused fixes can go straight to a pull request.
 - For a new integration or a change to ticket, auth, or audit behavior, open an

@@ -14,6 +14,7 @@ import {
   Typography,
 } from "@mui/material";
 import * as api from "../api/client";
+import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 
 interface AuditEntry {
   id: string;
@@ -37,6 +38,19 @@ const ACTION_COLORS: Record<string, "success" | "warning" | "error" | "info" | "
   sync: "warning",
 };
 
+function AutomationActor({ actor }: { actor: string | null }) {
+  if (!actor?.startsWith("automation:")) {
+    return <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: 11 }}>{actor ?? "—"}</Typography>;
+  }
+  const rule = actor.slice("automation:".length).trim() || "Unnamed rule";
+  return (
+    <Stack spacing={0.5} sx={{ alignItems: "flex-start" }}>
+      <Chip size="small" color="secondary" variant="outlined" icon={<AutoFixHighIcon />} label="Automation" />
+      <Typography variant="caption" sx={{ overflowWrap: "anywhere" }}>{rule}</Typography>
+    </Stack>
+  );
+}
+
 /** Show which fields changed between old and new snapshots. */
 function DiffSummary({ oldVal, newVal }: { oldVal: Record<string, unknown> | null; newVal: Record<string, unknown> | null }) {
   if (!oldVal && !newVal) return null;
@@ -54,7 +68,11 @@ function DiffSummary({ oldVal, newVal }: { oldVal: Record<string, unknown> | nul
     }
   }
 
-  if (changed.length === 0) return <Typography variant="body2" color="text.secondary">No field changes</Typography>;
+  if (changed.length === 0) return (
+    <Typography variant="body2" sx={{
+      color: "text.secondary"
+    }}>No field changes</Typography>
+  );
 
   return (
     <Stack spacing={0.5}>
@@ -77,18 +95,29 @@ function DiffSummary({ oldVal, newVal }: { oldVal: Record<string, unknown> | nul
 export default function TicketHistory({ ticketId }: Props) {
   const [history, setHistory] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
+    setLoading(true);
+    setLoadError(false);
     api.getTicketHistory(ticketId)
       .then((data) => setHistory(data as AuditEntry[]))
+      .catch(() => {
+        setHistory([]);
+        setLoadError(true);
+      })
       .finally(() => setLoading(false));
   }, [ticketId]);
 
   if (loading) return <CircularProgress size={24} sx={{ m: 2 }} />;
 
+  if (loadError) {
+    return <Typography color="error" sx={{ mt: 2 }}>Revision history could not be loaded.</Typography>;
+  }
+
   if (history.length === 0) {
     return (
-      <Typography color="text.secondary" sx={{ mt: 2 }}>
+      <Typography sx={{ color: "text.secondary", mt: 2 }}>
         No history recorded yet.
       </Typography>
     );
@@ -96,7 +125,9 @@ export default function TicketHistory({ ticketId }: Props) {
 
   return (
     <Box sx={{ mt: 2 }}>
-      <Typography variant="subtitle2" gutterBottom fontWeight={600}>
+      <Typography variant="subtitle2" gutterBottom sx={{
+        fontWeight: 600
+      }}>
         Revision History
       </Typography>
       <TableContainer component={Paper} variant="outlined">
@@ -113,7 +144,9 @@ export default function TicketHistory({ ticketId }: Props) {
             {history.map((entry) => (
               <TableRow key={entry.id} sx={{ verticalAlign: "top" }}>
                 <TableCell>
-                  <Typography variant="body2" color="text.secondary" noWrap>
+                  <Typography variant="body2" noWrap sx={{
+                    color: "text.secondary"
+                  }}>
                     {new Date(entry.occurredAt).toLocaleString()}
                   </Typography>
                 </TableCell>
@@ -126,9 +159,7 @@ export default function TicketHistory({ ticketId }: Props) {
                   />
                 </TableCell>
                 <TableCell>
-                  <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: 11 }}>
-                    {entry.changedBy ?? "—"}
-                  </Typography>
+                  <AutomationActor actor={entry.changedBy} />
                 </TableCell>
                 <TableCell>
                   <DiffSummary oldVal={entry.oldValue} newVal={entry.newValue} />

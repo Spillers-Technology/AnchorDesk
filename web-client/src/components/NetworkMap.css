@@ -5,6 +5,7 @@
 .legendChip { display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 9px; border:1px solid #d7dde5; border-radius:999px; background:#fff; color:#526170; font:600 12px/1 system-ui,sans-serif; cursor:pointer; }
 @media (hover:hover) { .legendChip:hover { border-color:#8aa0b8; background:#eef5ff; } }
 .legendChip.focused { border-color:#0b5cab; background:#e5f1ff; color:#0b5cab; }
+.legendIcon { width:16px; text-align:center; font-size:14px; line-height:1; }
 .legendSwatch { width:10px; height:10px; border-radius:50%; }
 .mapHint { color:#64748b; font-size:12px; white-space:nowrap; }
 .mapCanvas { position:relative; height:clamp(420px,58vh,620px); }

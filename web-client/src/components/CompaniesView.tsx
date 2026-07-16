@@ -79,16 +79,28 @@ export default function CompaniesView({ onOpenTicket, onViewNetwork }: { onOpenT
 
   return (
     <Box>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }} flexWrap="wrap" gap={1}>
+      <Stack
+        direction="row"
+        sx={{
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 1,
+          mb: 2
+        }}>
         <Typography variant="h5">Companies</Typography>
         <Button size="small" variant="outlined" onClick={backfill}>Import from ticket/device data</Button>
       </Stack>
       {backfillMsg && <Alert severity="info" sx={{ mb: 2 }} onClose={() => setBackfillMsg(null)}>{backfillMsg}</Alert>}
-      <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
+      <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{
+        alignItems: "flex-start"
+      }}>
         <Paper variant="outlined" sx={{ width: { xs: "100%", md: 300 }, flexShrink: 0 }}>
           <Box sx={{ p: 1.5 }}>
             <TextField size="small" fullWidth placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)}
-              InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }} />
+              slotProps={{
+                input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }
+              }} />
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
               <TextField size="small" fullWidth placeholder="New company…" value={newName}
                 onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
@@ -102,7 +114,9 @@ export default function CompaniesView({ onOpenTicket, onViewNetwork }: { onOpenT
                 <ListItemText primary={c.name} secondary={`${c._count?.tickets ?? 0} tickets · ${c._count?.contacts ?? 0} contacts`} />
               </ListItemButton>
             ))}
-            {filtered.length === 0 && <Box sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">No companies.</Typography></Box>}
+            {filtered.length === 0 && <Box sx={{ p: 2 }}><Typography variant="body2" sx={{
+              color: "text.secondary"
+            }}>No companies.</Typography></Box>}
           </List>
         </Paper>
 
@@ -161,7 +175,14 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" useFlexGap>
+      <Stack
+        direction="row"
+        spacing={1.5}
+        useFlexGap
+        sx={{
+          alignItems: "center",
+          flexWrap: "wrap"
+        }}>
         <Box sx={{ width: 44, height: 44, borderRadius: 2, bgcolor: "primary.main", color: "primary.contrastText", display: "grid", placeItems: "center" }}>
           <BusinessIcon />
         </Box>
@@ -173,14 +194,15 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
         <IconButton color="error" onClick={remove}><DeleteIcon /></IconButton>
       </Stack>
       {msg && <Alert severity="success" onClose={() => setMsg(null)}>{msg}</Alert>}
-
       {/* Box wrapper: Stack's child-margin shorthand would zero the Grid
           container's negative margin and overflow the viewport on phones. */}
       <Box><Grid container spacing={2}>
         {/* Company info (editable) */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card><CardContent>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>Details</Typography>
+            <Typography variant="subtitle2" gutterBottom sx={{
+              color: "text.secondary"
+            }}>Details</Typography>
             <Stack spacing={1.5}>
               <TextField size="small" label="Name" value={field("name")} onChange={(e) => set("name", e.target.value)} />
               <Stack direction="row" spacing={1}>
@@ -199,17 +221,23 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
         </Grid>
 
         {/* Contacts */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card><CardContent>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>Contacts ({company.contacts?.length ?? 0})</Typography>
+            <Typography variant="subtitle2" gutterBottom sx={{
+              color: "text.secondary"
+            }}>Contacts ({company.contacts?.length ?? 0})</Typography>
             <Stack spacing={1} sx={{ mb: 1.5 }}>
               {(company.contacts ?? []).map((c) => (
                 <ContactRow key={c.id} contact={c} onChanged={load} />
               ))}
-              {(company.contacts ?? []).length === 0 && <Typography variant="body2" color="text.secondary">No contacts yet.</Typography>}
+              {(company.contacts ?? []).length === 0 && <Typography variant="body2" sx={{
+                color: "text.secondary"
+              }}>No contacts yet.</Typography>}
             </Stack>
             <Divider sx={{ mb: 1 }} />
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <Stack direction="row" spacing={1} useFlexGap sx={{
+              flexWrap: "wrap"
+            }}>
               <TextField size="small" label="Name" value={contactForm.name} onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })} />
               <TextField size="small" label="Title" value={contactForm.title} onChange={(e) => setContactForm({ ...contactForm, title: e.target.value })} />
               <TextField size="small" label="Email" value={contactForm.email} onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })} />
@@ -219,9 +247,11 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
         </Grid>
 
         {/* Tickets */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card><CardContent>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>Tickets ({tickets.length})</Typography>
+            <Typography variant="subtitle2" gutterBottom sx={{
+              color: "text.secondary"
+            }}>Tickets ({tickets.length})</Typography>
             <Stack spacing={0.5}>
               {tickets.map((t) => (
                 <Box key={t.id} sx={{ display: "flex", alignItems: "center", gap: 1, cursor: onOpenTicket ? "pointer" : "default", "&:hover": { color: "primary.main" } }}
@@ -230,24 +260,34 @@ function CompanyDetail({ id, onChanged, onOpenTicket, onViewNetwork, onDeleted }
                   <Typography variant="body2" noWrap>#{t.id} {t.title}</Typography>
                 </Box>
               ))}
-              {tickets.length === 0 && <Typography variant="body2" color="text.secondary">No tickets.</Typography>}
+              {tickets.length === 0 && <Typography variant="body2" sx={{
+                color: "text.secondary"
+              }}>No tickets.</Typography>}
             </Stack>
           </CardContent></Card>
         </Grid>
 
         {/* Devices */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card><CardContent>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>Devices ({devices.length})</Typography>
+            <Typography variant="subtitle2" gutterBottom sx={{
+              color: "text.secondary"
+            }}>Devices ({devices.length})</Typography>
             <Stack spacing={0.5}>
               {devices.map((d) => (
-                <Stack key={d.id} direction="row" alignItems="center" spacing={1}>
+                <Stack key={d.id} direction="row" spacing={1} sx={{
+                  alignItems: "center"
+                }}>
                   <ComputerIcon fontSize="small" color={d.status === "online" ? "success" : "disabled"} />
                   <Typography variant="body2" noWrap>{d.displayName || d.hostname || d.ipAddress || `device ${d.id}`}</Typography>
-                  {d.ipAddress && <Typography variant="caption" color="text.secondary">{d.ipAddress}</Typography>}
+                  {d.ipAddress && <Typography variant="caption" sx={{
+                    color: "text.secondary"
+                  }}>{d.ipAddress}</Typography>}
                 </Stack>
               ))}
-              {devices.length === 0 && <Typography variant="body2" color="text.secondary">No devices. Set a device's company to see it here and on the network map.</Typography>}
+              {devices.length === 0 && <Typography variant="body2" sx={{
+                color: "text.secondary"
+              }}>No devices. Set a device's company to see it here and on the network map.</Typography>}
             </Stack>
           </CardContent></Card>
         </Grid>
@@ -296,7 +336,9 @@ function ContactRow({ contact, onChanged }: { contact: api.Contact; onChanged: (
 
   if (editing) {
     return (
-      <Stack direction="row" alignItems="flex-start" spacing={1}>
+      <Stack direction="row" spacing={1} sx={{
+        alignItems: "flex-start"
+      }}>
         <Stack spacing={1} sx={{ flexGrow: 1, minWidth: 0 }}>
           <Stack direction="row" spacing={1}>
             <TextField size="small" label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -321,10 +363,14 @@ function ContactRow({ contact, onChanged }: { contact: api.Contact; onChanged: (
   }
 
   return (
-    <Stack direction="row" alignItems="center" spacing={1}>
+    <Stack direction="row" spacing={1} sx={{
+      alignItems: "center"
+    }}>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
         <Typography variant="body2" component="div" noWrap sx={{ display: "flex", alignItems: "center", gap: 1 }}>{contact.name}{contact.isPrimary && <Chip size="small" label="primary" />}</Typography>
-        <Typography variant="caption" color="text.secondary">{[contact.title, contact.email, contact.phone].filter(Boolean).join(" · ")}</Typography>
+        <Typography variant="caption" sx={{
+          color: "text.secondary"
+        }}>{[contact.title, contact.email, contact.phone].filter(Boolean).join(" · ")}</Typography>
       </Box>
       {contact.isPrimary ? (
         <Tooltip title="Primary contact">

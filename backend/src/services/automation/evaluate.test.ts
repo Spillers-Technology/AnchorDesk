@@ -59,7 +59,7 @@ describe('automation condition evaluation', () => {
     expect(ticketContext({ dueAt: manual, resolutionDueAt: sla }).dueAt).toBe(manual.toISOString());
     expect(ticketContext({ dueAt: null, resolutionDueAt: sla }).dueAt).toBe(sla.toISOString());
     expect(ticketContext({})).toMatchObject({ dueAt: null });
-    // set/unset and lexicographic lte conditions work against the ISO string.
+    // set/unset and datetime lte conditions work against the ISO string.
     const ctx = ticketContext({ dueAt: manual, resolutionDueAt: null });
     expect(evaluateConditions([{ field: 'dueAt', op: 'set' }], ctx)).toBe(true);
     expect(evaluateConditions([{ field: 'dueAt', op: 'lte', value: '2026-07-19T00:00:00Z' }], ctx)).toBe(true);
@@ -71,6 +71,7 @@ describe('automation rule JSON validation', () => {
     expect(validateRuleCondition({ field: 'status', op: 'eq', value: 'Open' })).toBeNull();
     expect(validateRuleCondition({ field: 'custom.site', op: 'set' })).toBeNull();
     expect(validateRuleCondition({ field: 'labelIds', op: 'in', value: [2, 3] })).toBeNull();
+    expect(validateRuleCondition({ field: 'dueAt', op: 'lte', value: '2026-07-19T00:00:00Z' })).toBeNull();
   });
 
   it.each([
@@ -79,6 +80,7 @@ describe('automation rule JSON validation', () => {
     [{ field: 'status', op: 'eq' }, 'needs a value'],
     [{ field: 'teamId', op: 'in', value: [] }, 'non-empty value array'],
     [{ field: 'teamId', op: 'gte', value: 'many' }, 'numeric value'],
+    [{ field: 'dueAt', op: 'gte', value: 'tomorrow' }, 'ISO 8601 datetime value'],
   ])('rejects malformed conditions %#', (condition, message) => {
     expect(validateRuleCondition(condition)).toContain(message);
   });

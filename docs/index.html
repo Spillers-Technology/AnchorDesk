@@ -4,12 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>AnchorDesk - local-first ticketing and IT operations</title>
-<meta name="description" content="AnchorDesk is a self-hosted, mobile-first ticketing and IT operations platform with team queues, custom fields, automation, email-to-ticket, multi-RMM device records, OAuth-ready MCP, and PostgreSQL as the local source of truth." />
+<meta name="description" content="AnchorDesk is a self-hosted, mobile-first ticketing and IT operations platform with manual deadlines, team queues, custom fields, automation, email-to-ticket, multi-RMM device records, OAuth-ready MCP, and PostgreSQL as the local source of truth." />
 <meta name="theme-color" content="#4f46e5" />
 
 <meta property="og:type" content="website" />
 <meta property="og:title" content="AnchorDesk - local-first ticketing and IT operations" />
-<meta property="og:description" content="AnchorDesk 2.1 Pocket &amp; Anchor: mobile-first helpdesk workflows, team queues, custom fields, SLA automation, saved views, multi-RMM assets, and MCP OAuth." />
+<meta property="og:description" content="AnchorDesk 2.2 Clock &amp; Compass: manual deadlines, richer ticket and device context, direct Kanban ordering, modern React/Fastify foundations, and a broader mobile verification contract." />
 <meta property="og:url" content="https://spillerstech.us/AnchorDesk/" />
 <meta property="og:image" content="https://spillerstech.us/AnchorDesk/assets/screenshots/anchordesk-board.jpg" />
 
@@ -698,7 +698,7 @@
   <div class="wrap topbar">
     <a class="brand" href="#top" aria-label="AnchorDesk home"><svg><use href="#logo"/></svg> AnchorDesk</a>
     <nav class="nav" aria-label="Primary">
-      <a href="#release">v2.1</a>
+      <a href="#release">v2.2</a>
       <a href="#themes">Themes</a>
       <a href="#views">Views</a>
       <a href="#platform">Platform</a>
@@ -714,19 +714,19 @@
   <section class="hero" aria-labelledby="hero-title">
     <div class="wrap">
       <div class="hero-content">
-        <div class="release"><span></span> v2.1.0 Pocket &amp; Anchor — field-ready workflows and configuration records</div>
+        <div class="release"><span></span> v2.2.0 Clock &amp; Compass — explicit deadlines and clearer operational context</div>
         <h1 id="hero-title">AnchorDesk</h1>
-        <p class="lead">A self-hosted, mobile-first service desk where PostgreSQL is the source of truth, teams and automation keep work moving, tickets know the machines behind them, and MCP/OAuth gives agents a first-class way in.</p>
+        <p class="lead">A self-hosted, mobile-first service desk where PostgreSQL is the source of truth, deadlines and queues keep work pointed in the right direction, tickets know the machines behind them, and MCP/OAuth gives agents a first-class way in.</p>
         <div class="actions">
           <a class="btn primary" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Start self-hosting</a>
           <a class="btn secondary" href="#views">See current screens</a>
         </div>
         <div class="hero-meta" aria-label="Platform highlights">
-          <span>React + MUI</span>
-          <span>Fastify + Prisma</span>
+          <span>React 19 + MUI 9</span>
+          <span>Fastify 5 + Prisma</span>
           <span>PostgreSQL core</span>
-          <span>IMAP + SMTP</span>
-          <span>Multi-RMM assets</span>
+          <span>Manual deadlines</span>
+          <span>Multi-RMM context</span>
           <span>MCP workflows</span>
         </div>
       </div>
@@ -737,29 +737,29 @@
     <div class="wrap">
       <div class="section-head">
         <div class="kicker">Current release</div>
-        <h2>v2.1 brings the service desk into the field without leaving control behind.</h2>
-        <p>Pocket &amp; Anchor pairs a phone-ready workspace with team queues, configurable ticket data, event-driven escalation, saved views, and one durable asset record across RMMs.</p>
+        <h2>v2.2 gives every promise a clock and every queue more context.</h2>
+        <p>Clock &amp; Compass adds manual deadlines across REST, MCP, SLA evaluation, and the UI; surfaces teams, custom fields, automation actors, and provider identities; and modernizes both application stacks.</p>
       </div>
       <div class="release-grid">
         <article class="tile">
-          <div class="status-line green"><i></i> Mobile-first field work</div>
-          <strong>The whole helpdesk fits a touch screen.</strong>
-          <p>Full-screen phone dialogs, compact layouts, visible touch actions, pinch zoom, and a five-device capture matrix keep every core view usable from 344px upward.</p>
+          <div class="status-line green"><i></i> Manual ticket deadlines</div>
+          <strong>The date people promised is now the date AnchorDesk follows.</strong>
+          <p>Set or clear a deadline in the ticket cockpit, REST, or MCP. It replaces the resolution target in live chips, scheduling, automation, and the Due column without disturbing the response SLA.</p>
         </article>
         <article class="tile">
-          <div class="status-line sky"><i></i> Queues and custom fields</div>
-          <strong>Work follows your service-desk vocabulary.</strong>
-          <p>Teams route tickets independently of technicians, typed custom fields capture the right facts, and saved filters or personal board columns keep each workspace focused.</p>
+          <div class="status-line sky"><i></i> Queue and field visibility</div>
+          <strong>Configuration data shows up before you open the editor.</strong>
+          <p>Team badges, a Team column, dynamic custom-field columns, and typed advanced filters make queue slices and customer-specific facts visible in daily ticket views.</p>
         </article>
         <article class="tile">
-          <div class="status-line amber"><i></i> Automation and escalation</div>
-          <strong>SLA signals can move work, not just color it.</strong>
-          <p>Ticket, note, warning, and breach events can assign teams, change priority, label, annotate, and notify through the same audited live-update pipeline.</p>
+          <div class="status-line amber"><i></i> Workflow signals</div>
+          <strong>Rule actions and device identities explain themselves.</strong>
+          <p>Named Automation badges clarify history and notes, Network shows every external provider reference, map nodes carry type indicators, and Kanban columns reorder directly.</p>
         </article>
         <article class="tile">
-          <div class="status-line red"><i></i> Multi-RMM configuration records</div>
-          <strong>One physical device keeps every provider identity.</strong>
-          <p>Asset and lifecycle fields stay local while Tactical, NinjaOne, Datto, and probes merge telemetry through provider-specific references for live views and scripts.</p>
+          <div class="status-line red"><i></i> Modern release foundations</div>
+          <strong>Fastify 5 and React 19 anchor the next release line.</strong>
+          <p>TypeScript 7 plus Jest/SWC modernize the backend; Router 7, Vite 8, Vitest 4, MUI 9, and Data Grid 9 refresh the web while the five-device mobile matrix adds more states.</p>
         </article>
       </div>
     </div>
@@ -796,13 +796,13 @@
           <button class="lightbox-trigger" type="button" data-lightbox>
             <img src="assets/screenshots/anchordesk-board.jpg" alt="AnchorDesk Kanban board with ticket cards, SLA chips, sync badges, labels, and bulk update controls." />
           </button>
-          <figcaption><strong>Clear Deck board</strong><span>Closed work stays out of the default flow, live work fills the page, and cards carry SLA, labels, source, and sync state.</span></figcaption>
+          <figcaption><strong>Clear Deck board</strong><span>Closed work stays out of the default flow, cards carry deadline, team, SLA, label, source, and sync context, and status columns reorder by direct drag handle.</span></figcaption>
         </figure>
         <figure class="shot">
           <button class="lightbox-trigger" type="button" data-lightbox>
             <img src="assets/screenshots/anchordesk-ticket-modal.jpg" alt="AnchorDesk ticket modal showing rich description, activity notes, linked devices, attachments, and ticket metadata." />
           </button>
-          <figcaption><strong>Ticket cockpit</strong><span>Team routing, typed custom fields, rich descriptions, notes/email, linked multi-RMM devices, time, attachments, labels, and sync controls live in one modal.</span></figcaption>
+          <figcaption><strong>Ticket cockpit</strong><span>A manual deadline, team routing, typed custom fields, rich descriptions, automation-aware activity, linked multi-RMM devices, time, files, mail, and sync controls live in one modal.</span></figcaption>
         </figure>
         <figure class="shot">
           <button class="lightbox-trigger" type="button" data-lightbox>
@@ -814,7 +814,7 @@
           <button class="lightbox-trigger" type="button" data-lightbox>
             <img src="assets/screenshots/anchordesk-network.jpg" alt="AnchorDesk network map with radial device layout, status-colored nodes, and selected device details." />
           </button>
-          <figcaption><strong>Network map</strong><span>Provider observations merge into local configuration records and a radial map, grouped by probe or company, with linked tickets visible on the focused device.</span></figcaption>
+          <figcaption><strong>Network map</strong><span>Type indicators speed up the radial scan; the focused device exposes linked tickets and every provider-specific identity merged into its local configuration record.</span></figcaption>
         </figure>
         <figure class="shot">
           <button class="lightbox-trigger" type="button" data-lightbox>
@@ -863,18 +863,18 @@
         <p>AnchorDesk can run standalone, then attach the pieces of your MSP or IT stack as adapters.</p>
       </div>
       <div class="features">
-        <article class="feature"><em>Tickets</em><strong>Local-first ticketing</strong><p>Create, route to teams, assign, capture typed custom fields, save filters, label, bulk update, and work tickets from card, board, and optional legacy table views.</p></article>
+        <article class="feature"><em>Tickets</em><strong>Local-first ticketing</strong><p>Create, set manual deadlines, route to teams, assign, capture and filter typed custom fields, save views, label, bulk update, and work tickets from card, board, and optional table views.</p></article>
         <article class="feature"><em>Email</em><strong>Threaded IMAP and SMTP</strong><p>Poll multiple mailboxes, dedupe by Message-ID, tag subjects with public ticket numbers, and reply with identities, templates, signatures, Cc/Bcc, and inline images.</p></article>
-        <article class="feature"><em>Devices</em><strong>Configuration records and network map</strong><p>Asset tag, serial, make/model, location, purchase/warranty dates, and notes stay local while probes and RMMs refresh operational context.</p></article>
+        <article class="feature"><em>Devices</em><strong>Configuration records and network map</strong><p>Asset data stays local while probes and RMMs refresh operational context; map type indicators and the selected-device reference list expose what each provider knows.</p></article>
         <article class="feature"><em>RMM</em><strong>One device, multiple providers</strong><p>Tactical RMM, NinjaOne, and Datto identities merge onto one device; technicians select the provider for live snapshots, scripts, or quick jobs.</p></article>
         <article class="feature"><em>Sync</em><strong>Two-way PSA issue sync</strong><p>ConnectWise Manage and Jira Cloud can pull and push ticket state, hold conflicts, and ask a human to keep local or remote changes.</p></article>
         <article class="feature"><em>Identity</em><strong>SSO, MFA, RBAC, MCP OAuth</strong><p>Local accounts, OIDC, SAML, TOTP MFA, personal access tokens, and built-in OAuth for MCP all resolve to a real user and role.</p></article>
-        <article class="feature"><em>Agents</em><strong>Workflow-complete MCP</strong><p>Authenticated agents can work tickets, notes, time, email, labels, teams, custom fields, saved views, ranked search, and audit history.</p></article>
-        <article class="feature"><em>Automation</em><strong>Rules and SLA escalation</strong><p>Ticket, note, SLA-warning, and breach events can update, route, label, annotate, or notify with actor-attributed history and a loop guard.</p></article>
+        <article class="feature"><em>Agents</em><strong>Workflow-complete MCP</strong><p>Authenticated agents can work deadlines, tickets, notes, time, email, labels, teams, custom fields, saved views, ranked search, and audit history.</p></article>
+        <article class="feature"><em>Automation</em><strong>Rules and SLA escalation</strong><p>Ticket, note, SLA-warning, and breach events can update, route, label, annotate, or notify with named Automation attribution and a loop guard.</p></article>
         <article class="feature"><em>Realtime</em><strong>WebSockets and notifications</strong><p>Ticket lists, board cards, open modals, the notification bell, SLA state, and automation results update without refresh.</p></article>
         <article class="feature"><em>Files</em><strong>Attachments and export</strong><p>Drag/drop files onto tickets, store bytes locally or in S3-compatible storage, and export a printable ticket with safe inline activity.</p></article>
         <article class="feature"><em>Audit</em><strong>Actor-attributed history</strong><p>Managed changes append before/after values with the user and channel, including web, API token, MCP, and named automation activity.</p></article>
-        <article class="feature"><em>Mobile</em><strong>Pocket-sized helpdesk</strong><p>Mobile-first by requirement: every view is verified at phone widths from 344px folded foldables to tablets — full-screen ticket cockpit and composer, touch Kanban, and a pinch-zoomable network map.</p></article>
+        <article class="feature"><em>Mobile</em><strong>Pocket-sized helpdesk</strong><p>Mobile-first by requirement: 95 states across five touch profiles verify advanced search, ticket history/cockpit, the composer, touch Kanban, and a pinch-zoomable network map from 344px upward.</p></article>
       </div>
     </div>
   </section>
@@ -910,8 +910,8 @@ npm ci
 npm run dev            <span class="c"># :5173</span>
 
 <span class="c"># Current images</span>
-ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.1.0</span>
-ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.1.0</span></pre>
+ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.2.0</span>
+ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.2.0</span></pre>
         </div>
       </div>
     </div>
@@ -946,6 +946,7 @@ ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.1.0</span></
       </div>
       <div class="docs-grid">
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Quickstart<span>Local Compose, backend config, schema push, and web client.</span></a>
+        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/RELEASE_NOTES_v2.2.0.md" target="_blank" rel="noopener">2.2 release guide<span>Clock &amp; Compass features, upgrade notes, image tags, and verification target.</span></a>
         <a class="doc-link" href="architecture.md">Architecture<span>Source-of-truth database, auth flow, adapters, repositories, and delivery status.</span></a>
         <a class="doc-link" href="mcp-auth.md">MCP Auth<span>Personal tokens and built-in OAuth authorization-code + PKCE flow.</span></a>
         <a class="doc-link" href="providers.md">Providers<span>How to add ticket sync providers and identity-safe device/RMM adapters.</span></a>

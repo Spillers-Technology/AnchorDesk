@@ -2,7 +2,7 @@
  * Pure condition evaluation for automation rules — no DB, unit-tested.
  * A rule's `conditions` is an all-of array matched against a flat snapshot of
  * the ticket (plus event fields for SLA triggers). Field names:
- *   status, priority, companyName, assignee, teamId, source, labelIds,
+ *   status, priority, companyName, assignee, teamId, source, labelIds, dueAt,
  *   custom.<key>  (ticket custom fields)
  *   kind, level   (sla_at_risk / sla_breached triggers: response|resolution)
  */
@@ -54,8 +54,14 @@ export function validateRuleCondition(value: unknown): string | null {
   if (op === 'in' && (!Array.isArray(value.value) || value.value.length === 0 || value.value.length > 100)) {
     return 'condition in needs a non-empty value array (maximum 100)';
   }
-  if ((op === 'gte' || op === 'lte') && !Number.isFinite(Number(value.value))) {
-    return `condition ${op} needs a numeric value`;
+  if (op === 'gte' || op === 'lte') {
+    if (value.field === 'dueAt') {
+      if (typeof value.value !== 'string' || Number.isNaN(Date.parse(value.value))) {
+        return `condition ${op} on dueAt needs an ISO 8601 datetime value`;
+      }
+    } else if (!Number.isFinite(Number(value.value))) {
+      return `condition ${op} needs a numeric value`;
+    }
   }
   return null;
 }
@@ -191,7 +197,7 @@ export function ticketContext(ticket: {
     source: ticket.source ?? null,
     title: ticket.title ?? null,
     // The effective resolution deadline (manual override, else SLA target) as
-    // an ISO string so set/unset and lexicographic gte/lte conditions work.
+    // an ISO string so set/unset and datetime gte/lte conditions work.
     dueAt: (ticket.dueAt ?? ticket.resolutionDueAt)?.toISOString() ?? null,
     labelIds: (ticket.labels ?? []).map((l) => l.labelId),
   };

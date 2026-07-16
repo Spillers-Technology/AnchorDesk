@@ -17,7 +17,7 @@ describe('password hashing', () => {
     expect(hash).not.toContain('correct horse battery'); // never plaintext
     expect(await verifyPassword('correct horse battery', hash)).toBe(true);
     expect(await verifyPassword('wrong password!!', hash)).toBe(false);
-  });
+  }, 15_000); // Three cost-12 bcrypt operations can exceed Jest's 5s default on loaded CI runners.
 
   it('rejects passwords below the minimum length', async () => {
     await expect(hashPassword('a'.repeat(MIN_PASSWORD_LENGTH - 1))).rejects.toThrow();

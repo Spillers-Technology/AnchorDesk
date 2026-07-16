@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
+import { isValidKey } from './customFieldRepository';
 
 /** Mirrors the /tickets query surface so a view can be replayed verbatim. */
 export interface SavedViewFilters {
@@ -11,12 +12,13 @@ export interface SavedViewFilters {
   regex?: string;
   labelId?: number;
   teamId?: number;
+  customFields?: Record<string, string | number | boolean>;
   includeClosed?: boolean;
 }
 
 export class SavedViewValidationError extends Error {}
 
-const FILTER_KEYS = new Set(['status', 'assignee', 'company', 'q', 'regex', 'labelId', 'teamId', 'includeClosed']);
+const FILTER_KEYS = new Set(['status', 'assignee', 'company', 'q', 'regex', 'labelId', 'teamId', 'customFields', 'includeClosed']);
 
 /** Validate and normalize the replayable /tickets query stored in a view. */
 export function normalizeSavedViewFilters(value: unknown): SavedViewFilters {
@@ -44,6 +46,29 @@ export function normalizeSavedViewFilters(value: unknown): SavedViewFilters {
       throw new SavedViewValidationError(`${key} must be a positive integer`);
     }
     out[key] = field;
+  }
+  if (input.customFields !== undefined) {
+    if (!input.customFields || typeof input.customFields !== 'object' || Array.isArray(input.customFields)) {
+      throw new SavedViewValidationError('customFields must be an object');
+    }
+    const entries = Object.entries(input.customFields as Record<string, unknown>);
+    if (entries.length > 50) throw new SavedViewValidationError('customFields may contain at most 50 filters');
+    const customFields: Record<string, string | number | boolean> = {};
+    for (const [key, field] of entries) {
+      if (!isValidKey(key)) throw new SavedViewValidationError(`invalid custom field key: ${key}`);
+      if (typeof field === 'string') {
+        if (!field || field.length > 500) throw new SavedViewValidationError(`customFields.${key} must be a non-empty string up to 500 characters`);
+        customFields[key] = field;
+      } else if (typeof field === 'number') {
+        if (!Number.isFinite(field)) throw new SavedViewValidationError(`customFields.${key} must be a finite number`);
+        customFields[key] = field;
+      } else if (typeof field === 'boolean') {
+        customFields[key] = field;
+      } else {
+        throw new SavedViewValidationError(`customFields.${key} must be a string, number, or boolean`);
+      }
+    }
+    if (entries.length) out.customFields = customFields;
   }
   if (input.includeClosed !== undefined) {
     if (typeof input.includeClosed !== 'boolean') throw new SavedViewValidationError('includeClosed must be a boolean');

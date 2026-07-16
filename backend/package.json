@@ -1,6 +1,6 @@
 {
   "name": "anchordesk-backend",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "main": "dist/src/index.js",
   "scripts": {
     "test": "jest --runInBand",
@@ -19,7 +19,7 @@
   "author": "Joseph Spillers",
   "license": "MIT",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12.0"
   },
   "description": "anchordesk backend — local-first ticketing + device/RMM API (Fastify + Prisma + PostgreSQL)",
   "dependencies": {

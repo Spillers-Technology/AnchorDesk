@@ -82,7 +82,9 @@ export default function NotificationBell({ onOpenTicket }: { onOpenTicket?: (tic
           <Divider />
           {items.length === 0 ? (
             <Box sx={{ p: 3, textAlign: "center" }}>
-              <Typography variant="body2" color="text.secondary">You're all caught up.</Typography>
+              <Typography variant="body2" sx={{
+                color: "text.secondary"
+              }}>You're all caught up.</Typography>
             </Box>
           ) : (
             <List dense sx={{ maxHeight: 420, overflowY: "auto", py: 0 }}>
@@ -95,9 +97,10 @@ export default function NotificationBell({ onOpenTicket }: { onOpenTicket?: (tic
                   <ListItemText
                     primary={n.title}
                     secondary={`${n.body ? n.body + " · " : ""}${new Date(n.createdAt).toLocaleString()}`}
-                    primaryTypographyProps={{ fontWeight: n.readAt ? 400 : 600, variant: "body2" }}
-                    secondaryTypographyProps={{ variant: "caption" }}
-                  />
+                    slotProps={{
+                      primary: { sx: { fontWeight: n.readAt ? 400 : 600 }, variant: "body2" },
+                      secondary: { variant: "caption" }
+                    }} />
                 </ListItemButton>
               ))}
             </List>

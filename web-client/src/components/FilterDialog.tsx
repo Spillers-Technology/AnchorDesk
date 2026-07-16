@@ -12,6 +12,7 @@ import {
   FormControlLabel,
   Checkbox,
   InputAdornment,
+  MenuItem,
 } from "@mui/material";
 import RegexIcon from "@mui/icons-material/Code";
 import { useEffect, useState } from "react";
@@ -47,6 +48,8 @@ const FilterDialog: React.FC<FilterDialogProps> = ({ open, onClose, value, apply
   const [assignees, setAssignees] = useState<string[]>([]);
   const [labels, setLabels] = useState<api.Label[]>([]);
   const [teams, setTeams] = useState<api.Team[]>([]);
+  const [customFieldDefs, setCustomFieldDefs] = useState<api.CustomFieldDef[]>([]);
+  const [customFields, setCustomFields] = useState<Record<string, string | number | boolean>>(value.customFields ?? {});
 
   // Re-sync local fields whenever the dialog opens with the active criteria.
   useEffect(() => {
@@ -56,12 +59,14 @@ const FilterDialog: React.FC<FilterDialogProps> = ({ open, onClose, value, apply
     setAssignee(value.assignee ?? "");
     setLabelId(value.labelId ?? "");
     setTeamId(value.teamId ?? "");
+    setCustomFields(value.customFields ?? {});
     setRegex(value.regex ?? "");
     setIncludeClosed(value.includeClosed ?? false);
     api.listCompanies().then((cs) => setCompanies(cs.map((c) => c.name))).catch(() => setCompanies([]));
     api.listAssignees().then((as) => setAssignees(as.map((a) => a.displayName || a.username))).catch(() => setAssignees([]));
     api.listLabels().then(setLabels).catch(() => setLabels([]));
     api.listTeams().then(setTeams).catch(() => setTeams([]));
+    api.listCustomFields().then(setCustomFieldDefs).catch(() => setCustomFieldDefs([]));
   }, [open, value]);
 
   // A regex is only valid if it compiles; flag a bad one before it round-trips.
@@ -70,18 +75,40 @@ const FilterDialog: React.FC<FilterDialogProps> = ({ open, onClose, value, apply
     try { new RegExp(regex); } catch (e) { regexError = (e as Error).message; }
   }
 
-  const apply = () => applyFilters({
-    status: status || undefined,
-    company: company || undefined,
-    assignee: assignee || undefined,
-    labelId: labelId === "" ? undefined : labelId,
-    teamId: teamId === "" ? undefined : teamId,
-    regex: regex.trim() || undefined,
-    includeClosed: includeClosed || undefined,
-  });
+  const apply = () => {
+    const normalizedCustomFields = Object.fromEntries(
+      Object.entries(customFields)
+        .filter(([, fieldValue]) => fieldValue !== "")
+        .map(([key, fieldValue]) => {
+          const def = customFieldDefs.find((candidate) => candidate.key === key);
+          return [key, def?.type === "number" ? Number(fieldValue) : fieldValue];
+        })
+    );
+    applyFilters({
+      status: status || undefined,
+      company: company || undefined,
+      assignee: assignee || undefined,
+      labelId: labelId === "" ? undefined : labelId,
+      teamId: teamId === "" ? undefined : teamId,
+      customFields: Object.keys(normalizedCustomFields).length ? normalizedCustomFields : undefined,
+      regex: regex.trim() || undefined,
+      includeClosed: includeClosed || undefined,
+    });
+  };
   const clear = () => {
-    setStatus(""); setCompany(""); setAssignee(""); setLabelId(""); setTeamId(""); setRegex(""); setIncludeClosed(false);
+    setStatus(""); setCompany(""); setAssignee(""); setLabelId(""); setTeamId(""); setCustomFields({}); setRegex(""); setIncludeClosed(false);
     applyFilters({});
+  };
+
+  const setCustomField = (key: string, fieldValue: string | number | boolean) => {
+    setCustomFields((current) => {
+      if (fieldValue === "") {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      }
+      return { ...current, [key]: fieldValue };
+    });
   };
 
   return (
@@ -97,16 +124,20 @@ const FilterDialog: React.FC<FilterDialogProps> = ({ open, onClose, value, apply
             error={!!regexError}
             helperText={regexError || "Case-insensitive POSIX regex across title, summary, description, company, #, priority. e.g. (vpn|wifi).*down"}
             fullWidth
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start"><RegexIcon fontSize="small" color="action" /></InputAdornment>
-              ),
-              sx: { fontFamily: "monospace" },
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start"><RegexIcon fontSize="small" color="action" /></InputAdornment>
+                ),
+                sx: { fontFamily: "monospace" },
+              }
             }}
           />
 
           <Divider flexItem>
-            <Typography variant="caption" color="text.secondary">filters</Typography>
+            <Typography variant="caption" sx={{
+              color: "text.secondary"
+            }}>filters</Typography>
           </Divider>
 
           <Autocomplete
@@ -146,6 +177,22 @@ const FilterDialog: React.FC<FilterDialogProps> = ({ open, onClose, value, apply
             renderInput={(params) => <TextField {...params} label="Team / queue" />}
           />
 
+          {customFieldDefs.length > 0 && (
+            <>
+              <Divider flexItem>
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>custom fields</Typography>
+              </Divider>
+              {customFieldDefs.map((def) => (
+                <CustomFieldFilter
+                  key={def.id}
+                  def={def}
+                  value={customFields[def.key]}
+                  onChange={(fieldValue) => setCustomField(def.key, fieldValue)}
+                />
+              ))}
+            </>
+          )}
+
           <FormControlLabel
             control={<Checkbox checked={includeClosed} onChange={(e) => setIncludeClosed(e.target.checked)} />}
             label="Include closed tickets"
@@ -160,5 +207,49 @@ const FilterDialog: React.FC<FilterDialogProps> = ({ open, onClose, value, apply
     </Dialog>
   );
 };
+
+function CustomFieldFilter({
+  def,
+  value,
+  onChange,
+}: {
+  def: api.CustomFieldDef;
+  value: string | number | boolean | undefined;
+  onChange: (value: string | number | boolean) => void;
+}) {
+  if (def.type === "boolean") {
+    return (
+      <TextField
+        select
+        label={def.label}
+        value={value === undefined ? "" : String(value)}
+        onChange={(event) => onChange(event.target.value === "" ? "" : event.target.value === "true")}
+      >
+        <MenuItem value="">Any</MenuItem>
+        <MenuItem value="true">Yes</MenuItem>
+        <MenuItem value="false">No</MenuItem>
+      </TextField>
+    );
+  }
+
+  if (def.type === "select") {
+    return (
+      <TextField select label={def.label} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
+        <MenuItem value="">Any</MenuItem>
+        {(def.options ?? []).map((option) => <MenuItem key={option} value={option}>{option}</MenuItem>)}
+      </TextField>
+    );
+  }
+
+  return (
+    <TextField
+      label={def.label}
+      type={def.type === "number" ? "number" : def.type === "date" ? "date" : "text"}
+      value={value ?? ""}
+      onChange={(event) => onChange(event.target.value)}
+      slotProps={{ inputLabel: def.type === "date" ? { shrink: true } : undefined }}
+    />
+  );
+}
 
 export default FilterDialog;

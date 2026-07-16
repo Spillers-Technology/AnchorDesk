@@ -85,7 +85,9 @@ export default function AdminView() {
   const [section, setSection] = useState<AdminSection>("overview");
 
   return (
-    <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
+    <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{
+      alignItems: "flex-start"
+    }}>
       <Paper variant="outlined" sx={{ width: { xs: "100%", md: 230 }, maxWidth: "100%", minWidth: 0, flexShrink: 0, position: { md: "sticky" }, top: { md: 88 }, overflowX: { xs: "auto", md: "hidden" } }}>
         <List dense disablePadding sx={{ display: { xs: "flex", md: "block" }, width: { xs: "max-content", md: "auto" }, minWidth: { xs: "100%", md: 0 }, py: { xs: 0.5, md: 0 } }}>
           {NAV.map((n) => (
@@ -96,7 +98,6 @@ export default function AdminView() {
           ))}
         </List>
       </Paper>
-
       <Box sx={{ flexGrow: 1, minWidth: 0, width: "100%" }}>
         {section === "overview" && <OverviewPanel onNavigate={setSection} />}
         {section === "users" && <UsersPanel />}
@@ -139,33 +140,49 @@ function OverviewPanel({ onNavigate }: { onNavigate: (s: AdminSection) => void }
       <Box>
         <Grid container spacing={2}>
           {stats.map((s) => (
-            <Grid item xs={6} sm={4} md={2.4} key={s.label}>
+            <Grid size={{ xs: 6, sm: 4, md: 2.4 }} key={s.label}>
               <Card variant="outlined" sx={{ cursor: "pointer", "&:hover": { borderColor: "primary.main" } }} onClick={() => onNavigate(s.go)}>
                 <CardContent>
                   <Typography variant="h4">{s.value}</Typography>
-                  <Typography variant="body2" color="text.secondary">{s.label}</Typography>
-                  {s.sub && <Typography variant="caption" color="text.secondary">{s.sub}</Typography>}
+                  <Typography variant="body2" sx={{
+                    color: "text.secondary"
+                  }}>{s.label}</Typography>
+                  {s.sub && <Typography variant="caption" sx={{
+                    color: "text.secondary"
+                  }}>{s.sub}</Typography>}
                 </CardContent>
               </Card>
             </Grid>
           ))}
         </Grid>
       </Box>
-
       <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+        <Stack
+          direction="row"
+          sx={{
+            alignItems: "center",
+            justifyContent: "space-between",
+            mb: 1
+          }}>
           <Typography variant="subtitle2">Recent activity</Typography>
           <Button size="small" onClick={() => onNavigate("audit")}>View all</Button>
         </Stack>
         <Stack spacing={0.5}>
-          {data.recentAudit.length === 0 && <Typography variant="body2" color="text.secondary">No activity yet.</Typography>}
+          {data.recentAudit.length === 0 && <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>No activity yet.</Typography>}
           {data.recentAudit.map((a) => (
             <Box key={a.id} sx={{ display: "flex", gap: 1, alignItems: "center" }}>
               <Chip size="small" label={a.action} color={auditColor(a.action)} />
               <Typography variant="body2">
                 {a.entityType} #{a.entityId} {a.changedBy ? `· ${a.changedBy}` : ""}
               </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ ml: "auto" }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  color: "text.secondary",
+                  ml: "auto"
+                }}>
                 {new Date(a.occurredAt).toLocaleString()}
               </Typography>
             </Box>
@@ -213,10 +230,11 @@ function UsersPanel() {
   return (
     <Stack spacing={2}>
       {msg && <Alert severity={msg.ok ? "success" : "error"} onClose={() => setMsg(null)}>{msg.text}</Alert>}
-
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>Create local account</Typography>
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} flexWrap="wrap" useFlexGap>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} useFlexGap sx={{
+          flexWrap: "wrap"
+        }}>
           <TextField size="small" label="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
           <TextField size="small" label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           <TextField size="small" label="Display name" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} />
@@ -227,7 +245,6 @@ function UsersPanel() {
           <Button variant="contained" disabled={!form.username || form.password.length < 10} onClick={create}>Create</Button>
         </Stack>
       </Paper>
-
       <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
@@ -302,15 +319,20 @@ function AuthSettingsPanel() {
       <Alert severity="info">
         These settings are seeded from environment variables on first boot and become editable here. Secrets are write-only — leave blank to keep the current value.
       </Alert>
-
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2">Local accounts & MFA</Typography>
-        <Stack direction="row" alignItems="center" spacing={2} sx={{ mt: 1 }} flexWrap="wrap">
+        <Stack
+          direction="row"
+          spacing={2}
+          sx={{
+            alignItems: "center",
+            flexWrap: "wrap",
+            mt: 1
+          }}>
           <label><Switch checked={val("localEnabled", data.localEnabled)} onChange={(e) => set("localEnabled", e.target.checked)} /> Username/password login</label>
           <label><Switch checked={val("mfaRequired", data.mfa.required)} onChange={(e) => set("mfaRequired", e.target.checked)} /> Require MFA (TOTP)</label>
         </Stack>
       </Paper>
-
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2">OIDC SSO {data.oidc.hasClientSecret && <Chip size="small" label="secret set" sx={{ ml: 1 }} />}</Typography>
         <Stack spacing={1} sx={{ mt: 1 }}>
@@ -318,10 +340,11 @@ function AuthSettingsPanel() {
           <TextField size="small" label="Issuer URL" defaultValue={data.oidc.issuerUrl ?? ""} onChange={(e) => set("oidcIssuerUrl", e.target.value)} />
           <TextField size="small" label="Client ID" defaultValue={data.oidc.clientId ?? ""} onChange={(e) => set("oidcClientId", e.target.value)} />
           <TextField size="small" label="Client secret (write-only)" type="password" placeholder="leave blank to keep" onChange={(e) => set("oidcClientSecret", e.target.value)} />
-          <TextField size="small" label="Redirect URI (register with IdP)" value={data.oidc.redirectUri} InputProps={{ readOnly: true }} />
+          <TextField size="small" label="Redirect URI (register with IdP)" value={data.oidc.redirectUri} slotProps={{
+            input: { readOnly: true }
+          }} />
         </Stack>
       </Paper>
-
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2">SAML SSO {data.saml.hasIdpCert && <Chip size="small" label="cert set" sx={{ ml: 1 }} />}</Typography>
         <Stack spacing={1} sx={{ mt: 1 }}>
@@ -329,10 +352,11 @@ function AuthSettingsPanel() {
           <TextField size="small" label="IdP entry point (SSO URL)" defaultValue={data.saml.entryPoint ?? ""} onChange={(e) => set("samlEntryPoint", e.target.value)} />
           <TextField size="small" label="SP issuer / entity ID" defaultValue={data.saml.issuer ?? ""} onChange={(e) => set("samlIssuer", e.target.value)} />
           <TextField size="small" label="IdP signing certificate (PEM, write-only)" placeholder="leave blank to keep" multiline minRows={3} onChange={(e) => set("samlIdpCert", e.target.value)} />
-          <TextField size="small" label="ACS / callback URL (register with IdP)" value={data.saml.callbackUrl} InputProps={{ readOnly: true }} />
+          <TextField size="small" label="ACS / callback URL (register with IdP)" value={data.saml.callbackUrl} slotProps={{
+            input: { readOnly: true }
+          }} />
         </Stack>
       </Paper>
-
       <Divider />
       <Box>
         <Button variant="contained" disabled={Object.keys(draft).length === 0} onClick={save}>Save changes</Button>
@@ -393,10 +417,20 @@ function InterfacePanel() {
     <Stack spacing={2}>
       <Typography variant="h5">Interface</Typography>
       <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between">
+        <Stack
+          direction="row"
+          sx={{
+            alignItems: "center",
+            justifyContent: "space-between"
+          }}>
           <Box>
             <Typography variant="subtitle2">Legacy table view</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 560 }}>
+            <Typography
+              variant="body2"
+              sx={{
+                color: "text.secondary",
+                maxWidth: 560
+              }}>
               Adds the older DataGrid table to the ticket view switcher (Board · Cards · Table).
               Board and Cards are the primary views — leave this off unless someone relies on the table.
             </Typography>
@@ -575,7 +609,9 @@ function DevicesPanel() {
   return (
     <Stack spacing={2}>
       <Box>
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Stack direction="row" spacing={1} useFlexGap sx={{
+          flexWrap: "wrap"
+        }}>
           {configuredRmms.map((r) => (
             <Button key={r.key} variant="contained" onClick={() => syncFrom(r.key)} disabled={!!syncing}
               startIcon={syncing === r.key ? <CircularProgress size={16} /> : undefined}>
@@ -583,7 +619,9 @@ function DevicesPanel() {
             </Button>
           ))}
           {configuredRmms.length === 0 && (
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{
+              color: "text.secondary"
+            }}>
               No RMM configured — add one under Admin → Integrations to sync devices.
             </Typography>
           )}
@@ -635,7 +673,9 @@ function DevicesPanel() {
               </TableCell>
               <TableCell>{d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString() : "—"}</TableCell>
               <TableCell>
-                <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                <Stack direction="row" spacing={0.5} useFlexGap sx={{
+                  flexWrap: "wrap"
+                }}>
                   {(d.externalRefs ?? []).map((ref) => <Chip key={ref.id} size="small" variant="outlined" label={ref.provider} />)}
                   {(d.externalRefs ?? []).length === 0 && d.externalProvider && <Chip size="small" variant="outlined" label={d.externalProvider} />}
                   {(d.externalRefs ?? []).length === 0 && !d.externalProvider && "—"}
@@ -746,15 +786,19 @@ function DeviceEditorDialog({
           {error && <Alert severity="error">{error}</Alert>}
           <Typography variant="subtitle2">Asset record</Typography>
           <Grid container spacing={2}>
-            <Grid item xs={12} sm={6}><TextField fullWidth label="Asset tag" value={form.assetTag} onChange={(event) => set("assetTag", event.target.value)} /></Grid>
-            <Grid item xs={12} sm={6}><TextField fullWidth label="Serial number" value={form.serialNumber} onChange={(event) => set("serialNumber", event.target.value)} /></Grid>
-            <Grid item xs={12} sm={6}><TextField fullWidth label="Manufacturer" value={form.manufacturer} onChange={(event) => set("manufacturer", event.target.value)} /></Grid>
-            <Grid item xs={12} sm={6}><TextField fullWidth label="Model" value={form.model} onChange={(event) => set("model", event.target.value)} /></Grid>
-            <Grid item xs={12} sm={6}><TextField fullWidth label="Vendor" value={form.vendor} onChange={(event) => set("vendor", event.target.value)} /></Grid>
-            <Grid item xs={12} sm={6}><TextField fullWidth label="Location" value={form.location} onChange={(event) => set("location", event.target.value)} /></Grid>
-            <Grid item xs={12} sm={6}><TextField fullWidth type="date" label="Purchase date" value={form.purchaseDate} onChange={(event) => set("purchaseDate", event.target.value)} InputLabelProps={{ shrink: true }} /></Grid>
-            <Grid item xs={12} sm={6}><TextField fullWidth type="date" label="Warranty expires" value={form.warrantyExpiresAt} onChange={(event) => set("warrantyExpiresAt", event.target.value)} InputLabelProps={{ shrink: true }} /></Grid>
-            <Grid item xs={12}><TextField fullWidth multiline minRows={3} label="Asset notes" value={form.notes} onChange={(event) => set("notes", event.target.value)} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Asset tag" value={form.assetTag} onChange={(event) => set("assetTag", event.target.value)} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Serial number" value={form.serialNumber} onChange={(event) => set("serialNumber", event.target.value)} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Manufacturer" value={form.manufacturer} onChange={(event) => set("manufacturer", event.target.value)} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Model" value={form.model} onChange={(event) => set("model", event.target.value)} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Vendor" value={form.vendor} onChange={(event) => set("vendor", event.target.value)} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Location" value={form.location} onChange={(event) => set("location", event.target.value)} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth type="date" label="Purchase date" value={form.purchaseDate} onChange={(event) => set("purchaseDate", event.target.value)} slotProps={{
+              inputLabel: { shrink: true }
+            }} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth type="date" label="Warranty expires" value={form.warrantyExpiresAt} onChange={(event) => set("warrantyExpiresAt", event.target.value)} slotProps={{
+              inputLabel: { shrink: true }
+            }} /></Grid>
+            <Grid size={12}><TextField fullWidth multiline minRows={3} label="Asset notes" value={form.notes} onChange={(event) => set("notes", event.target.value)} /></Grid>
           </Grid>
           <Divider />
           <Typography variant="subtitle2">External RMM references</Typography>
@@ -766,7 +810,9 @@ function DeviceEditorDialog({
                 <IconButton color="error" aria-label={`Remove ${ref.provider} reference`} disabled={busy} onClick={() => void removeRef(ref.id)}><DeleteIcon fontSize="small" /></IconButton>
               </Paper>
             ))}
-            {refs.length === 0 && <Typography variant="body2" color="text.secondary">No external references.</Typography>}
+            {refs.length === 0 && <Typography variant="body2" sx={{
+              color: "text.secondary"
+            }}>No external references.</Typography>}
           </Stack>
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
             <TextField select label="Provider" value={provider} onChange={(event) => setProvider(event.target.value)} sx={{ minWidth: 170 }}>
@@ -917,7 +963,13 @@ function IntegrationCard({ title, configured, fields, onSave }: { title: string;
 
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{
+          alignItems: "center",
+          mb: 1
+        }}>
         <Typography variant="subtitle1">{title}</Typography>
         <Chip size="small" color={configured ? "success" : "default"} label={configured ? "configured" : "not set"} />
       </Stack>
@@ -929,7 +981,9 @@ function IntegrationCard({ title, configured, fields, onSave }: { title: string;
             </label>
           ) : f.type === "select" ? (
             <Box key={f.k}>
-              <Typography variant="caption" color="text.secondary">{f.label}</Typography>
+              <Typography variant="caption" sx={{
+                color: "text.secondary"
+              }}>{f.label}</Typography>
               <Select fullWidth size="small" value={f.k in draft ? String(draft[f.k]) : String(f.value ?? "")}
                 onChange={(e) => set(f.k, e.target.value)}>
                 {(f.options ?? []).map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}
@@ -994,28 +1048,28 @@ function MailboxesPanel() {
       <Typography variant="h5">Mailboxes (email-to-ticket)</Typography>
       {msg && <Alert severity={msg.ok ? "success" : "error"} onClose={() => setMsg(null)}>{msg.text}</Alert>}
       <Alert severity="info">Each IMAP mailbox is polled for new mail: a new message opens a ticket; a reply threads into the original ticket as a note. Passwords are stored encrypted.</Alert>
-
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>Add mailbox</Typography>
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} flexWrap="wrap" useFlexGap>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} useFlexGap sx={{
+          flexWrap: "wrap"
+        }}>
           <TextField size="small" label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <TextField size="small" label="IMAP host" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} />
           <TextField size="small" label="Port" type="number" value={form.port} sx={{ width: 90 }} onChange={(e) => setForm({ ...form, port: Number(e.target.value) })} />
           <TextField size="small" label="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
           <TextField size="small" label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           <TextField size="small" label="Company" value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} />
-          <Select size="small" displayEmpty value={form.labelId} onChange={(e) => setForm({ ...form, labelId: e.target.value === "" ? "" : Number(e.target.value) })} sx={{ minWidth: 130 }}>
+          <Select<number | ""> size="small" displayEmpty value={form.labelId} onChange={(e) => setForm({ ...form, labelId: e.target.value === "" ? "" : Number(e.target.value) })} sx={{ minWidth: 130 }}>
             <MenuItem value="">No label</MenuItem>
             {labels.map((l) => <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>)}
           </Select>
-          <Select size="small" displayEmpty value={form.identityId} onChange={(e) => setForm({ ...form, identityId: e.target.value === "" ? "" : Number(e.target.value) })} sx={{ minWidth: 150 }}>
+          <Select<number | ""> size="small" displayEmpty value={form.identityId} onChange={(e) => setForm({ ...form, identityId: e.target.value === "" ? "" : Number(e.target.value) })} sx={{ minWidth: 150 }}>
             <MenuItem value="">Default From</MenuItem>
             {identities.map((i) => <MenuItem key={i.id} value={i.id}>{i.address}</MenuItem>)}
           </Select>
           <Button variant="contained" disabled={!form.name || !form.host || !form.username} onClick={create}>Add</Button>
         </Stack>
       </Paper>
-
       <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
@@ -1089,10 +1143,11 @@ function SlaPanel() {
         company + priority &gt; company &gt; priority &gt; a global default (leave both blank). Tickets are scored
         on create and when priority/company changes.
       </Alert>
-
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>Add policy</Typography>
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} flexWrap="wrap" useFlexGap>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} useFlexGap sx={{
+          flexWrap: "wrap"
+        }}>
           <TextField size="small" label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <Select size="small" displayEmpty value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} sx={{ minWidth: 130 }}>
             <MenuItem value="">Any priority</MenuItem>
@@ -1107,7 +1162,6 @@ function SlaPanel() {
           <Button variant="contained" disabled={!form.name} onClick={create}>Add</Button>
         </Stack>
       </Paper>
-
       <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
@@ -1153,7 +1207,9 @@ function LabelsPanel() {
       <Typography variant="h5">Labels</Typography>
       <Alert severity="info">Managed tags. Assign on a ticket or auto-apply via a mailbox (catchall vs help@ vs personal).</Alert>
       <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} sx={{
+          alignItems: "center"
+        }}>
           <TextField size="small" label="Name" value={name} onChange={(e) => setName(e.target.value)} />
           <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 40, height: 36, border: "none", background: "none" }} />
           <Button variant="contained" disabled={!name} onClick={create}>Add</Button>
@@ -1274,33 +1330,50 @@ function AutomationsPanel() {
 
   return (
     <Stack spacing={2}>
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{
+        alignItems: { xs: "stretch", sm: "center" }
+      }}>
         <Box sx={{ flexGrow: 1 }}>
           <Typography variant="h5">Automations</Typography>
-          <Typography variant="body2" color="text.secondary">Run ordered actions when ticket and SLA events match all conditions.</Typography>
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>Run ordered actions when ticket and SLA events match all conditions.</Typography>
         </Box>
         <Button variant="contained" onClick={() => setEditing(null)}>Add rule</Button>
       </Stack>
       {msg && <Alert severity={msg.ok ? "success" : "error"} onClose={() => setMsg(null)}>{msg.text}</Alert>}
       {(rules.data ?? []).map((rule) => (
         <Paper key={rule.id} variant="outlined" sx={{ p: 2 }}>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "stretch", sm: "center" }}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{
+            alignItems: { xs: "stretch", sm: "center" }
+          }}>
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+              <Stack
+                direction="row"
+                spacing={1}
+                useFlexGap
+                sx={{
+                  alignItems: "center",
+                  flexWrap: "wrap"
+                }}>
                 <Typography variant="subtitle1">{rule.name}</Typography>
                 <Chip size="small" label={rule.enabled ? "Enabled" : "Disabled"} color={rule.enabled ? "success" : "default"} />
                 <Chip size="small" variant="outlined" label={rule.trigger.replace(/_/g, " ")} />
               </Stack>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={{
+                color: "text.secondary"
+              }}>
                 {rule.conditions.length} conditions · {rule.actions.length} actions · {rule.runCount} runs
                 {rule.lastRunAt ? ` · last ${new Date(rule.lastRunAt).toLocaleString()}` : ""}
               </Typography>
             </Box>
             <Stack direction="row" spacing={0.5}>
               <Switch
-                inputProps={{ "aria-label": `${rule.enabled ? "Disable" : "Enable"} ${rule.name}` }}
                 checked={rule.enabled}
                 onChange={(event) => void mutate(() => api.updateAutomation(rule.id, { enabled: event.target.checked }), event.target.checked ? "Rule enabled" : "Rule disabled")}
+                slotProps={{
+                  input: { "aria-label": `${rule.enabled ? "Disable" : "Enable"} ${rule.name}` }
+                }}
               />
               <IconButton aria-label={`Edit ${rule.name}`} onClick={() => setEditing(rule)}><EditIcon /></IconButton>
               <IconButton color="error" aria-label={`Delete ${rule.name}`} onClick={() => {
@@ -1394,7 +1467,12 @@ function AutomationEditorDialog({
           </TextField>
           <FormControlLabel control={<Checkbox checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />} label="Enabled" />
           <Paper variant="outlined" sx={{ p: 1.5 }}>
-            <Typography variant="caption" color="text.secondary" display="block">
+            <Typography
+              variant="caption"
+              sx={{
+                color: "text.secondary",
+                display: "block"
+              }}>
               Reference IDs for actions
             </Typography>
             <Typography variant="body2">
@@ -1416,8 +1494,10 @@ function AutomationEditorDialog({
             onChange={(event) => setConditions(event.target.value)}
             multiline
             minRows={5}
-            InputProps={{ sx: { fontFamily: "monospace", fontSize: 13 } }}
             helperText='JSON array, e.g. [{"field":"priority","op":"eq","value":"Urgent"}]. Use custom.<key> for custom fields.'
+            slotProps={{
+              input: { sx: { fontFamily: "monospace", fontSize: 13 } }
+            }}
           />
           <TextField
             label="Actions (run in order)"
@@ -1425,8 +1505,10 @@ function AutomationEditorDialog({
             onChange={(event) => setActions(event.target.value)}
             multiline
             minRows={7}
-            InputProps={{ sx: { fontFamily: "monospace", fontSize: 13 } }}
             helperText="Action types: set_status, set_priority, assign_user, assign_team, add_label, add_note, notify_user, notify_team."
+            slotProps={{
+              input: { sx: { fontFamily: "monospace", fontSize: 13 } }
+            }}
           />
         </Stack>
       </DialogContent>
@@ -1456,10 +1538,14 @@ function CustomFieldsPanel() {
 
   return (
     <Stack spacing={2}>
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{
+        alignItems: { xs: "stretch", sm: "center" }
+      }}>
         <Box sx={{ flexGrow: 1 }}>
           <Typography variant="h5">Custom ticket fields</Typography>
-          <Typography variant="body2" color="text.secondary">Define structured fields rendered on every ticket.</Typography>
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>Define structured fields rendered on every ticket.</Typography>
         </Box>
         <Button variant="contained" onClick={() => setEditing(null)}>Add field</Button>
       </Stack>
@@ -1480,8 +1566,10 @@ function CustomFieldsPanel() {
                   <Switch
                     size="small"
                     checked={!field.archived}
-                    inputProps={{ "aria-label": field.archived ? `Restore ${field.label}` : `Archive ${field.label}` }}
                     onChange={() => void mutate(() => api.updateCustomField(field.id, { archived: !field.archived }), field.archived ? "Field restored" : "Field archived")}
+                    slotProps={{
+                      input: { "aria-label": field.archived ? `Restore ${field.label}` : `Archive ${field.label}` }
+                    }}
                   />
                   <IconButton color="error" aria-label={`Delete ${field.label}`} onClick={() => {
                     if (window.confirm(`Permanently delete “${field.label}”? Archive it instead if tickets still use this key.`)) {
@@ -1602,10 +1690,14 @@ function TeamsPanel() {
 
   return (
     <Stack spacing={2}>
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{
+        alignItems: { xs: "stretch", sm: "center" }
+      }}>
         <Box sx={{ flexGrow: 1 }}>
           <Typography variant="h5">Teams</Typography>
-          <Typography variant="body2" color="text.secondary">Route tickets to queues and control team membership.</Typography>
+          <Typography variant="body2" sx={{
+            color: "text.secondary"
+          }}>Route tickets to queues and control team membership.</Typography>
         </Box>
         <Button variant="contained" onClick={() => setEditing(null)}>Add team</Button>
       </Stack>
@@ -1616,10 +1708,14 @@ function TeamsPanel() {
         return (
           <Paper key={team.id} variant="outlined" sx={{ p: 2 }}>
             <Stack spacing={1.5}>
-              <Stack direction="row" spacing={1} alignItems="flex-start">
+              <Stack direction="row" spacing={1} sx={{
+                alignItems: "flex-start"
+              }}>
                 <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                   <Typography variant="subtitle1">{team.name}</Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" sx={{
+                    color: "text.secondary"
+                  }}>
                     {team.description || "No description"} · {team._count?.tickets ?? 0} tickets
                   </Typography>
                 </Box>
@@ -1630,7 +1726,9 @@ function TeamsPanel() {
                   }
                 }}><DeleteIcon /></IconButton>
               </Stack>
-              <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+              <Stack direction="row" spacing={0.75} useFlexGap sx={{
+                flexWrap: "wrap"
+              }}>
                 {team.members.map((member) => (
                   <Chip
                     key={member.userId}
@@ -1638,7 +1736,9 @@ function TeamsPanel() {
                     onDelete={() => void act(() => api.removeTeamMember(team.id, member.userId), "Member removed")}
                   />
                 ))}
-                {team.members.length === 0 && <Typography variant="body2" color="text.secondary">No members yet.</Typography>}
+                {team.members.length === 0 && <Typography variant="body2" sx={{
+                  color: "text.secondary"
+                }}>No members yet.</Typography>}
               </Stack>
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                 <TextField

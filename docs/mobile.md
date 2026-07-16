@@ -76,7 +76,14 @@ ANCHORDESK_CAPTURE_DEVICES=galaxy ANCHORDESK_CAPTURE_VIEWS=admin-teams,device-as
 Review every shot for: no horizontal page scroll, full-screen dialogs with a
 reachable close, visible touch affordances, nothing clipped at the right edge.
 A vitest guard (`dialogsFullScreen.mobile.test.tsx`) additionally asserts in CI
-that the create-ticket and run-script dialogs render full-screen at phone width.
+that the create-ticket, run-script, advanced-filter, and ticket-cockpit dialogs
+render full-screen at phone width.
+
+The curated 2.2 release proof below shows the selected-device Network flow at
+360px, including touch map controls and the provider identities attached to the
+local device record.
+
+<a href="assets/screenshots/anchordesk-mobile-network-selected.jpg"><img src="assets/screenshots/anchordesk-mobile-network-selected.jpg" width="360" alt="AnchorDesk Network view on a phone with a selected firewall, touch map controls, and Tactical plus NinjaOne external references" /></a>
 
 What screenshots can't show, check by hand in devtools device emulation:
 map pinch-zoom, Kanban long-press drag, on-screen keyboard vs. the

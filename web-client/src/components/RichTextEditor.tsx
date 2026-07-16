@@ -81,7 +81,9 @@ function Toolbar({
           </ToggleButtonGroup>
           <Divider orientation="vertical" flexItem />
           <ToggleButton size="small" value="link" selected={editor.isActive("link")} onClick={setLink}>
-            <Tooltip title="Insert link"><LinkIcon fontSize="small" /></Tooltip>
+            <Tooltip title="Insert link"><LinkIcon sx={{
+              fontSize: "small"
+            }} /></Tooltip>
           </ToggleButton>
         </>
       )}
@@ -179,8 +181,6 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, minHei
             fullWidth
             minRows={Math.max(5, Math.floor(minHeight / 24))}
             variant="standard"
-            InputProps={{ disableUnderline: true }}
-            inputProps={{ spellCheck: false }}
             sx={{
               "& textarea": {
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
@@ -188,7 +188,10 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange, minHei
                 lineHeight: 1.55,
               },
             }}
-          />
+            slotProps={{
+              input: { disableUnderline: true },
+              htmlInput: { spellCheck: false }
+            }} />
         </Box>
       ) : (
         <Box

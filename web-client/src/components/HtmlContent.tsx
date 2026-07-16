@@ -40,7 +40,9 @@ export default function HtmlContent({ value, emptyText = "No content yet.", sx }
   const body = value ?? "";
   if (!body.trim()) {
     return (
-      <Typography variant="body2" color="text.secondary">
+      <Typography variant="body2" sx={{
+        color: "text.secondary"
+      }}>
         {emptyText}
       </Typography>
     );

@@ -18,7 +18,9 @@ function PriorityIcon({ priority }: { priority: string }) {
 
 export function StatusSignal({ status }: { status: string }) {
   return (
-    <Stack component="span" direction="row" spacing={1} alignItems="center">
+    <Stack component="span" direction="row" spacing={1} sx={{
+      alignItems: "center"
+    }}>
       <Box
         component="span"
         sx={{ width: 9, height: 9, flex: "0 0 auto", borderRadius: "50%", bgcolor: tone(statusColor(status)) }}
@@ -30,7 +32,9 @@ export function StatusSignal({ status }: { status: string }) {
 
 export function PrioritySignal({ priority }: { priority: string }) {
   return (
-    <Stack component="span" direction="row" spacing={0.75} alignItems="center">
+    <Stack component="span" direction="row" spacing={0.75} sx={{
+      alignItems: "center"
+    }}>
       <PriorityIcon priority={priority} />
       <Typography component="span" variant="body2">{priority}</Typography>
     </Stack>
