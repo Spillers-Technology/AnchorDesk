@@ -52,6 +52,18 @@ describe('automation condition evaluation', () => {
       'custom.seats': 12,
     });
   });
+
+  it('exposes the effective deadline as dueAt (manual override beats SLA)', () => {
+    const manual = new Date('2026-07-18T09:00:00Z');
+    const sla = new Date('2026-07-20T12:00:00Z');
+    expect(ticketContext({ dueAt: manual, resolutionDueAt: sla }).dueAt).toBe(manual.toISOString());
+    expect(ticketContext({ dueAt: null, resolutionDueAt: sla }).dueAt).toBe(sla.toISOString());
+    expect(ticketContext({})).toMatchObject({ dueAt: null });
+    // set/unset and lexicographic lte conditions work against the ISO string.
+    const ctx = ticketContext({ dueAt: manual, resolutionDueAt: null });
+    expect(evaluateConditions([{ field: 'dueAt', op: 'set' }], ctx)).toBe(true);
+    expect(evaluateConditions([{ field: 'dueAt', op: 'lte', value: '2026-07-19T00:00:00Z' }], ctx)).toBe(true);
+  });
 });
 
 describe('automation rule JSON validation', () => {

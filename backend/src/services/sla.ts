@@ -20,6 +20,18 @@ export interface SlaFields {
   resolutionDueAt: Date | null;
 }
 
+/**
+ * The deadline the resolution clock actually runs against: a manual dueAt
+ * overrides the SLA target; clearing it falls back to the policy deadline.
+ * The response clock is a separate promise and never consults dueAt.
+ */
+export function effectiveResolutionDueAt(ticket: {
+  dueAt: Date | null;
+  resolutionDueAt: Date | null;
+}): Date | null {
+  return ticket.dueAt ?? ticket.resolutionDueAt;
+}
+
 function matches(p: SlaPolicy, priority: string | null, companyId: number | null): boolean {
   if (p.companyId != null && p.companyId !== companyId) return false;
   if (p.priority != null && p.priority !== priority) return false;

@@ -30,7 +30,7 @@ export type EvalContext = Record<string, unknown>;
 const CONDITION_OPS: ConditionOp[] = ['eq', 'neq', 'contains', 'in', 'gte', 'lte', 'set', 'unset'];
 const BUILTIN_FIELDS = new Set([
   'status', 'priority', 'companyName', 'assignee', 'assigneeId', 'teamId',
-  'source', 'title', 'labelIds', 'kind', 'level',
+  'source', 'title', 'labelIds', 'kind', 'level', 'dueAt',
 ]);
 const CUSTOM_FIELD_RE = /^custom\.[a-z][a-z0-9_]{0,59}$/;
 
@@ -110,6 +110,23 @@ function looseEq(a: unknown, b: unknown): boolean {
   return lower(a) === lower(b);
 }
 
+/**
+ * Order two values for gte/lte: numbers compare numerically; otherwise both
+ * sides must parse as datetimes (ISO strings — e.g. the dueAt context field)
+ * and compare by epoch. Null means "not comparable" and the condition fails.
+ */
+function ordinals(actual: unknown, expected: unknown): [number | null, number | null] {
+  const a = Number(actual);
+  const b = Number(expected);
+  if (Number.isFinite(a) && Number.isFinite(b)) return [a, b];
+  if (typeof actual === 'string' && typeof expected === 'string') {
+    const da = Date.parse(actual);
+    const db = Date.parse(expected);
+    if (!Number.isNaN(da) && !Number.isNaN(db)) return [da, db];
+  }
+  return [null, null];
+}
+
 export function evaluateCondition(condition: RuleCondition, ctx: EvalContext): boolean {
   const actual = ctx[condition.field];
   switch (condition.op) {
@@ -128,14 +145,12 @@ export function evaluateCondition(condition: RuleCondition, ctx: EvalContext): b
       return options.some((o) => looseEq(actual, o));
     }
     case 'gte': {
-      const a = Number(actual);
-      const b = Number(condition.value);
-      return Number.isFinite(a) && Number.isFinite(b) && a >= b;
+      const [a, b] = ordinals(actual, condition.value);
+      return a !== null && b !== null && a >= b;
     }
     case 'lte': {
-      const a = Number(actual);
-      const b = Number(condition.value);
-      return Number.isFinite(a) && Number.isFinite(b) && a <= b;
+      const [a, b] = ordinals(actual, condition.value);
+      return a !== null && b !== null && a <= b;
     }
     case 'set':
       return !isEmpty(actual);
@@ -162,6 +177,8 @@ export function ticketContext(ticket: {
   source?: string | null;
   title?: string | null;
   customFields?: unknown;
+  dueAt?: Date | null;
+  resolutionDueAt?: Date | null;
   labels?: { labelId: number }[];
 }): EvalContext {
   const ctx: EvalContext = {
@@ -173,6 +190,9 @@ export function ticketContext(ticket: {
     teamId: ticket.teamId ?? null,
     source: ticket.source ?? null,
     title: ticket.title ?? null,
+    // The effective resolution deadline (manual override, else SLA target) as
+    // an ISO string so set/unset and lexicographic gte/lte conditions work.
+    dueAt: (ticket.dueAt ?? ticket.resolutionDueAt)?.toISOString() ?? null,
     labelIds: (ticket.labels ?? []).map((l) => l.labelId),
   };
   const custom = ticket.customFields;

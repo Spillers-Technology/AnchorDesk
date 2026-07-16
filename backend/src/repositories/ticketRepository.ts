@@ -116,6 +116,8 @@ export interface CreateTicketInput {
   teamId?: number | null;
   /** Partial custom-field value map; validated against CustomFieldDef. */
   customFields?: Record<string, unknown>;
+  /** Manual deadline — overrides the SLA resolution target while set. */
+  dueAt?: Date | null;
   source?: TicketSource;
   ticketNumber?: string;
   externalId?: string;
@@ -136,6 +138,8 @@ export interface UpdateTicketInput {
   teamId?: number | null;
   /** Partial custom-field value map; merged into the stored map (null clears a key). */
   customFields?: Record<string, unknown>;
+  /** Manual deadline — overrides the SLA resolution target; null falls back to SLA. */
+  dueAt?: Date | null;
   closedAt?: Date | null;
 }
 
@@ -323,6 +327,7 @@ export async function create(input: CreateTicketInput, actorSub: string) {
       slaPolicyId: sla.slaPolicyId ?? undefined,
       responseDueAt: sla.responseDueAt,
       resolutionDueAt: sla.resolutionDueAt,
+      dueAt: input.dueAt ?? undefined,
     },
   });
 
@@ -349,6 +354,7 @@ export async function update(id: number, input: UpdateTicketInput, actorSub: str
     contactId: input.contactId,
     assigneeId: input.assigneeId,
     teamId: input.teamId,
+    dueAt: input.dueAt,
     closedAt: input.closedAt,
     // Custom fields merge per-key into the stored map (null clears a key) and
     // are validated against the definitions — never a raw spread.

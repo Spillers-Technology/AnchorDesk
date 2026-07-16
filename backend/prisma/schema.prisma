@@ -285,6 +285,10 @@ model Ticket {
   responseDueAt    DateTime?    @map("response_due_at")
   resolutionDueAt  DateTime?    @map("resolution_due_at")
   firstRespondedAt DateTime?    @map("first_responded_at")
+  // Manual deadline. When set it replaces the SLA resolution target everywhere
+  // (chips, at-risk/breach evaluation, automations); clearing it falls back to
+  // resolutionDueAt. The response clock is a separate promise and is unaffected.
+  dueAt            DateTime?    @map("due_at")
   closedAt         DateTime?    @map("closed_at")
   createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt @map("updated_at")
@@ -307,6 +311,7 @@ model Ticket {
   @@index([teamId])
   @@index([responseDueAt])
   @@index([resolutionDueAt])
+  @@index([dueAt])
   @@map("tickets")
 }
 

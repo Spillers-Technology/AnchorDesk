@@ -19,7 +19,7 @@ function positiveInteger(raw: string | undefined, fallback: number): number | nu
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
-function validateTicketInput(value: unknown, creating: boolean): string | null {
+export function validateTicketInput(value: unknown, creating: boolean): string | null {
   if (!isPlainRecord(value)) return 'request body must be an object';
   if (creating && (typeof value.title !== 'string' || !value.title.trim())) return 'title is required';
   const strings = ['title', 'summary', 'description', 'status', 'priority', 'companyName', 'assignee'] as const;
@@ -36,7 +36,17 @@ function validateTicketInput(value: unknown, creating: boolean): string | null {
   if (value.customFields !== undefined && !isPlainRecord(value.customFields)) {
     return 'customFields must be an object';
   }
+  if (value.dueAt !== undefined && value.dueAt !== null) {
+    if (typeof value.dueAt !== 'string' || Number.isNaN(Date.parse(value.dueAt))) {
+      return 'dueAt must be an ISO 8601 datetime string or null';
+    }
+  }
   return null;
+}
+
+/** JSON carries dueAt as an ISO string (or null to clear); the repo wants a Date. */
+function normalizeDueAt(value: Record<string, unknown>): void {
+  if (typeof value.dueAt === 'string') value.dueAt = new Date(value.dueAt);
 }
 
 export async function ticketRoutes(server: FastifyInstance) {
@@ -96,6 +106,7 @@ export async function ticketRoutes(server: FastifyInstance) {
   server.post('/tickets', async (req: FastifyRequest, reply: FastifyReply) => {
     const validationError = validateTicketInput(req.body, true);
     if (validationError) return reply.status(400).send({ error: validationError });
+    normalizeDueAt(req.body as Record<string, unknown>);
     const body = req.body as ticketRepo.CreateTicketInput;
 
     try {
@@ -114,6 +125,7 @@ export async function ticketRoutes(server: FastifyInstance) {
     if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
     const validationError = validateTicketInput(req.body, false);
     if (validationError) return reply.status(400).send({ error: validationError });
+    normalizeDueAt(req.body as Record<string, unknown>);
     let ticket;
     try {
       ticket = await ticketRepo.update(id, req.body as ticketRepo.UpdateTicketInput, req.actorSub);
