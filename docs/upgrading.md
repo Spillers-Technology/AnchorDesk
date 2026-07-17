@@ -35,6 +35,17 @@ takes seconds and makes any surprise reversible.
 
 ## Version notes
 
+### → 2.4.1 (Checklist MCP Parity)
+- No schema or data migration. Pull the `2.4.1` images and restart normally.
+- Header/PAT MCP clients should reconnect after the backend restart so their
+  next `tools/list` sees the expanded checklist surface.
+- ChatGPT keeps a frozen snapshot of approved MCP actions. Enterprise/Edu
+  admins should open **Workspace Settings → Apps → AnchorDesk → Action
+  control**, choose **Refresh**, review and enable the new actions, and publish
+  the update. Business workspaces currently need to recreate and republish the
+  app. Open a new chat after the workspace update. See OpenAI's
+  [developer-mode and MCP apps guide](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt-beta).
+
 ### → 2.4.0 (Checklist & Console)
 - New tables (`checklist_templates`, `checklist_template_items`,
   `checklist_items`) are created by the schema push automatically.

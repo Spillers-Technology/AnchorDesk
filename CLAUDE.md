@@ -66,10 +66,13 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 > - **Visual automation builder** — condition/action rows with pickers driven by the backend vocabulary (team/user/label selects, priority menus, datetime hints); `POST /automations/preview` dry-runs conditions against the last 7 days of tickets ("would have matched N"); raw JSON demoted to an Advanced toggle.
 > - **Vocabulary enforcement** — `backend/src/services/ticketVocab.ts` is the server's status/priority source of truth (mirrors web `ticketVocab.ts`); REST + MCP writes canonicalize case-insensitively and reject unknowns (the MCP tools previously suggested a fictional "Open" status and defaulted priority to numeric '3'). External provider sync is exempt by design.
 > - **First-run + upgrades** — `GET /auth/setup-status` / `POST /auth/setup` (public, but gated by an empty users table) drive a login-screen wizard that creates the initial admin; `db/dataMigrations.ts` runs idempotent data fixes on every boot (stray status/priority normalization); `docs/upgrading.md` documents the pull-restart-done upgrade path.
+>
+> **As of 2.4.1:** checklist MCP parity is complete. In addition to the 2.4.0 apply/add/toggle tools and checklist data in `get_ticket`, agents can explicitly list, fully update, and delete working items; admins can create/update/delete templates through role-gated MCP tools. The server initialize version follows `backend/package.json`, and an SDK client/in-memory transport test guards the advertised tool contract. ChatGPT freezes approved MCP actions: refresh them under Workspace Settings → Apps → Action control on Enterprise/Edu, or recreate and republish the app on Business.
 
 Key design goals:
 - Excellent standalone ticketing experience first
 - Sync to/from external platforms second
+- **MCP parity is a release invariant:** every ticket workflow exposed through web/REST must ship with equivalent MCP tools and protocol-level discovery/call coverage in the same change and release
 - **Mobile-first web client — every view must remain usable on a 360px-wide touch screen (hard requirement; see [docs/mobile.md](docs/mobile.md))**
 - Strong SOLID + GoF patterns at integration boundaries
 - Full audit log on every mutation (revision history)
