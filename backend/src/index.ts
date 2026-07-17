@@ -9,6 +9,7 @@ import { attachmentRoutes } from './routes/attachments';
 import { notificationRoutes } from './routes/notifications';
 import { slaRoutes } from './routes/sla';
 import { labelRoutes } from './routes/labels';
+import { checklistRoutes } from './routes/checklists';
 import { timeRoutes } from './routes/time';
 import { wsRoutes } from './routes/ws';
 import { deviceRoutes } from './routes/devices';
@@ -118,6 +119,7 @@ async function start() {
   server.register(slaRoutes);
   // Labels (managed tags) + ticket tag/untag
   server.register(labelRoutes);
+  server.register(checklistRoutes);
   // Teams (queues/groups) — ticket routing + membership
   server.register(teamRoutes);
   // Custom ticket field definitions (values ride on Ticket.customFields)

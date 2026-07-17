@@ -9,6 +9,8 @@ import * as labels from '../repositories/labelRepository';
 import * as teams from '../repositories/teamRepository';
 import * as customFields from '../repositories/customFieldRepository';
 import * as savedViews from '../repositories/savedViewRepository';
+import * as checklist from '../repositories/checklistRepository';
+import * as checklistTemplates from '../repositories/checklistTemplateRepository';
 import { CustomFieldValidationError, coerceCustomFieldFilters } from '../services/customFields';
 import * as ticketMail from '../services/mail/ticketMail';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
@@ -62,13 +64,16 @@ function buildMcpServer(actor: string, userId: number): McpServer {
 
   server.tool(
     'get_ticket',
-    'Get full details of a single ticket including its notes.',
+    'Get full details of a single ticket including its notes and checklist.',
     { id: z.number().int().describe('Local database ticket ID') },
     async ({ id }) => {
       const ticket = await tickets.getById(id);
       if (!ticket) return { content: [{ type: 'text', text: `Ticket ${id} not found` }], isError: true };
-      const ticketNotes = await notes.listForTicket(id);
-      return { content: [{ type: 'text', text: JSON.stringify({ ticket, notes: ticketNotes }, null, 2) }] };
+      const [ticketNotes, checklistItems] = await Promise.all([
+        notes.listForTicket(id),
+        checklist.listForTicket(id),
+      ]);
+      return { content: [{ type: 'text', text: JSON.stringify({ ticket, notes: ticketNotes, checklist: checklistItems }, null, 2) }] };
     },
   );
 
@@ -150,6 +155,65 @@ function buildMcpServer(actor: string, userId: number): McpServer {
       const changedBy = actor;
       const note = await notes.create(ticketId, { content, author, noteType: 'note' }, changedBy);
       return { content: [{ type: 'text', text: JSON.stringify(note, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'list_checklist_templates',
+    'List reusable checklist templates that can be applied to tickets (items with optional relative deadlines).',
+    {},
+    async () => {
+      const templates = await checklistTemplates.list();
+      return { content: [{ type: 'text', text: JSON.stringify(templates, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'apply_checklist_template',
+    'Copy a checklist template\'s items onto a ticket. Item deadlines are computed from each item\'s relative offset at apply time. Returns the ticket\'s full checklist.',
+    {
+      ticketId: z.number().int(),
+      templateId: z.number().int().describe('See list_checklist_templates'),
+    },
+    async ({ ticketId, templateId }) => {
+      if (!(await tickets.getById(ticketId))) {
+        return { content: [{ type: 'text', text: `Ticket ${ticketId} not found` }], isError: true };
+      }
+      const items = await checklist.applyTemplate(ticketId, templateId, actor);
+      if (!items) return { content: [{ type: 'text', text: `Template ${templateId} not found or inactive` }], isError: true };
+      return { content: [{ type: 'text', text: JSON.stringify(items, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'add_checklist_item',
+    'Add a single checklist item to a ticket, optionally with its own independent deadline.',
+    {
+      ticketId: z.number().int(),
+      text: z.string().max(500),
+      dueAt: z.string().datetime({ offset: true }).optional().describe('Per-item deadline (ISO 8601); independent of the ticket clocks'),
+    },
+    async ({ ticketId, text, dueAt }) => {
+      if (!(await tickets.getById(ticketId))) {
+        return { content: [{ type: 'text', text: `Ticket ${ticketId} not found` }], isError: true };
+      }
+      const item = await checklist.add(ticketId, { text, dueAt: dueAt ? new Date(dueAt) : null }, actor);
+      return { content: [{ type: 'text', text: JSON.stringify(item, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'toggle_checklist_item',
+    'Mark a ticket checklist item done or not done (done items record who and when).',
+    {
+      ticketId: z.number().int(),
+      itemId: z.number().int(),
+      done: z.boolean(),
+    },
+    async ({ ticketId, itemId, done }) => {
+      const item = await checklist.update(ticketId, itemId, { done }, actor);
+      if (!item) return { content: [{ type: 'text', text: `Checklist item ${itemId} not found on ticket ${ticketId}` }], isError: true };
+      return { content: [{ type: 'text', text: JSON.stringify(item, null, 2) }] };
     },
   );
 
