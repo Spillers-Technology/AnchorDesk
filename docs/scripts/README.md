@@ -13,9 +13,10 @@ mocked `/api/*` responses (no backend or database needed):
   **Kanban columns**, **advanced filters**, **ticket**, **ticket history**,
   **composer**, **cards**, **My Day**,
   **Companies**, **Network**, **Sync**, and the **Admin** dashboard, teams,
-  custom fields, automations, devices, and device-asset editor across five
-  touch device profiles (Galaxy 360, iPhone 393, Pixel 412, folded foldable
-  344, unfolded foldable 717). Output lands in
+  custom fields, checklist templates, checklist-template editor, automations,
+  devices, and device-asset editor across five touch device profiles (Galaxy
+  360, iPhone 393, Pixel 412, folded foldable 344, unfolded foldable 717).
+  Output lands in
   `docs/assets/screenshots/mobile/` — **gitignored** working artifacts; curated
   marketing shots (e.g. `anchordesk-mobile-board.jpg`) are copied into the
   committed folder by hand.
@@ -58,7 +59,7 @@ renders), `freezeAnimations(page)` (deterministic screenshots), `loadPlaywright(
 
    ```bash
    node docs/scripts/capture-product-media.mjs   # desktop hero shots
-   node docs/scripts/capture-mobile-media.mjs    # mobile matrix (95 shots)
+   node docs/scripts/capture-mobile-media.mjs    # mobile matrix (105 shots)
    ```
 
    Review the desktop diff before committing. While iterating on a mobile fix,
