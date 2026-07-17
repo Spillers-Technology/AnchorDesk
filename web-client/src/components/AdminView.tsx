@@ -62,6 +62,17 @@ import { useIsPhone } from "../theme/useIsPhone";
 import ChecklistTemplatesPanel from "./admin/ChecklistTemplatesPanel";
 import ConfirmDialog from "./admin/ConfirmDialog";
 import PanelSearch, { rowMatches } from "./admin/PanelSearch";
+import {
+  ActionDraft,
+  ActionRowsEditor,
+  ConditionDraft,
+  ConditionRowsEditor,
+  RuleReferences,
+  conditionsToDrafts,
+  defaultAction,
+  draftsToConditions,
+  normalizeActions,
+} from "./admin/AutomationRuleEditor";
 
 type AdminSection =
   | "overview" | "users" | "auth" | "integrations" | "interface" | "sla" | "mailboxes" | "mail" | "labels"
@@ -1483,9 +1494,15 @@ function AutomationEditorDialog({
   const [name, setName] = useState("");
   const [trigger, setTrigger] = useState<api.AutomationTrigger>("ticket_created");
   const [enabled, setEnabled] = useState(true);
+  // Builder rows are the default surface; the JSON editors are the escape
+  // hatch. Whichever surface is visible is the source of truth on save.
+  const [advanced, setAdvanced] = useState(false);
+  const [conditionDrafts, setConditionDrafts] = useState<ConditionDraft[]>([]);
+  const [actionDrafts, setActionDrafts] = useState<ActionDraft[]>([defaultAction("add_note")]);
   const [conditions, setConditions] = useState("[]");
-  const [actions, setActions] = useState('[\n  { "type": "add_note", "content": "Automated update" }\n]');
-  const [references, setReferences] = useState<{ teams: api.Team[]; users: api.Assignee[]; labels: api.Label[]; fields: api.CustomFieldDef[] }>({ teams: [], users: [], labels: [], fields: [] });
+  const [actions, setActions] = useState("[]");
+  const [preview, setPreview] = useState<api.AutomationPreview | null>(null);
+  const [references, setReferences] = useState<RuleReferences>({ teams: [], users: [], labels: [], fields: [] });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1494,30 +1511,78 @@ function AutomationEditorDialog({
     setName(rule?.name ?? "");
     setTrigger(rule?.trigger ?? "ticket_created");
     setEnabled(rule?.enabled ?? true);
+    setConditionDrafts(conditionsToDrafts(rule?.conditions ?? []));
+    setActionDrafts((rule?.actions as ActionDraft[] | undefined) ?? [defaultAction("add_note")]);
     setConditions(JSON.stringify(rule?.conditions ?? [], null, 2));
-    setActions(JSON.stringify(rule?.actions ?? [{ type: "add_note", content: "Automated update" }], null, 2));
+    setActions(JSON.stringify(rule?.actions ?? [defaultAction("add_note")], null, 2));
+    setAdvanced(false);
+    setPreview(null);
     setError(null);
     Promise.all([api.listTeams(), api.listAssignees(), api.listLabels(), api.listCustomFields()])
       .then(([teams, users, labels, fields]) => setReferences({ teams, users, labels, fields }))
       .catch(() => setReferences({ teams: [], users: [], labels: [], fields: [] }));
   }, [open, rule]);
 
-  const save = async () => {
-    if (!name.trim()) return;
-    let parsedConditions: api.AutomationCondition[];
-    let parsedActions: api.AutomationAction[];
+  /** The rule as currently edited, or an error string. */
+  const collect = (): { conditions: api.AutomationCondition[]; actions: api.AutomationAction[] } | string => {
+    if (!advanced) {
+      const built = normalizeActions(actionDrafts);
+      if (built.length === 0) return "Add at least one action.";
+      return {
+        conditions: draftsToConditions(conditionDrafts) as unknown as api.AutomationCondition[],
+        actions: built as api.AutomationAction[],
+      };
+    }
     try {
-      parsedConditions = JSON.parse(conditions);
-      parsedActions = JSON.parse(actions);
-      if (!Array.isArray(parsedConditions)) throw new Error("Conditions must be a JSON array.");
-      if (!Array.isArray(parsedActions) || parsedActions.length === 0) throw new Error("Actions must be a non-empty JSON array.");
+      const parsedConditions = JSON.parse(conditions);
+      const parsedActions = JSON.parse(actions);
+      if (!Array.isArray(parsedConditions)) return "Conditions must be a JSON array.";
+      if (!Array.isArray(parsedActions) || parsedActions.length === 0) return "Actions must be a non-empty JSON array.";
+      return { conditions: parsedConditions, actions: parsedActions };
     } catch (err) {
-      setError((err as Error).message);
+      return (err as Error).message;
+    }
+  };
+
+  const toggleAdvanced = () => {
+    if (!advanced) {
+      // Serialize builder state into the JSON editors.
+      setConditions(JSON.stringify(draftsToConditions(conditionDrafts), null, 2));
+      setActions(JSON.stringify(normalizeActions(actionDrafts), null, 2));
+      setAdvanced(true);
       return;
     }
+    // Bring JSON edits back into the builder; invalid JSON stays in advanced.
+    try {
+      const parsedConditions = JSON.parse(conditions);
+      const parsedActions = JSON.parse(actions);
+      setConditionDrafts(conditionsToDrafts(parsedConditions));
+      setActionDrafts(Array.isArray(parsedActions) && parsedActions.length ? parsedActions : [defaultAction("add_note")]);
+      setAdvanced(false);
+      setError(null);
+    } catch {
+      setError("Fix the JSON before returning to the builder.");
+    }
+  };
+
+  const runPreview = async () => {
+    const collected = collect();
+    if (typeof collected === "string") { setError(collected); return; }
+    setError(null);
+    try {
+      setPreview(await api.previewAutomation(collected.conditions));
+    } catch (err) {
+      setError(errText(err));
+    }
+  };
+
+  const save = async () => {
+    if (!name.trim()) return;
+    const collected = collect();
+    if (typeof collected === "string") { setError(collected); return; }
     setSaving(true);
     setError(null);
-    try { await onSave({ name: name.trim(), trigger, enabled, conditions: parsedConditions, actions: parsedActions }); }
+    try { await onSave({ name: name.trim(), trigger, enabled, conditions: collected.conditions, actions: collected.actions }); }
     catch (err) { setError(errText(err)); }
     finally { setSaving(false); }
   };
@@ -1535,53 +1600,65 @@ function AutomationEditorDialog({
             ))}
           </TextField>
           <FormControlLabel control={<Checkbox checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />} label="Enabled" />
-          <Paper variant="outlined" sx={{ p: 1.5 }}>
-            <Typography
-              variant="caption"
-              sx={{
-                color: "text.secondary",
-                display: "block"
-              }}>
-              Reference IDs for actions
-            </Typography>
-            <Typography variant="body2">
-              Teams: {references.teams.map((team) => `${team.name} #${team.id}`).join(", ") || "none"}
-            </Typography>
-            <Typography variant="body2">
-              Users: {references.users.map((user) => `${user.displayName || user.username} #${user.id}`).join(", ") || "none"}
-            </Typography>
-            <Typography variant="body2">
-              Labels: {references.labels.map((label) => `${label.name} #${label.id}`).join(", ") || "none"}
-            </Typography>
-            <Typography variant="body2">
-              Custom condition keys: {references.fields.map((field) => `custom.${field.key}`).join(", ") || "none"}
-            </Typography>
-          </Paper>
-          <TextField
-            label="Conditions (all must match)"
-            value={conditions}
-            onChange={(event) => setConditions(event.target.value)}
-            multiline
-            minRows={5}
-            helperText='JSON array, e.g. [{"field":"priority","op":"eq","value":"Urgent"}]. Use custom.<key> for custom fields; dueAt = manual deadline only, effectiveDueAt = manual or SLA target.'
-            slotProps={{
-              input: { sx: { fontFamily: "monospace", fontSize: 13 } }
-            }}
-          />
-          <TextField
-            label="Actions (run in order)"
-            value={actions}
-            onChange={(event) => setActions(event.target.value)}
-            multiline
-            minRows={7}
-            helperText="Action types: set_status, set_priority, assign_user, assign_team, add_label, add_note, notify_user, notify_team."
-            slotProps={{
-              input: { sx: { fontFamily: "monospace", fontSize: 13 } }
-            }}
-          />
+
+          {!advanced ? (
+            <>
+              <Typography variant="subtitle2">Conditions — all must match (none = every event)</Typography>
+              <ConditionRowsEditor drafts={conditionDrafts} references={references} onChange={setConditionDrafts} />
+              <Box>
+                <Button size="small" onClick={() => setConditionDrafts([...conditionDrafts, { field: "status", op: "eq", value: "" }])}>
+                  Add condition
+                </Button>
+              </Box>
+              <Typography variant="subtitle2">Actions — run in order</Typography>
+              <ActionRowsEditor drafts={actionDrafts} references={references} onChange={setActionDrafts} />
+              <Box>
+                <Button size="small" onClick={() => setActionDrafts([...actionDrafts, defaultAction("add_note")])}>
+                  Add action
+                </Button>
+              </Box>
+            </>
+          ) : (
+            <>
+              <TextField
+                label="Conditions (all must match)"
+                value={conditions}
+                onChange={(event) => setConditions(event.target.value)}
+                multiline
+                minRows={5}
+                helperText='JSON array, e.g. [{"field":"priority","op":"eq","value":"Urgent"}]. Use custom.<key> for custom fields; dueAt = manual deadline only, effectiveDueAt = manual or SLA target.'
+                slotProps={{ input: { sx: { fontFamily: "monospace", fontSize: 13 } } }}
+              />
+              <TextField
+                label="Actions (run in order)"
+                value={actions}
+                onChange={(event) => setActions(event.target.value)}
+                multiline
+                minRows={7}
+                helperText="Action types: set_status, set_priority, assign_user, assign_team, add_label, add_note, notify_user, notify_team."
+                slotProps={{ input: { sx: { fontFamily: "monospace", fontSize: 13 } } }}
+              />
+            </>
+          )}
+
+          {preview && (
+            <Alert severity={preview.matched > 0 ? "info" : "warning"}>
+              Would have matched <strong>{preview.matched}</strong> of {preview.sampled} tickets active in the last {preview.sinceDays} days
+              {preview.usesEventFields ? " (SLA kind/level conditions only match during real SLA events)" : ""}.
+              {preview.sample.length > 0 && (
+                <> Sample: {preview.sample.map((t) => `#${t.ticketNumber ?? t.id}`).join(", ")}</>
+              )}
+            </Alert>
+          )}
         </Stack>
       </DialogContent>
-      <DialogActions><Button onClick={onClose} disabled={saving}>Cancel</Button><Button variant="contained" onClick={() => void save()} disabled={saving || !name.trim()}>{saving ? "Saving…" : "Save rule"}</Button></DialogActions>
+      <DialogActions>
+        <Button onClick={toggleAdvanced} disabled={saving}>{advanced ? "Builder" : "Advanced JSON"}</Button>
+        <Button onClick={() => void runPreview()} disabled={saving}>Preview matches</Button>
+        <Box sx={{ flexGrow: 1 }} />
+        <Button onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button variant="contained" onClick={() => void save()} disabled={saving || !name.trim()}>{saving ? "Saving…" : "Save rule"}</Button>
+      </DialogActions>
     </Dialog>
   );
 }

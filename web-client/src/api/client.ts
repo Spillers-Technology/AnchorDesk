@@ -1266,3 +1266,15 @@ export function applyChecklistTemplate(ticketId: number, templateId: number) {
     body: JSON.stringify({ templateId }),
   });
 }
+
+export interface AutomationPreview {
+  sampled: number;
+  sinceDays: number;
+  matched: number;
+  usesEventFields: boolean;
+  sample: { id: number; ticketNumber: string | null; title: string; status: string; priority: string | null }[];
+}
+/** Dry-run a condition set against recent tickets (admin). */
+export function previewAutomation(conditions: unknown[]) {
+  return request<AutomationPreview>("/automations/preview", { method: "POST", body: JSON.stringify({ conditions }) });
+}
