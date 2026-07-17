@@ -1993,6 +1993,7 @@ function TeamEditorDialog({
 function AuditPanel() {
   const [entityType, setEntityType] = useState("");
   const [action, setAction] = useState("");
+  const [q, setQ] = useState("");
   const { data, loading, error } = useAsync(
     () => api.getAuditLog({ entityType: entityType || undefined, action: action || undefined, limit: 200 }),
     [entityType, action]
@@ -2010,6 +2011,7 @@ function AuditPanel() {
           <MenuItem value="">All actions</MenuItem>
           {["create", "update", "delete", "sync"].map((a) => <MenuItem key={a} value={a}>{a}</MenuItem>)}
         </Select>
+        <PanelSearch value={q} onChange={setQ} placeholder="Filter by actor or entity…" />
       </Stack>
 
       {loading ? <CircularProgress /> : error ? <Alert severity="error">{error}</Alert> : (
@@ -2021,7 +2023,7 @@ function AuditPanel() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {(data ?? []).map((a) => (
+              {(data ?? []).filter((a) => rowMatches(q, [a.changedBy, a.entityType, String(a.entityId), a.action])).map((a) => (
                 <TableRow key={a.id}>
                   <TableCell>{new Date(a.occurredAt).toLocaleString()}</TableCell>
                   <TableCell><Chip size="small" label={a.action} color={auditColor(a.action)} /></TableCell>
