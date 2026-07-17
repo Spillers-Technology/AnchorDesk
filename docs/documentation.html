@@ -540,7 +540,7 @@
   <div class="wrap topbar">
     <a class="brand" href="index.html" aria-label="AnchorDesk home"><svg><use href="#logo"/></svg> AnchorDesk</a>
     <nav class="nav" aria-label="Primary">
-      <a href="#release">v2.2</a>
+      <a href="#release">v2.4.1</a>
       <a href="#platform">Platform</a>
       <a href="#how">Quickstart</a>
       <a href="#setup">Setup</a>
@@ -565,30 +565,30 @@
   <section id="release">
     <div class="wrap">
       <div class="section-head">
-        <div class="kicker">Current release — v2.4 Checklist & Console</div>
-        <h2>Recurring work is repeatable, and the console earns its keep.</h2>
-        <p>2.4 Checklist &amp; Console adds reusable checklist templates with independent per-item deadlines, a deep-linkable admin console with a visual automation builder and dry-run previews, a first-run setup wizard, and boot-time data migrations so upgrades are pull-restart-done.</p>
+        <div class="kicker">Current release — v2.4.1 Checklist MCP Parity</div>
+        <h2>The whole checklist workflow now travels with the agent.</h2>
+        <p>2.4.1 completes checklist parity over MCP: agents can list, apply, add, edit, reorder, complete, and delete ticket items; admin connections can manage reusable templates. The advertised contract is protocol-tested, and the upgrade guide explains how to refresh ChatGPT's frozen action snapshot.</p>
       </div>
       <div class="release-grid">
         <article class="tile">
-          <div class="status-line green"><i></i> Manual ticket deadlines</div>
-          <strong>The date people promised is now the date AnchorDesk follows.</strong>
-          <p>Set or clear a deadline in the ticket cockpit, REST, or MCP. It replaces the resolution target in live chips, scheduling, automation, and the Due column without disturbing the response SLA.</p>
+          <div class="status-line green"><i></i> Complete ticket checklists</div>
+          <strong>Read, build, work, reorder, and clean up without leaving MCP.</strong>
+          <p>Ten named checklist tools cover templates and working items, while <code>get_ticket</code> keeps the ordered checklist in the ticket record.</p>
         </article>
         <article class="tile">
-          <div class="status-line sky"><i></i> Queue and field visibility</div>
-          <strong>Configuration data shows up before you open the editor.</strong>
-          <p>Team badges, a Team column, dynamic custom-field columns, and typed advanced filters make queue slices and customer-specific facts visible in daily ticket views.</p>
+          <div class="status-line sky"><i></i> Admin template parity</div>
+          <strong>Reusable runbooks are manageable through the same agent connection.</strong>
+          <p>Create, replace, activate, and delete templates through role-gated tools; copied ticket items remain independent.</p>
         </article>
         <article class="tile">
-          <div class="status-line amber"><i></i> Workflow signals</div>
-          <strong>Rule actions and device identities explain themselves.</strong>
-          <p>Named Automation badges clarify history and notes, Network shows every external provider reference, map nodes carry type indicators, and Kanban columns reorder directly.</p>
+          <div class="status-line amber"><i></i> Wire-level verification</div>
+          <strong>The contract clients actually receive is now under test.</strong>
+          <p>An SDK client verifies initialize metadata, <code>tools/list</code> names and schemas, checklist calls, and non-admin denial over an in-memory transport.</p>
         </article>
         <article class="tile">
-          <div class="status-line red"><i></i> Modern release foundations</div>
-          <strong>Fastify 5 and React 19 anchor the next release line.</strong>
-          <p>TypeScript 7 plus Jest/SWC modernize the backend; Router 7, Vite 8, Vitest 4, MUI 9, and Data Grid 9 refresh the web while the five-device mobile matrix adds more states.</p>
+          <div class="status-line red"><i></i> ChatGPT action refresh</div>
+          <strong>Server upgrades and workspace approval are separate steps.</strong>
+          <p>Enterprise/Edu admins refresh actions; Business workspaces recreate and republish the app so ChatGPT replaces its frozen approved-tool snapshot.</p>
         </article>
       </div>
     </div>
@@ -608,7 +608,7 @@
         <article class="feature"><em>RMM</em><strong>One device, multiple providers</strong><p>Tactical RMM, NinjaOne, and Datto identities merge onto one device; technicians select the provider for live snapshots, scripts, or quick jobs.</p></article>
         <article class="feature"><em>Sync</em><strong>Two-way PSA issue sync</strong><p>ConnectWise Manage and Jira Cloud can pull and push ticket state, hold conflicts, and ask a human to keep local or remote changes.</p></article>
         <article class="feature"><em>Identity</em><strong>SSO, MFA, RBAC, MCP OAuth</strong><p>Local accounts, OIDC, SAML, TOTP MFA, personal access tokens, and built-in OAuth for MCP all resolve to a real user and role.</p></article>
-        <article class="feature"><em>Agents</em><strong>Workflow-complete MCP</strong><p>Authenticated agents can work deadlines, tickets, notes, time, email, labels, teams, custom fields, saved views, ranked search, and audit history.</p></article>
+        <article class="feature"><em>Agents</em><strong>Workflow-complete MCP</strong><p>Authenticated agents can work deadlines, tickets, complete checklists, notes, time, email, labels, teams, custom fields, saved views, ranked search, and audit history; admins can manage checklist templates.</p></article>
         <article class="feature"><em>Automation</em><strong>Rules and SLA escalation</strong><p>Ticket, note, SLA-warning, and breach events can update, route, label, annotate, or notify with named Automation attribution and a loop guard.</p></article>
         <article class="feature"><em>Realtime</em><strong>WebSockets and notifications</strong><p>Ticket lists, board cards, open modals, the notification bell, SLA state, and automation results update without refresh.</p></article>
         <article class="feature"><em>Files</em><strong>Attachments and export</strong><p>Drag/drop files onto tickets, store bytes locally or in S3-compatible storage, and export a printable ticket with safe inline activity.</p></article>
@@ -649,8 +649,8 @@ npm ci
 npm run dev            <span class="c"># :5173</span>
 
 <span class="c"># Current images</span>
-ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.4.0</span>
-ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.4.0</span></pre>
+ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.4.1</span>
+ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.4.1</span></pre>
         </div>
       </div>
     </div>
@@ -690,6 +690,7 @@ ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.4.0</span></
             <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">Devices duplicate after adding a second RMM</td><td style="padding:9px 14px;border-top:1px solid var(--line)">No shared MAC/serial/hostname+company to merge on — fill serial or company on one record and re-sync.</td></tr>
             <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">SLA chips never appear</td><td style="padding:9px 14px;border-top:1px solid var(--line)">No policy matches the ticket's priority/company — add a catch-all default policy.</td></tr>
             <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">MCP client can't connect</td><td style="padding:9px 14px;border-top:1px solid var(--line)">Token pasted with a trailing newline, or <code>APP_BASE_URL</code> doesn't match the origin the client discovered — OAuth metadata is served from that URL.</td></tr>
+            <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">ChatGPT connects but new MCP tools are missing</td><td style="padding:9px 14px;border-top:1px solid var(--line)">The workspace still has its frozen approved-action snapshot — Enterprise/Edu admins refresh under Action control; Business workspaces recreate and republish the app.</td></tr>
             <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">Everything is slow on first page load</td><td style="padding:9px 14px;border-top:1px solid var(--line)">You're running the dev servers — use the production compose stack or the GHCR images.</td></tr>
           </tbody>
         </table>
@@ -774,14 +775,14 @@ ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.4.0</span></
       </div>
       <div class="docs-grid">
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Quickstart<span>Local Compose, backend config, schema push, and web client.</span></a>
-        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/RELEASE_NOTES_v2.4.0.md" target="_blank" rel="noopener">2.4 release guide<span>Checklist &amp; Console features, upgrade notes, and image tags.</span></a>
+        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/RELEASE_NOTES_v2.4.1.md" target="_blank" rel="noopener">2.4.1 release guide<span>Complete MCP checklist surface, ChatGPT action refresh, and image tags.</span></a>
         <a class="doc-link" href="architecture.md">Architecture<span>Source-of-truth database, auth flow, adapters, repositories, and delivery status.</span></a>
-        <a class="doc-link" href="mcp-auth.md">MCP Auth<span>Personal tokens and built-in OAuth authorization-code + PKCE flow.</span></a>
+        <a class="doc-link" href="mcp-auth.md">MCP Auth<span>Personal tokens, built-in OAuth, complete tool coverage, and ChatGPT action refresh.</span></a>
         <a class="doc-link" href="providers.md">Providers<span>How to add ticket sync providers and identity-safe device/RMM adapters.</span></a>
         <a class="doc-link" href="schema.md">Database schema<span>Tables, relations, and the audit/event model behind the source of truth.</span></a>
         <a class="doc-link" href="mobile.md">Mobile contract<span>The 360px rule, five-device screenshot matrix, and phone-width test guards.</span></a>
         <a class="doc-link" href="upgrading.md">Upgrading<span>Pull, restart, done — schema and data migrate on boot; per-version notes.</span></a>
-        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog<span>Every release line from first anchor drop to Clock &amp; Compass.</span></a>
+        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog<span>Every release line from first anchor drop through Checklist MCP Parity.</span></a>
       </div>
     </div>
   </section>

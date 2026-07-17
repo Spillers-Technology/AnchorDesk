@@ -1,4 +1,7 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import type { UserRole } from '@prisma/client';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
@@ -13,10 +16,57 @@ import * as checklist from '../repositories/checklistRepository';
 import * as checklistTemplates from '../repositories/checklistTemplateRepository';
 import { CustomFieldValidationError, coerceCustomFieldFilters } from '../services/customFields';
 import { PRIORITY_LIST_TEXT, STATUS_LIST_TEXT, normalizePriority, normalizeStatus } from '../services/ticketVocab';
+import { hasPrismaCode } from '../util/prismaErrors';
 import * as ticketMail from '../services/mail/ticketMail';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
 import { actorFor } from '../middleware/auth';
 import { buildMcpProtectedResourceMetadata } from '../services/auth/mcpOAuth';
+
+const MAX_TEMPLATE_ITEMS = 100;
+const MAX_DUE_OFFSET_MINUTES = 60 * 24 * 365;
+
+function readPackageVersion(): string {
+  // tsx resolves from src/routes; compiled production resolves from
+  // dist/src/routes. Keep both layouts valid, as well as either common cwd.
+  const candidates = [
+    path.resolve(process.cwd(), 'package.json'),
+    path.resolve(process.cwd(), 'backend/package.json'),
+    path.resolve(__dirname, '../../../package.json'),
+    path.resolve(__dirname, '../../package.json'),
+  ];
+  for (const candidate of new Set(candidates)) {
+    if (!existsSync(candidate)) continue;
+    const manifest = JSON.parse(readFileSync(candidate, 'utf8')) as { name?: unknown; version?: unknown };
+    if (manifest.name === 'anchordesk-backend' && typeof manifest.version === 'string' && manifest.version) {
+      return manifest.version;
+    }
+  }
+  throw new Error('Unable to resolve AnchorDesk backend package version');
+}
+
+export const MCP_SERVER_VERSION = readPackageVersion();
+
+function textResult(text: string, isError = false) {
+  return {
+    content: [{ type: 'text' as const, text }],
+    ...(isError ? { isError: true as const } : {}),
+  };
+}
+
+function jsonResult(value: unknown) {
+  return textResult(JSON.stringify(value, null, 2));
+}
+
+function requireAdmin(role: UserRole) {
+  return role === 'admin' ? null : textResult('Requires role: admin', true);
+}
+
+const checklistText = z.string().trim().min(1).max(500);
+const checklistDueAt = z.string().datetime({ offset: true });
+const checklistTemplateItems = z.array(z.object({
+  text: checklistText,
+  dueOffsetMinutes: z.number().int().min(0).max(MAX_DUE_OFFSET_MINUTES).nullable().optional(),
+})).max(MAX_TEMPLATE_ITEMS);
 
 /**
  * Build a server bound to one connection's identity. `actor` is the audit string
@@ -24,8 +74,8 @@ import { buildMcpProtectedResourceMetadata } from '../services/auth/mcpOAuth';
  * with the `mcp` channel — so MCP actions are attributed to the real person who
  * issued the personal access token, not a shared placeholder.
  */
-function buildMcpServer(actor: string, userId: number): McpServer {
-  const server = new McpServer({ name: 'anchordesk', version: '1.0.0' });
+export function buildMcpServer(actor: string, userId: number, role: UserRole): McpServer {
+  const server = new McpServer({ name: 'anchordesk', version: MCP_SERVER_VERSION });
 
   server.tool(
     'list_tickets',
@@ -175,11 +225,90 @@ function buildMcpServer(actor: string, userId: number): McpServer {
 
   server.tool(
     'list_checklist_templates',
-    'List reusable checklist templates that can be applied to tickets (items with optional relative deadlines).',
-    {},
-    async () => {
-      const templates = await checklistTemplates.list();
-      return { content: [{ type: 'text', text: JSON.stringify(templates, null, 2) }] };
+    'List reusable checklist templates and their ordered items. Pass includeInactive only when administering retired templates.',
+    {
+      includeInactive: z.boolean().optional().default(false)
+        .describe('Include inactive templates; inactive templates cannot be applied to tickets'),
+    },
+    { title: 'List checklist templates', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async ({ includeInactive }) => {
+      return jsonResult(await checklistTemplates.list({ includeInactive }));
+    },
+  );
+
+  server.tool(
+    'create_checklist_template',
+    'Create a reusable checklist template. This is an AnchorDesk administrator action; item deadlines are offsets from future application time.',
+    {
+      name: z.string().trim().min(1).max(150),
+      description: z.string().max(500).nullable().optional(),
+      active: z.boolean().optional().describe('Whether technicians may apply the template; defaults to true'),
+      items: checklistTemplateItems.optional(),
+    },
+    { title: 'Create checklist template', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    async ({ name, description, active, items }) => {
+      const denied = requireAdmin(role);
+      if (denied) return denied;
+      try {
+        return jsonResult(await checklistTemplates.create({ name, description, active, items }, actor));
+      } catch (err) {
+        if (hasPrismaCode(err, 'P2002')) return textResult('A template with that name already exists', true);
+        throw err;
+      }
+    },
+  );
+
+  server.tool(
+    'update_checklist_template',
+    'Update a reusable checklist template by id. Supplying items replaces the template item list but never changes checklist items already copied onto tickets. Administrator only.',
+    {
+      templateId: z.number().int().positive().describe('Template id from list_checklist_templates'),
+      name: z.string().trim().min(1).max(150).optional(),
+      description: z.string().max(500).nullable().optional(),
+      active: z.boolean().optional(),
+      items: checklistTemplateItems.optional().describe('Complete replacement item list; omit to keep existing items'),
+    },
+    { title: 'Update checklist template', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    async ({ templateId, ...fields }) => {
+      const denied = requireAdmin(role);
+      if (denied) return denied;
+      try {
+        const template = await checklistTemplates.update(templateId, fields, actor);
+        if (!template) return textResult(`Checklist template ${templateId} not found`, true);
+        return jsonResult(template);
+      } catch (err) {
+        if (hasPrismaCode(err, 'P2002')) return textResult('A template with that name already exists', true);
+        throw err;
+      }
+    },
+  );
+
+  server.tool(
+    'delete_checklist_template',
+    'Delete a reusable checklist template by id. Checklist items previously copied onto tickets are preserved. Administrator only.',
+    {
+      templateId: z.number().int().positive().describe('Template id from list_checklist_templates'),
+    },
+    { title: 'Delete checklist template', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    async ({ templateId }) => {
+      const denied = requireAdmin(role);
+      if (denied) return denied;
+      const removed = await checklistTemplates.remove(templateId, actor);
+      if (!removed) return textResult(`Checklist template ${templateId} not found`, true);
+      return jsonResult({ ok: true, templateId });
+    },
+  );
+
+  server.tool(
+    'list_ticket_checklist',
+    'List the ordered working checklist for one ticket, including completion attribution and independent per-item deadlines.',
+    {
+      ticketId: z.number().int().positive().describe('Local database ticket ID'),
+    },
+    { title: 'List ticket checklist', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async ({ ticketId }) => {
+      if (!(await tickets.getById(ticketId))) return textResult(`Ticket ${ticketId} not found`, true);
+      return jsonResult(await checklist.listForTicket(ticketId));
     },
   );
 
@@ -187,16 +316,17 @@ function buildMcpServer(actor: string, userId: number): McpServer {
     'apply_checklist_template',
     'Copy a checklist template\'s items onto a ticket. Item deadlines are computed from each item\'s relative offset at apply time. Returns the ticket\'s full checklist.',
     {
-      ticketId: z.number().int(),
-      templateId: z.number().int().describe('See list_checklist_templates'),
+      ticketId: z.number().int().positive().describe('Local database ticket ID'),
+      templateId: z.number().int().positive().describe('Template id from list_checklist_templates'),
     },
+    { title: 'Apply checklist template', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     async ({ ticketId, templateId }) => {
       if (!(await tickets.getById(ticketId))) {
-        return { content: [{ type: 'text', text: `Ticket ${ticketId} not found` }], isError: true };
+        return textResult(`Ticket ${ticketId} not found`, true);
       }
       const items = await checklist.applyTemplate(ticketId, templateId, actor);
-      if (!items) return { content: [{ type: 'text', text: `Template ${templateId} not found or inactive` }], isError: true };
-      return { content: [{ type: 'text', text: JSON.stringify(items, null, 2) }] };
+      if (!items) return textResult(`Template ${templateId} not found or inactive`, true);
+      return jsonResult(items);
     },
   );
 
@@ -204,16 +334,42 @@ function buildMcpServer(actor: string, userId: number): McpServer {
     'add_checklist_item',
     'Add a single checklist item to a ticket, optionally with its own independent deadline.',
     {
-      ticketId: z.number().int(),
-      text: z.string().max(500),
-      dueAt: z.string().datetime({ offset: true }).optional().describe('Per-item deadline (ISO 8601); independent of the ticket clocks'),
+      ticketId: z.number().int().positive().describe('Local database ticket ID'),
+      text: checklistText,
+      dueAt: checklistDueAt.nullable().optional()
+        .describe('Per-item deadline (ISO 8601); null means no deadline; independent of the ticket clocks'),
     },
+    { title: 'Add checklist item', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     async ({ ticketId, text, dueAt }) => {
       if (!(await tickets.getById(ticketId))) {
-        return { content: [{ type: 'text', text: `Ticket ${ticketId} not found` }], isError: true };
+        return textResult(`Ticket ${ticketId} not found`, true);
       }
       const item = await checklist.add(ticketId, { text, dueAt: dueAt ? new Date(dueAt) : null }, actor);
-      return { content: [{ type: 'text', text: JSON.stringify(item, null, 2) }] };
+      return jsonResult(item);
+    },
+  );
+
+  server.tool(
+    'update_checklist_item',
+    'Update any editable field on one ticket checklist item: its text, completion state, independent deadline, or ordering value.',
+    {
+      ticketId: z.number().int().positive().describe('Local database ticket ID'),
+      itemId: z.number().int().positive().describe('Checklist item id from list_ticket_checklist or get_ticket'),
+      text: checklistText.optional(),
+      done: z.boolean().optional().describe('true marks done with actor/time attribution; false reopens it'),
+      dueAt: checklistDueAt.nullable().optional().describe('ISO 8601 deadline; null clears the item deadline'),
+      sortOrder: z.number().int().min(-1_000_000).max(1_000_000).optional(),
+    },
+    { title: 'Update checklist item', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    async ({ ticketId, itemId, text, done, dueAt, sortOrder }) => {
+      const item = await checklist.update(ticketId, itemId, {
+        text,
+        done,
+        dueAt: dueAt === undefined ? undefined : dueAt === null ? null : new Date(dueAt),
+        sortOrder,
+      }, actor);
+      if (!item) return textResult(`Checklist item ${itemId} not found on ticket ${ticketId}`, true);
+      return jsonResult(item);
     },
   );
 
@@ -221,14 +377,30 @@ function buildMcpServer(actor: string, userId: number): McpServer {
     'toggle_checklist_item',
     'Mark a ticket checklist item done or not done (done items record who and when).',
     {
-      ticketId: z.number().int(),
-      itemId: z.number().int(),
+      ticketId: z.number().int().positive().describe('Local database ticket ID'),
+      itemId: z.number().int().positive().describe('Checklist item id from list_ticket_checklist or get_ticket'),
       done: z.boolean(),
     },
+    { title: 'Toggle checklist item', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     async ({ ticketId, itemId, done }) => {
       const item = await checklist.update(ticketId, itemId, { done }, actor);
-      if (!item) return { content: [{ type: 'text', text: `Checklist item ${itemId} not found on ticket ${ticketId}` }], isError: true };
-      return { content: [{ type: 'text', text: JSON.stringify(item, null, 2) }] };
+      if (!item) return textResult(`Checklist item ${itemId} not found on ticket ${ticketId}`, true);
+      return jsonResult(item);
+    },
+  );
+
+  server.tool(
+    'delete_checklist_item',
+    'Permanently remove one checklist item from a ticket.',
+    {
+      ticketId: z.number().int().positive().describe('Local database ticket ID'),
+      itemId: z.number().int().positive().describe('Checklist item id from list_ticket_checklist or get_ticket'),
+    },
+    { title: 'Delete checklist item', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    async ({ ticketId, itemId }) => {
+      const removed = await checklist.remove(ticketId, itemId, actor);
+      if (!removed) return textResult(`Checklist item ${itemId} not found on ticket ${ticketId}`, true);
+      return jsonResult({ ok: true, ticketId, itemId });
     },
   );
 
@@ -396,7 +568,7 @@ export async function mcpRoutes(app: FastifyInstance) {
     reply.raw.on('close', () => transports.delete(transport.sessionId));
 
     const actor = actorFor(req.user.username, 'mcp');
-    const mcpServer = buildMcpServer(actor, req.user.id);
+    const mcpServer = buildMcpServer(actor, req.user.id, req.user.role);
     await mcpServer.connect(transport);
   });
 

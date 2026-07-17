@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.4.1 — 2026-07-16 — Checklist MCP Parity (patch)
+
+Completes the checklist's MCP surface, verifies the advertised contract over
+the protocol, and documents how ChatGPT workspaces pick up new actions.
+
+### Added
+
+- **Complete checklist tools for MCP.** Agents can now list a ticket's
+  checklist, edit text/deadline/order/completion, and delete items with
+  `list_ticket_checklist`, `update_checklist_item`, and
+  `delete_checklist_item`. The 2.4.0 apply/add/toggle tools remain unchanged,
+  and `get_ticket` still embeds the checklist.
+- **Admin template parity.** Admin-connected agents can create, update, and
+  delete reusable templates through `create_checklist_template`,
+  `update_checklist_template`, and `delete_checklist_template`; template
+  mutations enforce the same admin boundary as REST.
+- **Protocol-level MCP regression coverage.** An SDK client and in-memory
+  transport verify initialization, the advertised tool names and schemas,
+  representative checklist calls, and admin denial instead of testing only
+  the repositories behind the tools.
+
+### Changed
+
+- The MCP server now reports the backend package version during initialize,
+  replacing the stale hard-coded `1.0.0` identity.
+- MCP and upgrade documentation explains ChatGPT's frozen approved-action
+  snapshot: Enterprise/Edu admins refresh and enable new actions; Business
+  workspaces recreate and republish the app.
+
+### Fixed
+
+- Checklist editing and template administration no longer stop at the REST
+  and web surfaces; authenticated agents can complete the same workflow
+  without leaving MCP.
+
 ## 2.4.0 — 2026-07-16 — Checklist & Console (minor)
 
 Checklists with reusable templates, a reworked admin console with a visual

@@ -2,8 +2,9 @@
 
 AnchorDesk exposes its Model Context Protocol server at `/mcp/sse`. The MCP
 server can create and update tickets, add notes, log time, send ticket email,
-work with labels/teams/custom fields/views, search, and read ticket history, so
-`/mcp/*` is never public in a real deployment.
+work complete ticket checklists and reusable templates, use
+labels/teams/custom fields/views, search, and read ticket history, so `/mcp/*`
+is never public in a real deployment.
 
 There are two supported authentication paths.
 
@@ -22,10 +23,37 @@ client and MCP server.
 | Labels | `list_labels` and `set_ticket_label` (apply or remove) |
 | Configuration | `list_teams` and `list_custom_fields` expose the ids/keys agents need for ticket writes |
 | Views | `list_saved_views` returns the current user's personal views plus admin-published shared filter sets; pass a view's filters to `list_tickets` |
+| Checklists | Full item and template coverage is listed below; `get_ticket` also embeds the ordered working checklist |
 
 Administration of teams, field definitions, automation rules, and shared views
 remains in the authenticated REST/web admin surfaces. MCP consumes those
-definitions but does not bypass their ownership or admin boundaries.
+definitions but does not bypass their ownership or admin boundaries. Checklist
+templates are the exception: their full admin CRUD is available through
+explicitly admin-gated MCP tools.
+
+### Checklist tool matrix
+
+Every ticket-checklist operation available through REST has an MCP counterpart.
+Item deadlines remain independent from the ticket's manual/SLA clocks, and
+applying a template copies its items so later template edits never rewrite
+ticket work.
+
+| Tool | Purpose | Role |
+|---|---|---|
+| `list_checklist_templates` | List active templates; pass `includeInactive: true` to include disabled templates | authenticated |
+| `list_ticket_checklist` | Return one ticket's ordered working checklist | authenticated |
+| `apply_checklist_template` | Copy a template's items onto a ticket and calculate relative deadlines | technician/admin |
+| `add_checklist_item` | Add an ad-hoc item with optional ISO 8601 `dueAt` | technician/admin |
+| `toggle_checklist_item` | Mark an item done/undone with who/when attribution | technician/admin |
+| `update_checklist_item` | Change an item's `text`, `done`, `dueAt`, or `sortOrder` | technician/admin |
+| `delete_checklist_item` | Remove an item from a ticket | technician/admin |
+| `create_checklist_template` | Create a reusable template and its ordered items | admin |
+| `update_checklist_template` | Change name, description, active state, or replace the ordered items | admin |
+| `delete_checklist_template` | Delete a template without touching items already copied to tickets | admin |
+
+`get_ticket` also includes the working checklist alongside the ticket and its
+notes. All mutations keep the approving/token owner's audit identity with the
+`(mcp)` channel marker.
 
 ## Option 1: Personal Access Token
 
@@ -102,6 +130,27 @@ You do not need to create an OAuth client in Azure AD, Authentik, Okta, or any
 other external IdP for MCP. OIDC and SAML are still available for normal browser
 SSO, but MCP OAuth is handled by AnchorDesk itself.
 
+### Refresh actions after an AnchorDesk upgrade
+
+ChatGPT does not automatically adopt later changes to an approved MCP app.
+OpenAI describes the approved tools and inputs as a **frozen snapshot**. After
+an AnchorDesk release adds or changes tools:
+
+- **Enterprise/Edu:** an admin or owner opens **Workspace Settings → Apps →
+  AnchorDesk → Action control**, selects **Refresh**, reviews the action diff,
+  enables the desired new actions, and publishes the update. New actions are
+  disabled by default.
+- **Business:** published apps currently cannot be updated in place. Recreate
+  and republish the AnchorDesk app to scan the current tools and metadata.
+- Open a new chat, select AnchorDesk from the tools menu, and test a read plus
+  a write action after the workspace update.
+
+The UI and availability are still in beta; use OpenAI's current
+[Developer mode and MCP apps in ChatGPT](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt-beta)
+article as the source of truth. A normal PAT/header MCP client does not use the
+ChatGPT workspace snapshot: reconnect that client after upgrading so it issues
+a fresh `tools/list` request.
+
 ## Deployment Checks
 
 Set `APP_BASE_URL` to the public origin clients will use:
@@ -152,6 +201,13 @@ rejected intentionally.
 The access token is validated through AnchorDesk's bearer-token path. Confirm
 the generated API token has not expired or been revoked, and confirm the user is
 active.
+
+### ChatGPT connects but new checklist tools are missing
+
+The workspace is still using its frozen approved-action snapshot. Refresh and
+enable the actions on Enterprise/Edu, or recreate and republish the app on
+Business, using the steps under [ChatGPT Setup](#refresh-actions-after-an-anchordesk-upgrade).
+Starting a new chat alone does not update the workspace snapshot.
 
 ### The connector has the wrong permissions
 

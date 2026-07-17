@@ -28,17 +28,16 @@ And it travels: the web client is **mobile-first**, so triaging the board, reply
 <img width="360" alt="AnchorDesk Kanban board on a phone: full toolbar, SLA and label chips, and touch-visible card actions at 412px" src="docs/assets/screenshots/anchordesk-mobile-board.jpg" />
 </div>
 
-## What ships in v2.2.0
+## What ships in v2.4.1
 
-- **⏰ Manual ticket deadlines** — set or clear a promise date in the ticket cockpit, REST API, or MCP tools. The manual date overrides the SLA resolution target everywhere it is consumed, while the response SLA stays independent; live chips and the table's Due column make the active clock explicit.
-- **👀 Queue and field context on the read side** — team badges and a Team column keep routing visible, while active custom fields become typed table columns and advanced-search controls backed by validated PostgreSQL `jsonb` equality filters.
-- **🪄 Visible automation attribution** — revision history and timeline notes render named Automation badges, so rule-driven changes no longer look like ordinary user activity.
-- **🧭 Provider-aware Network view** — a selected device lists all Tactical, NinjaOne, Datto, and probe references, while emoji device-type indicators make the Canvas map faster to scan without replacing labels, colors, or status rings.
-- **↔️ Direct Kanban column ordering** — drag column handles to change the board vocabulary's left-to-right order and save it to the existing per-user preference.
-- **📱 A broader mobile contract** — the five-device capture matrix now includes advanced search and ticket history, with deadline/automation/provider-reference fixtures and phone-width guards for the full ticket cockpit ([docs/mobile.md](docs/mobile.md)).
-- **🧱 Modernized application stacks** — Fastify 5 and matching plugins, otplib 13, dotenv 17, TypeScript 7 plus Jest 30/SWC on the backend; React 19, Router 7, Vite 8, Vitest 4, MUI 9, and Data Grid 9 on the web.
+- **✅ Ticket checklists with reusable templates** — copy admin-managed runbooks onto a ticket, mix in ad-hoc items, track progress and done attribution, and give each item its own independent deadline. Template edits never rewrite work already in progress.
+- **🤖 Complete checklist MCP parity** — agents can list, apply, add, edit, reorder, complete, and delete checklist items; admin connections can create, update, activate, and delete templates. A protocol-level SDK test guards the exact tool surface clients discover.
+- **🧭 A reworked admin console** — grouped, deep-linkable sections, guided empty states, searchable tables, consequence-explaining confirmations, and a visual automation builder with a seven-day dry-run preview.
+- **🚀 First-run and upgrade paths** — a sealed setup wizard creates the initial admin on an empty instance, while automatic schema pushes and idempotent boot-time data migrations keep normal upgrades pull-restart-done.
+- **🧱 Enforced ticket vocabulary** — local REST and MCP writes canonicalize known statuses/priorities and reject unknown values, preventing work from disappearing from boards, filters, and SLA rules.
+- **📱 Mobile-first throughout** — checklists, automation, advanced search, history, the ticket cockpit, and every core view remain usable on a 360px touch screen ([docs/mobile.md](docs/mobile.md)).
 
-**Also landed recently:** v2.1's mobile-first foundation, team queues, custom fields, saved views, automation/SLA escalation, expanded MCP tools, and multi-RMM configuration records; seven personal palettes and the OUI-enriched Canvas map (2.0); built-in OAuth 2.0 authorization-code + PKCE for MCP clients such as ChatGPT (1.16); and two-way ConnectWise/Jira ticket sync plus NinjaOne/Datto RMM adapters (1.14).
+**Also landed recently:** manual ticket deadlines, queue and custom-field visibility, named automation attribution, provider-aware network context, draggable Kanban columns, and the Fastify 5 / React 19 platform refresh (2.2); team queues, saved views, automation/SLA escalation, and multi-RMM configuration records (2.1); built-in OAuth 2.0 authorization-code + PKCE for MCP clients such as ChatGPT (1.16); and two-way ConnectWise/Jira ticket sync plus NinjaOne/Datto RMM adapters (1.14).
 
 The core platform also includes:
 
@@ -63,7 +62,7 @@ The core platform also includes:
 - **⚡ RMM actions** — Tactical RMM, NinjaOne, and Datto RMM adapters can share one device through provider-specific references, expose selectable live snapshots, run scripts or quick jobs through the chosen provider, and retain job status/output.
 - **🔄 Two-way ticket sync** — ConnectWise Manage and Jira Cloud can reconcile ticket status, priority, assignee, and notes in both directions. Conflicts are flagged and held until a human keeps local or remote changes. These outbound adapters are alpha until exercised against more live tenants.
 - **📝 Audit history** — ticket, note, device, user, mailbox, and other managed-record changes append actor-attributed history; admins can browse recent events across entities.
-- **🤖 MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) tools let authenticated agents manage tickets, notes, time, email, labels, teams, custom fields, saved views, ranked search, and ticket history. Header-capable clients can use AnchorDesk personal access tokens; OAuth-capable clients such as ChatGPT can discover AnchorDesk's own authorization server, dynamically register, ask the user for consent, and receive a revocable per-user token.
+- **🤖 MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) tools let authenticated agents manage tickets, complete ticket checklists, administer reusable checklist templates (admin role), add notes/time/email, work with labels/teams/custom fields/saved views, search, and read history. Header-capable clients can use AnchorDesk personal access tokens; OAuth-capable clients such as ChatGPT can discover AnchorDesk's own authorization server, dynamically register, ask the user for consent, and receive a revocable per-user token.
 - **📦 Self-hosting included** — Docker Compose, Kubernetes manifests, and tagged backend/web images on GHCR.
 
 ## Architecture
@@ -135,8 +134,8 @@ Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxie
 
 For the complete Compose stack, run `docker compose up --build`. Tagged release images are published as:
 
-- `ghcr.io/spillers-technology/anchordesk-backend:2.2.0`
-- `ghcr.io/spillers-technology/anchordesk-web-client:2.2.0`
+- `ghcr.io/spillers-technology/anchordesk-backend:2.4.1`
+- `ghcr.io/spillers-technology/anchordesk-web-client:2.4.1`
 
 ## Configuration
 
@@ -175,7 +174,7 @@ Local tickets are the source of truth. Integrations ingest into or act on those 
 | **Scripts** | Tactical catalog, device sync, immediate/scheduled jobs, and job history |
 | **Mail** | SMTP status and `POST /tickets/:id/email`; IMAP polling is managed under `/mailboxes` |
 | **Sync** | Provider list/status, inbound sync runs, and sync logs; legacy read-only `/cw/tickets/*` routes remain available |
-| **MCP** | SSE transport at `/mcp/sse` with client messages at `/mcp/messages`; `create_ticket` / `update_ticket` accept manual `dueAt`; OAuth protected-resource metadata at `/.well-known/oauth-protected-resource`; authorization-server metadata at `/.well-known/oauth-authorization-server` |
+| **MCP** | SSE transport at `/mcp/sse` with client messages at `/mcp/messages`; ticket tools cover deadlines and complete checklist/template workflows with normal RBAC; OAuth protected-resource metadata at `/.well-known/oauth-protected-resource`; authorization-server metadata at `/.well-known/oauth-authorization-server` |
 | **Health** | `GET /ping` → `pong` |
 
 Probes authenticate with an `X-Probe-Key` API key and are exempt from browser auth. Other routes require a session cookie or bearer token (personal access token or OIDC bearer where configured) unless `OIDC_DISABLED=true`. `readonly` users cannot mutate data, and sensitive administration and sync operations require the `admin` role.
@@ -199,10 +198,10 @@ The wire contract lives in [backend/src/providers/NetVizProvider.ts](backend/src
 
 - [docs/architecture.md](docs/architecture.md) — patterns, request lifecycle, and auth
 - [docs/mobile.md](docs/mobile.md) — mobile-first support: device classes, touch rules, and the verification matrix
-- [docs/mcp-auth.md](docs/mcp-auth.md) — MCP personal-token and built-in OAuth setup
+- [docs/mcp-auth.md](docs/mcp-auth.md) — MCP authentication, complete tool coverage, and ChatGPT action refresh guidance
 - [docs/schema.md](docs/schema.md) — database schema
 - [docs/providers.md](docs/providers.md) — adding a sync provider
-- [RELEASE_NOTES_v2.2.0.md](RELEASE_NOTES_v2.2.0.md) — 2.2 upgrade and verification guide
+- [RELEASE_NOTES_v2.4.1.md](RELEASE_NOTES_v2.4.1.md) — 2.4.1 checklist MCP parity, ChatGPT refresh, and upgrade guide
 - [CLAUDE.md](CLAUDE.md) — developer reference
 
 ## Contributing
