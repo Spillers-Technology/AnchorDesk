@@ -1278,3 +1278,12 @@ export interface AutomationPreview {
 export function previewAutomation(conditions: unknown[]) {
   return request<AutomationPreview>("/automations/preview", { method: "POST", body: JSON.stringify({ conditions }) });
 }
+
+/** First-run: does the instance still need its initial admin? */
+export function getSetupStatus() {
+  return request<{ needed: boolean }>("/auth/setup-status");
+}
+/** First-run: create the initial admin (only works while no users exist). */
+export function runFirstRunSetup(data: { username: string; password: string; displayName?: string; email?: string }) {
+  return request<{ ok: boolean; username: string }>("/auth/setup", { method: "POST", body: JSON.stringify(data) });
+}

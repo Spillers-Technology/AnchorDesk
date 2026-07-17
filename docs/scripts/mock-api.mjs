@@ -673,6 +673,7 @@ export async function handleApi(route) {
     demoUser.kanbanColumns = Array.isArray(body.kanbanColumns) ? body.kanbanColumns : null;
     return json(route, { kanbanColumns: demoUser.kanbanColumns });
   }
+  if (method === "GET" && apiPath === "/auth/setup-status") return json(route, { needed: false });
   if (method === "GET" && apiPath === "/auth/config") return json(route, { local: true, oidc: true, saml: false });
   if (method === "GET" && apiPath === "/ui-settings") return json(route, { legacyTableView: false });
   if (method === "GET" && apiPath === "/assignees") return json(route, assignees);
