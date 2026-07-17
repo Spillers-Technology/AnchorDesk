@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from "react";
 import {
   Box,
   Toolbar,
@@ -32,7 +32,8 @@ import DashboardDrawer from "./components/DashboardDrawer";
 import TicketCard from "./components/TicketCard";
 import FilterDialog from "./components/FilterDialog";
 import SyncView from "./components/SyncView";
-import AdminView from "./components/AdminView";
+// Lazy: the admin console is role-gated and heavy; keep it out of the main chunk.
+const AdminView = lazy(() => import("./components/AdminView"));
 import NetworkView from "./components/NetworkView";
 import CompaniesView from "./components/CompaniesView";
 import MyDayView from "./components/MyDayView";
@@ -155,7 +156,9 @@ function App() {
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [ticketNotes, setTicketNotes] = useState<Note[]>([]);
-  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban" | "sync" | "admin" | "network" | "companies" | "myday">("kanban");
+  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban" | "sync" | "admin" | "network" | "companies" | "myday">(
+    () => (new URLSearchParams(window.location.search).has("admin") ? "admin" : "kanban")
+  );
   const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -657,7 +660,9 @@ function App() {
         )}
 
         {viewMode === "admin" ? (
-          <AdminView />
+          <Suspense fallback={<Box sx={{ display: "grid", placeItems: "center", py: 6 }}><CircularProgress /></Box>}>
+            <AdminView onOpenTickets={() => setViewMode("kanban")} />
+          </Suspense>
         ) : viewMode === "myday" ? (
           <MyDayView onOpenTicket={openTicketById} />
         ) : viewMode === "network" ? (

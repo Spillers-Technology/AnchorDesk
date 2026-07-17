@@ -33,6 +33,7 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  ListSubheader,
   Card,
   CardContent,
   Grid,
@@ -52,40 +53,82 @@ import GroupsIcon from "@mui/icons-material/Groups";
 import DynamicFormIcon from "@mui/icons-material/DynamicForm";
 import BoltIcon from "@mui/icons-material/Bolt";
 import ChecklistIcon from "@mui/icons-material/Checklist";
+import AlternateEmailIcon from "@mui/icons-material/AlternateEmail";
 import EditIcon from "@mui/icons-material/Edit";
+import { useSearchParams } from "react-router-dom";
 import * as api from "../api/client";
 import { TICKET_PRIORITIES } from "../ticketVocab";
 import { useIsPhone } from "../theme/useIsPhone";
 import ChecklistTemplatesPanel from "./admin/ChecklistTemplatesPanel";
+import ConfirmDialog from "./admin/ConfirmDialog";
+import PanelSearch, { rowMatches } from "./admin/PanelSearch";
 
 type AdminSection =
   | "overview" | "users" | "auth" | "integrations" | "interface" | "sla" | "mailboxes" | "mail" | "labels"
   | "teams" | "custom-fields" | "checklists" | "automations" | "probes" | "devices" | "audit";
 
-const NAV: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
-  { id: "overview", label: "Overview", icon: <DashboardIcon /> },
-  { id: "users", label: "Users & Roles", icon: <PeopleIcon /> },
-  { id: "auth", label: "Authentication", icon: <SecurityIcon /> },
-  { id: "integrations", label: "Integrations", icon: <CableIcon /> },
-  { id: "interface", label: "Interface", icon: <TuneIcon /> },
-  { id: "sla", label: "SLA Policies", icon: <TimerIcon /> },
-  { id: "mailboxes", label: "Mailboxes", icon: <EmailIcon /> },
-  { id: "mail", label: "Mail Identities", icon: <EmailIcon /> },
-  { id: "labels", label: "Labels", icon: <LabelIcon /> },
-  { id: "teams", label: "Teams", icon: <GroupsIcon /> },
-  { id: "custom-fields", label: "Custom Fields", icon: <DynamicFormIcon /> },
-  { id: "checklists", label: "Checklists", icon: <ChecklistIcon /> },
-  { id: "automations", label: "Automations", icon: <BoltIcon /> },
-  { id: "probes", label: "Probes", icon: <RouterIcon /> },
-  { id: "devices", label: "Devices", icon: <DevicesIcon /> },
-  { id: "audit", label: "Audit Log", icon: <HistoryIcon /> },
+/** Rail sections grouped the way admins think about them. */
+const NAV_GROUPS: { heading: string | null; items: { id: AdminSection; label: string; icon: React.ReactNode }[] }[] = [
+  {
+    heading: null,
+    items: [{ id: "overview", label: "Overview", icon: <DashboardIcon /> }],
+  },
+  {
+    heading: "People & Access",
+    items: [
+      { id: "users", label: "Users & Roles", icon: <PeopleIcon /> },
+      { id: "auth", label: "Authentication", icon: <SecurityIcon /> },
+      { id: "teams", label: "Teams", icon: <GroupsIcon /> },
+    ],
+  },
+  {
+    heading: "Ticketing",
+    items: [
+      { id: "sla", label: "SLA Policies", icon: <TimerIcon /> },
+      { id: "labels", label: "Labels", icon: <LabelIcon /> },
+      { id: "custom-fields", label: "Custom Fields", icon: <DynamicFormIcon /> },
+      { id: "checklists", label: "Checklists", icon: <ChecklistIcon /> },
+      { id: "automations", label: "Automations", icon: <BoltIcon /> },
+      { id: "interface", label: "Interface", icon: <TuneIcon /> },
+    ],
+  },
+  {
+    heading: "Channels & Integrations",
+    items: [
+      { id: "mailboxes", label: "Mailboxes", icon: <EmailIcon /> },
+      { id: "mail", label: "Mail Identities", icon: <AlternateEmailIcon /> },
+      { id: "integrations", label: "Integrations", icon: <CableIcon /> },
+    ],
+  },
+  {
+    heading: "Infrastructure",
+    items: [
+      { id: "probes", label: "Probes", icon: <RouterIcon /> },
+      { id: "devices", label: "Devices", icon: <DevicesIcon /> },
+      { id: "audit", label: "Audit Log", icon: <HistoryIcon /> },
+    ],
+  },
 ];
+
+const NAV_IDS = new Set<AdminSection>(NAV_GROUPS.flatMap((g) => g.items.map((i) => i.id)));
 
 const ROLES = ["admin", "technician", "readonly"];
 
-/** Admin console — persistent left sub-nav with a content area per section. */
-export default function AdminView() {
-  const [section, setSection] = useState<AdminSection>("overview");
+/**
+ * Admin console — persistent left sub-nav with a content area per section.
+ * The active section lives in the `?admin=` query param so sections are
+ * deep-linkable, survive refresh, and honor the browser back button.
+ */
+export default function AdminView({ onOpenTickets }: { onOpenTickets?: () => void }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const raw = searchParams.get("admin") as AdminSection | null;
+  const section: AdminSection = raw && NAV_IDS.has(raw) ? raw : "overview";
+  const setSection = (next: AdminSection) => {
+    setSearchParams((params) => {
+      params.set("admin", next);
+      return params;
+    });
+  };
 
   return (
     <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{
@@ -93,16 +136,25 @@ export default function AdminView() {
     }}>
       <Paper variant="outlined" sx={{ width: { xs: "100%", md: 230 }, maxWidth: "100%", minWidth: 0, flexShrink: 0, position: { md: "sticky" }, top: { md: 88 }, overflowX: { xs: "auto", md: "hidden" } }}>
         <List dense disablePadding sx={{ display: { xs: "flex", md: "block" }, width: { xs: "max-content", md: "auto" }, minWidth: { xs: "100%", md: 0 }, py: { xs: 0.5, md: 0 } }}>
-          {NAV.map((n) => (
-            <ListItemButton key={n.id} selected={section === n.id} onClick={() => setSection(n.id)} sx={{ flex: { xs: "0 0 auto", md: "initial" }, minWidth: { xs: 155, md: 0 } }}>
-              <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
-              <ListItemText primary={n.label} />
-            </ListItemButton>
+          {NAV_GROUPS.map((group) => (
+            <Box key={group.heading ?? "top"} sx={{ display: { xs: "contents", md: "block" } }}>
+              {group.heading && (
+                <ListSubheader disableSticky sx={{ lineHeight: "30px", display: { xs: "none", md: "block" } }}>
+                  {group.heading}
+                </ListSubheader>
+              )}
+              {group.items.map((n) => (
+                <ListItemButton key={n.id} selected={section === n.id} onClick={() => setSection(n.id)} sx={{ flex: { xs: "0 0 auto", md: "initial" }, minWidth: { xs: 155, md: 0 } }}>
+                  <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
+                  <ListItemText primary={n.label} />
+                </ListItemButton>
+              ))}
+            </Box>
           ))}
         </List>
       </Paper>
       <Box sx={{ flexGrow: 1, minWidth: 0, width: "100%" }}>
-        {section === "overview" && <OverviewPanel onNavigate={setSection} />}
+        {section === "overview" && <OverviewPanel onNavigate={setSection} onOpenTickets={onOpenTickets} />}
         {section === "users" && <UsersPanel />}
         {section === "auth" && <AuthSettingsPanel />}
         {section === "integrations" && <IntegrationsPanel />}
@@ -123,13 +175,13 @@ export default function AdminView() {
   );
 }
 
-function OverviewPanel({ onNavigate }: { onNavigate: (s: AdminSection) => void }) {
+function OverviewPanel({ onNavigate, onOpenTickets }: { onNavigate: (s: AdminSection) => void; onOpenTickets?: () => void }) {
   const { data, loading, error } = useAsync(() => api.getAdminOverview());
   if (loading) return <CircularProgress />;
   if (error || !data) return <Alert severity="error">{error ?? "Failed to load"}</Alert>;
 
-  const stats: { label: string; value: string; sub?: string; go: AdminSection }[] = [
-    { label: "Open tickets", value: String(data.tickets.open), sub: `${data.tickets.total} total`, go: "overview" },
+  const stats: { label: string; value: string; sub?: string; go?: AdminSection; onClick?: () => void }[] = [
+    { label: "Open tickets", value: String(data.tickets.open), sub: `${data.tickets.total} total`, onClick: onOpenTickets },
     { label: "Devices online", value: `${data.devices.online}/${data.devices.total}`, go: "devices" },
     { label: "Probes online", value: `${data.probes.online}/${data.probes.total}`, go: "probes" },
     { label: "Active users", value: String(data.users), go: "users" },
@@ -145,7 +197,7 @@ function OverviewPanel({ onNavigate }: { onNavigate: (s: AdminSection) => void }
         <Grid container spacing={2}>
           {stats.map((s) => (
             <Grid size={{ xs: 6, sm: 4, md: 2.4 }} key={s.label}>
-              <Card variant="outlined" sx={{ cursor: "pointer", "&:hover": { borderColor: "primary.main" } }} onClick={() => onNavigate(s.go)}>
+              <Card variant="outlined" sx={{ cursor: "pointer", "&:hover": { borderColor: "primary.main" } }} onClick={() => (s.onClick ? s.onClick() : s.go && onNavigate(s.go))}>
                 <CardContent>
                   <Typography variant="h4">{s.value}</Typography>
                   <Typography variant="body2" sx={{
@@ -203,6 +255,7 @@ function auditColor(action: string): "success" | "info" | "error" | "default" {
 
 function UsersPanel() {
   const { data, loading, error, reload } = useAsync(() => api.listUsers());
+  const [q, setQ] = useState("");
   const [form, setForm] = useState({ username: "", password: "", displayName: "", email: "", role: "technician" });
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -249,6 +302,7 @@ function UsersPanel() {
           <Button variant="contained" disabled={!form.username || form.password.length < 10} onClick={create}>Create</Button>
         </Stack>
       </Paper>
+      <PanelSearch value={q} onChange={setQ} placeholder="Filter users…" />
       <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
@@ -263,7 +317,7 @@ function UsersPanel() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {(data ?? []).map((u) => (
+            {(data ?? []).filter((u) => rowMatches(q, [u.username, u.displayName, u.email, u.role])).map((u) => (
               <TableRow key={u.id}>
                 <TableCell>{u.username}</TableCell>
                 <TableCell>{u.displayName ?? "—"}</TableCell>
@@ -568,6 +622,7 @@ function ProbesPanel() {
 
 function DevicesPanel() {
   const { data, loading, error, reload } = useAsync(() => api.listDevices({ pageSize: 200 }));
+  const [q, setQ] = useState("");
   const [companies, setCompanies] = useState<api.Company[]>([]);
   const [rmms, setRmms] = useState<api.RmmProviderStatus[]>([]);
   const [syncing, setSyncing] = useState<string | null>(null);
@@ -632,6 +687,7 @@ function DevicesPanel() {
         </Stack>
         {syncMsg && <Alert severity="info" sx={{ mt: 1 }}>{syncMsg}</Alert>}
       </Box>
+      <PanelSearch value={q} onChange={setQ} placeholder="Filter devices…" />
       <Paper variant="outlined" sx={{ overflowX: "auto" }}>
       <Table size="small">
         <TableHead>
@@ -650,7 +706,7 @@ function DevicesPanel() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {(data ?? []).map((d) => (
+          {(data ?? []).filter((d) => rowMatches(q, [d.displayName, d.hostname, d.ipAddress, d.macAddress, d.assetTag, d.serialNumber, d.deviceType, d.companyName])).map((d) => (
             <TableRow key={d.id}>
               <TableCell>{d.displayName || d.hostname || "—"}</TableCell>
               <TableCell>{d.ipAddress ?? "—"}</TableCell>
@@ -1316,6 +1372,7 @@ function MailIdentitiesPanel() {
 function AutomationsPanel() {
   const rules = useAsync(() => api.listAutomations());
   const [editing, setEditing] = useState<api.AutomationRule | null | undefined>(undefined);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: number; name: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const mutate = async (operation: () => Promise<unknown>, success: string) => {
@@ -1380,14 +1437,22 @@ function AutomationsPanel() {
                 }}
               />
               <IconButton aria-label={`Edit ${rule.name}`} onClick={() => setEditing(rule)}><EditIcon /></IconButton>
-              <IconButton color="error" aria-label={`Delete ${rule.name}`} onClick={() => {
-                if (window.confirm(`Delete automation “${rule.name}”?`)) void mutate(() => api.deleteAutomation(rule.id), "Rule deleted");
-              }}><DeleteIcon /></IconButton>
+              <IconButton color="error" aria-label={`Delete ${rule.name}`} onClick={() => setConfirmDelete({ id: rule.id, name: rule.name })}><DeleteIcon /></IconButton>
             </Stack>
           </Stack>
         </Paper>
       ))}
       {(rules.data ?? []).length === 0 && <Alert severity="info">No rules yet. Add one to automate routing, notifications, notes, and SLA escalations.</Alert>}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete automation “${confirmDelete?.name}”?`}
+        body="The rule stops immediately. Actions it already took on tickets are kept and stay attributed in history."
+        onCancel={() => setConfirmDelete(null)}
+        onConfirm={() => {
+          if (confirmDelete) void mutate(() => api.deleteAutomation(confirmDelete.id), "Rule deleted");
+          setConfirmDelete(null);
+        }}
+      />
       <AutomationEditorDialog
         open={editing !== undefined}
         rule={editing ?? null}
@@ -1524,6 +1589,7 @@ function AutomationEditorDialog({
 function CustomFieldsPanel() {
   const fields = useAsync(() => api.listCustomFields(true));
   const [editing, setEditing] = useState<api.CustomFieldDef | null | undefined>(undefined);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: number; label: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const mutate = async (operation: () => Promise<unknown>, success: string) => {
@@ -1575,11 +1641,7 @@ function CustomFieldsPanel() {
                       input: { "aria-label": field.archived ? `Restore ${field.label}` : `Archive ${field.label}` }
                     }}
                   />
-                  <IconButton color="error" aria-label={`Delete ${field.label}`} onClick={() => {
-                    if (window.confirm(`Permanently delete “${field.label}”? Archive it instead if tickets still use this key.`)) {
-                      void mutate(() => api.deleteCustomField(field.id), "Field deleted");
-                    }
-                  }}><DeleteIcon fontSize="small" /></IconButton>
+                  <IconButton color="error" aria-label={`Delete ${field.label}`} onClick={() => setConfirmDelete({ id: field.id, label: field.label })}><DeleteIcon fontSize="small" /></IconButton>
                 </TableCell>
               </TableRow>
             ))}
@@ -1587,6 +1649,16 @@ function CustomFieldsPanel() {
           </TableBody>
         </Table>
       </Paper>
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Permanently delete “${confirmDelete?.label}”?`}
+        body="If tickets still use this key, archive it instead — archiving keeps stored values and saved-view filters working."
+        onCancel={() => setConfirmDelete(null)}
+        onConfirm={() => {
+          if (confirmDelete) void mutate(() => api.deleteCustomField(confirmDelete.id), "Field deleted");
+          setConfirmDelete(null);
+        }}
+      />
       <CustomFieldEditorDialog
         open={editing !== undefined}
         field={editing ?? null}
@@ -1672,6 +1744,7 @@ function TeamsPanel() {
   const [users, setUsers] = useState<api.ManagedUser[]>([]);
   const [editing, setEditing] = useState<api.Team | null | undefined>(undefined);
   const [addingMember, setAddingMember] = useState<Record<number, number | "">>({});
+  const [confirmDelete, setConfirmDelete] = useState<{ id: number; name: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
@@ -1724,11 +1797,7 @@ function TeamsPanel() {
                   </Typography>
                 </Box>
                 <IconButton aria-label={`Edit ${team.name}`} onClick={() => setEditing(team)}><EditIcon /></IconButton>
-                <IconButton aria-label={`Delete ${team.name}`} color="error" onClick={() => {
-                  if (window.confirm(`Delete team “${team.name}”? Tickets will become unassigned from the team.`)) {
-                    void act(() => api.deleteTeam(team.id), "Team deleted");
-                  }
-                }}><DeleteIcon /></IconButton>
+                <IconButton aria-label={`Delete ${team.name}`} color="error" onClick={() => setConfirmDelete({ id: team.id, name: team.name })}><DeleteIcon /></IconButton>
               </Stack>
               <Stack direction="row" spacing={0.75} useFlexGap sx={{
                 flexWrap: "wrap"
@@ -1774,6 +1843,16 @@ function TeamsPanel() {
         );
       })}
       {(teams.data ?? []).length === 0 && <Alert severity="info">No teams yet. Add a queue for routing tickets.</Alert>}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete team “${confirmDelete?.name}”?`}
+        body="Tickets routed to this queue keep everything else and become team-unassigned."
+        onCancel={() => setConfirmDelete(null)}
+        onConfirm={() => {
+          if (confirmDelete) void act(() => api.deleteTeam(confirmDelete.id), "Team deleted");
+          setConfirmDelete(null);
+        }}
+      />
       <TeamEditorDialog
         open={editing !== undefined}
         team={editing ?? null}
