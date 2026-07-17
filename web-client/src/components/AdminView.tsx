@@ -622,7 +622,7 @@ function ProbesPanel() {
               </TableRow>
             ))}
             {(data ?? []).length === 0 && (
-              <TableRow><TableCell colSpan={6}>No probes registered.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6}>No probes registered — deploy a netviz probe pointed at /probe and discovered devices will feed the Network map automatically.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
@@ -1167,7 +1167,7 @@ function MailboxesPanel() {
                 </TableCell>
               </TableRow>
             ))}
-            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={8}>No mailboxes configured.</TableCell></TableRow>}
+            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={8}>No mailboxes yet — add one below to turn inbound email into tickets. Each mailbox can auto-apply a label so different inboxes land tagged.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Paper>
@@ -1255,7 +1255,7 @@ function SlaPanel() {
                 </TableCell>
               </TableRow>
             ))}
-            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={7}>No SLA policies — tickets won't have deadlines until you add one.</TableCell></TableRow>}
+            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={7}>No SLA policies — tickets won't carry response/resolution deadlines until one exists. Start with a catch-all default (no company, no priority), e.g. 4h response / 3d resolution.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Paper>
@@ -1297,7 +1297,7 @@ function LabelsPanel() {
                 <TableCell align="right"><IconButton size="small" onClick={async () => { await api.deleteLabel(l.id); reload(); }}><DeleteIcon fontSize="small" /></IconButton></TableCell>
               </TableRow>
             ))}
-            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={3}>No labels yet.</TableCell></TableRow>}
+            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={3}>No labels yet — create one below. Mailboxes can auto-apply a label, and automations can tag tickets with them.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Paper>
