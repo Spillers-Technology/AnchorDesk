@@ -823,7 +823,45 @@ export async function handleApi(route) {
     });
   }
 
-  let match = apiPath.match(/^\/tickets\/(\d+)\/notes$/);
+  if (method === "GET" && apiPath === "/checklist-templates") {
+    return json(route, [
+      {
+        id: 1,
+        name: "New user onboarding",
+        description: "Standard runbook for a new hire's first day",
+        active: true,
+        items: [
+          { id: 11, templateId: 1, text: "Create AD / M365 account", sortOrder: 0, dueOffsetMinutes: 60 },
+          { id: 12, templateId: 1, text: "Assign licenses", sortOrder: 1, dueOffsetMinutes: 120 },
+          { id: 13, templateId: 1, text: "Image and enroll workstation", sortOrder: 2, dueOffsetMinutes: 1440 },
+        ],
+      },
+      {
+        id: 2,
+        name: "Workstation offboarding",
+        description: null,
+        active: true,
+        items: [
+          { id: 21, templateId: 2, text: "Disable accounts", sortOrder: 0, dueOffsetMinutes: 30 },
+          { id: 22, templateId: 2, text: "Collect hardware", sortOrder: 1, dueOffsetMinutes: null },
+        ],
+      },
+    ]);
+  }
+
+  let match = apiPath.match(/^\/tickets\/(\d+)\/checklist$/);
+  if (method === "GET" && match) {
+    const id = Number(match[1]);
+    if (id !== 101) return json(route, []);
+    return json(route, [
+      { id: 501, ticketId: 101, text: "Create AD / M365 account", done: true, doneBy: "sam.rivera", doneAt: "2026-07-15T14:05:00Z", dueAt: "2026-07-15T15:00:00Z", sortOrder: 0, templateId: 1 },
+      { id: 502, ticketId: 101, text: "Assign licenses", done: false, doneBy: null, doneAt: null, dueAt: "2026-07-15T16:00:00Z", sortOrder: 1, templateId: 1 },
+      { id: 503, ticketId: 101, text: "Image and enroll workstation", done: false, doneBy: null, doneAt: null, dueAt: "2026-07-30T14:00:00Z", sortOrder: 2, templateId: 1 },
+      { id: 504, ticketId: 101, text: "Confirm VPN access with the user", done: false, doneBy: null, doneAt: null, dueAt: null, sortOrder: 3, templateId: null },
+    ]);
+  }
+
+  match = apiPath.match(/^\/tickets\/(\d+)\/notes$/);
   if (method === "GET" && match) return json(route, notesByTicket[Number(match[1])] ?? []);
 
   match = apiPath.match(/^\/tickets\/(\d+)\/devices$/);

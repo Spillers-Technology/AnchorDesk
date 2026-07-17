@@ -51,14 +51,16 @@ import TuneIcon from "@mui/icons-material/Tune";
 import GroupsIcon from "@mui/icons-material/Groups";
 import DynamicFormIcon from "@mui/icons-material/DynamicForm";
 import BoltIcon from "@mui/icons-material/Bolt";
+import ChecklistIcon from "@mui/icons-material/Checklist";
 import EditIcon from "@mui/icons-material/Edit";
 import * as api from "../api/client";
 import { TICKET_PRIORITIES } from "../ticketVocab";
 import { useIsPhone } from "../theme/useIsPhone";
+import ChecklistTemplatesPanel from "./admin/ChecklistTemplatesPanel";
 
 type AdminSection =
   | "overview" | "users" | "auth" | "integrations" | "interface" | "sla" | "mailboxes" | "mail" | "labels"
-  | "teams" | "custom-fields" | "automations" | "probes" | "devices" | "audit";
+  | "teams" | "custom-fields" | "checklists" | "automations" | "probes" | "devices" | "audit";
 
 const NAV: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
   { id: "overview", label: "Overview", icon: <DashboardIcon /> },
@@ -72,6 +74,7 @@ const NAV: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
   { id: "labels", label: "Labels", icon: <LabelIcon /> },
   { id: "teams", label: "Teams", icon: <GroupsIcon /> },
   { id: "custom-fields", label: "Custom Fields", icon: <DynamicFormIcon /> },
+  { id: "checklists", label: "Checklists", icon: <ChecklistIcon /> },
   { id: "automations", label: "Automations", icon: <BoltIcon /> },
   { id: "probes", label: "Probes", icon: <RouterIcon /> },
   { id: "devices", label: "Devices", icon: <DevicesIcon /> },
@@ -110,6 +113,7 @@ export default function AdminView() {
         {section === "labels" && <LabelsPanel />}
         {section === "teams" && <TeamsPanel />}
         {section === "custom-fields" && <CustomFieldsPanel />}
+        {section === "checklists" && <ChecklistTemplatesPanel />}
         {section === "automations" && <AutomationsPanel />}
         {section === "probes" && <ProbesPanel />}
         {section === "devices" && <DevicesPanel />}
