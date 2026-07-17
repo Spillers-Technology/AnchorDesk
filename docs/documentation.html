@@ -543,6 +543,7 @@
       <a href="#release">v2.2</a>
       <a href="#platform">Platform</a>
       <a href="#how">Quickstart</a>
+      <a href="#setup">Setup</a>
       <a href="#themes">Themes</a>
       <a href="#integrations">Integrations</a>
       <a href="#guides">Guides</a>
@@ -564,9 +565,9 @@
   <section id="release">
     <div class="wrap">
       <div class="section-head">
-        <div class="kicker">Current release — v2.3 Compass Calibration</div>
-        <h2>Every promise has a clock, and now the whole stack agrees on it.</h2>
-        <p>The 2.2 Clock &amp; Compass line added manual deadlines, queue/field visibility, and modern foundations; 2.3 calibrates it — MCP reaches parity with the REST filters, custom-field filtering survives archiving, and manual deadlines stay out of two-way sync.</p>
+        <div class="kicker">Current release — v2.4 Checklist & Console</div>
+        <h2>Recurring work is repeatable, and the console earns its keep.</h2>
+        <p>2.4 Checklist &amp; Console adds reusable checklist templates with independent per-item deadlines, a deep-linkable admin console with a visual automation builder and dry-run previews, a first-run setup wizard, and boot-time data migrations so upgrades are pull-restart-done.</p>
       </div>
       <div class="release-grid">
         <article class="tile">
@@ -648,9 +649,50 @@ npm ci
 npm run dev            <span class="c"># :5173</span>
 
 <span class="c"># Current images</span>
-ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.3.0</span>
-ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.3.0</span></pre>
+ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.4.0</span>
+ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.4.0</span></pre>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="setup">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">Setup, 2am-proof</div>
+        <h2>From clone to working desk, half asleep.</h2>
+        <p>Every step tells you what you should see before you move on. If a step doesn't look like that, jump to the troubleshooting table below — the ten most likely mistakes are all there.</p>
+      </div>
+      <div class="steps" style="max-width:760px">
+        <div class="step"><div class="num">1</div><div><strong>Start the stack</strong><p><code>docker compose up --build</code> — wait for it to settle. <em>You should see:</em> the web client answering on <code>:5173</code> and <code>curl localhost:8060/ping</code> returning <code>pong</code>.</p></div></div>
+        <div class="step"><div class="num">2</div><div><strong>Set the two secrets that matter</strong><p>In <code>backend/.env</code>: <code>AUTH_SESSION_SECRET</code> (any <code>openssl rand -hex 32</code>) and <code>BOOTSTRAP_ADMIN_PASSWORD</code>. <em>You should see:</em> the first boot logs "created bootstrap admin".</p></div></div>
+        <div class="step"><div class="num">3</div><div><strong>Sign in and enroll MFA</strong><p>Log in as <code>admin</code> with the bootstrap password; scan the QR with any TOTP app. <em>You should see:</em> the board view with an empty queue. (Dev shortcut: <code>OIDC_DISABLED=true</code> skips auth entirely.)</p></div></div>
+        <div class="step"><div class="num">4</div><div><strong>Connect a mailbox</strong><p>Admin → Mailboxes: IMAP host, credentials, poll interval. <em>You should see:</em> a test email to that address become a ticket within one poll cycle, tagged with the mailbox's label.</p></div></div>
+        <div class="step"><div class="num">5</div><div><strong>Attach your RMM / PSA</strong><p>Admin → Integrations: fill the card for Tactical, NinjaOne, Datto, ConnectWise, or Jira. <em>You should see:</em> the card flip to "configured", then Admin → Devices → "Sync from …" pull your fleet.</p></div></div>
+        <div class="step"><div class="num">6</div><div><strong>Set service promises</strong><p>Admin → SLA Policies: one default response/resolution policy is enough to start. <em>You should see:</em> new tickets carrying SLA chips with live countdowns.</p></div></div>
+      </div>
+      <h3 style="margin:34px 0 12px">When it doesn't look right</h3>
+      <div style="overflow-x:auto">
+        <table style="border-collapse:collapse;width:100%;font-size:0.92rem;background:#fff;border:1px solid var(--line);border-radius:8px">
+          <thead>
+            <tr style="text-align:left;background:var(--surface-2)">
+              <th style="padding:10px 14px">Symptom</th>
+              <th style="padding:10px 14px">Almost always</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">Backend exits immediately on boot</td><td style="padding:9px 14px;border-top:1px solid var(--line)"><code>DATABASE_URL</code> points at <code>localhost</code> inside Docker — use the compose service name <code>db</code>.</td></tr>
+            <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">Login page loops back to itself</td><td style="padding:9px 14px;border-top:1px solid var(--line)"><code>AUTH_SESSION_SECRET</code> missing/changed, or the app is served over http while cookies are marked secure — set <code>APP_BASE_URL</code> to match how you actually reach it.</td></tr>
+            <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">No bootstrap admin was created</td><td style="padding:9px 14px;border-top:1px solid var(--line)">The users table wasn't empty (an earlier attempt created one). Reset the password via <code>npx prisma studio</code> or drop the dev volume.</td></tr>
+            <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">Emails aren't becoming tickets</td><td style="padding:9px 14px;border-top:1px solid var(--line)">IMAP app-password needed (Gmail/M365 block basic auth), or the mailbox poll hasn't run yet — check Admin → Mailboxes last-poll time.</td></tr>
+            <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">Outbound replies never arrive</td><td style="padding:9px 14px;border-top:1px solid var(--line)">SMTP relay rejects the chosen From identity — same-domain aliases only, or watch for the 422 "relay may not permit this From".</td></tr>
+            <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">RMM card says configured but sync returns nothing</td><td style="padding:9px 14px;border-top:1px solid var(--line)">API key scopes — Tactical needs agent-read, NinjaOne the client-credentials grant, Datto the API-enabled user.</td></tr>
+            <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">Devices duplicate after adding a second RMM</td><td style="padding:9px 14px;border-top:1px solid var(--line)">No shared MAC/serial/hostname+company to merge on — fill serial or company on one record and re-sync.</td></tr>
+            <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">SLA chips never appear</td><td style="padding:9px 14px;border-top:1px solid var(--line)">No policy matches the ticket's priority/company — add a catch-all default policy.</td></tr>
+            <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">MCP client can't connect</td><td style="padding:9px 14px;border-top:1px solid var(--line)">Token pasted with a trailing newline, or <code>APP_BASE_URL</code> doesn't match the origin the client discovered — OAuth metadata is served from that URL.</td></tr>
+            <tr><td style="padding:9px 14px;border-top:1px solid var(--line)">Everything is slow on first page load</td><td style="padding:9px 14px;border-top:1px solid var(--line)">You're running the dev servers — use the production compose stack or the GHCR images.</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>
@@ -732,12 +774,13 @@ ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.3.0</span></
       </div>
       <div class="docs-grid">
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Quickstart<span>Local Compose, backend config, schema push, and web client.</span></a>
-        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/RELEASE_NOTES_v2.3.0.md" target="_blank" rel="noopener">2.3 release guide<span>Compass Calibration changes, automation-condition upgrade note, and image tags.</span></a>
+        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/RELEASE_NOTES_v2.4.0.md" target="_blank" rel="noopener">2.4 release guide<span>Checklist &amp; Console features, upgrade notes, and image tags.</span></a>
         <a class="doc-link" href="architecture.md">Architecture<span>Source-of-truth database, auth flow, adapters, repositories, and delivery status.</span></a>
         <a class="doc-link" href="mcp-auth.md">MCP Auth<span>Personal tokens and built-in OAuth authorization-code + PKCE flow.</span></a>
         <a class="doc-link" href="providers.md">Providers<span>How to add ticket sync providers and identity-safe device/RMM adapters.</span></a>
         <a class="doc-link" href="schema.md">Database schema<span>Tables, relations, and the audit/event model behind the source of truth.</span></a>
         <a class="doc-link" href="mobile.md">Mobile contract<span>The 360px rule, five-device screenshot matrix, and phone-width test guards.</span></a>
+        <a class="doc-link" href="upgrading.md">Upgrading<span>Pull, restart, done — schema and data migrate on boot; per-version notes.</span></a>
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog<span>Every release line from first anchor drop to Clock &amp; Compass.</span></a>
       </div>
     </div>

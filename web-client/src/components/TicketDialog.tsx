@@ -41,6 +41,7 @@ import NoteAddIcon from "@mui/icons-material/NoteAdd";
 import HistoryIcon from "@mui/icons-material/History";
 import { Ticket, Note } from "../interfaces";
 import NotesSection from "./NotesSection";
+import ChecklistSection from "./ChecklistSection";
 import RichTextEditor from "./RichTextEditor";
 import HtmlContent from "./HtmlContent";
 import RunScriptDialog from "./RunScriptDialog";
@@ -519,6 +520,7 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
 
             <Card sx={{ mt: 2 }}>
               <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+                {ticket.localId != null && <ChecklistSection ticketId={ticket.localId} />}
                 <Stack
                   direction={{ xs: "column", sm: "row" }}
                   spacing={1}

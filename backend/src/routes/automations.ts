@@ -5,7 +5,14 @@ import { parseId } from '../util/ids';
 import { isPlainRecord } from '../util/objects';
 import { hasPrismaCode } from '../util/prismaErrors';
 import * as automationRepo from '../repositories/automationRepository';
-import { validateRuleAction, validateRuleCondition } from '../services/automation/evaluate';
+import { prisma } from '../db/prisma';
+import {
+  RuleCondition,
+  evaluateConditions,
+  ticketContext,
+  validateRuleAction,
+  validateRuleCondition,
+} from '../services/automation/evaluate';
 
 interface IdParam { id: string }
 
@@ -42,6 +49,47 @@ export async function automationRoutes(server: FastifyInstance) {
 
   server.get('/automations', adminOnly, async (_req, reply) => {
     return reply.send(await automationRepo.list());
+  });
+
+  // Dry-run: evaluate a condition set against recent tickets so the rule
+  // builder can show "would have matched N" before anything is saved. SLA
+  // event fields (kind/level) aren't present outside a real event, so
+  // conditions on them simply don't match here — the response says so.
+  server.post('/automations/preview', adminOnly, async (req, reply) => {
+    if (!isPlainRecord(req.body) || !Array.isArray(req.body.conditions)) {
+      return reply.status(400).send({ error: 'conditions array is required' });
+    }
+    const conditions = req.body.conditions as Parameters<typeof validateRuleCondition>[0][];
+    for (const condition of conditions) {
+      const error = validateRuleCondition(condition);
+      if (error) return reply.status(400).send({ error });
+    }
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const tickets = await prisma.ticket.findMany({
+      where: { updatedAt: { gte: since }, status: { not: 'Deleted' } },
+      include: { labels: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 500,
+    });
+    const usesEventFields = conditions.some(
+      (c) => isPlainRecord(c) && (c.field === 'kind' || c.field === 'level'),
+    );
+    const matched = tickets.filter((t) =>
+      evaluateConditions(conditions as RuleCondition[], ticketContext(t)),
+    );
+    return reply.send({
+      sampled: tickets.length,
+      sinceDays: 7,
+      matched: matched.length,
+      usesEventFields,
+      sample: matched.slice(0, 10).map((t) => ({
+        id: t.id,
+        ticketNumber: t.ticketNumber,
+        title: t.title,
+        status: t.status,
+        priority: t.priority,
+      })),
+    });
   });
 
   server.post('/automations', adminOnly, async (req, reply) => {

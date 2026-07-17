@@ -33,6 +33,7 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  ListSubheader,
   Card,
   CardContent,
   Grid,
@@ -51,38 +52,94 @@ import TuneIcon from "@mui/icons-material/Tune";
 import GroupsIcon from "@mui/icons-material/Groups";
 import DynamicFormIcon from "@mui/icons-material/DynamicForm";
 import BoltIcon from "@mui/icons-material/Bolt";
+import ChecklistIcon from "@mui/icons-material/Checklist";
+import AlternateEmailIcon from "@mui/icons-material/AlternateEmail";
 import EditIcon from "@mui/icons-material/Edit";
+import { useSearchParams } from "react-router-dom";
 import * as api from "../api/client";
 import { TICKET_PRIORITIES } from "../ticketVocab";
 import { useIsPhone } from "../theme/useIsPhone";
+import ChecklistTemplatesPanel from "./admin/ChecklistTemplatesPanel";
+import ConfirmDialog from "./admin/ConfirmDialog";
+import PanelSearch, { rowMatches } from "./admin/PanelSearch";
+import {
+  ActionDraft,
+  ActionRowsEditor,
+  ConditionDraft,
+  ConditionRowsEditor,
+  RuleReferences,
+  conditionsToDrafts,
+  defaultAction,
+  draftsToConditions,
+  normalizeActions,
+} from "./admin/AutomationRuleEditor";
 
 type AdminSection =
   | "overview" | "users" | "auth" | "integrations" | "interface" | "sla" | "mailboxes" | "mail" | "labels"
-  | "teams" | "custom-fields" | "automations" | "probes" | "devices" | "audit";
+  | "teams" | "custom-fields" | "checklists" | "automations" | "probes" | "devices" | "audit";
 
-const NAV: { id: AdminSection; label: string; icon: React.ReactNode }[] = [
-  { id: "overview", label: "Overview", icon: <DashboardIcon /> },
-  { id: "users", label: "Users & Roles", icon: <PeopleIcon /> },
-  { id: "auth", label: "Authentication", icon: <SecurityIcon /> },
-  { id: "integrations", label: "Integrations", icon: <CableIcon /> },
-  { id: "interface", label: "Interface", icon: <TuneIcon /> },
-  { id: "sla", label: "SLA Policies", icon: <TimerIcon /> },
-  { id: "mailboxes", label: "Mailboxes", icon: <EmailIcon /> },
-  { id: "mail", label: "Mail Identities", icon: <EmailIcon /> },
-  { id: "labels", label: "Labels", icon: <LabelIcon /> },
-  { id: "teams", label: "Teams", icon: <GroupsIcon /> },
-  { id: "custom-fields", label: "Custom Fields", icon: <DynamicFormIcon /> },
-  { id: "automations", label: "Automations", icon: <BoltIcon /> },
-  { id: "probes", label: "Probes", icon: <RouterIcon /> },
-  { id: "devices", label: "Devices", icon: <DevicesIcon /> },
-  { id: "audit", label: "Audit Log", icon: <HistoryIcon /> },
+/** Rail sections grouped the way admins think about them. */
+const NAV_GROUPS: { heading: string | null; items: { id: AdminSection; label: string; icon: React.ReactNode }[] }[] = [
+  {
+    heading: null,
+    items: [{ id: "overview", label: "Overview", icon: <DashboardIcon /> }],
+  },
+  {
+    heading: "People & Access",
+    items: [
+      { id: "users", label: "Users & Roles", icon: <PeopleIcon /> },
+      { id: "auth", label: "Authentication", icon: <SecurityIcon /> },
+      { id: "teams", label: "Teams", icon: <GroupsIcon /> },
+    ],
+  },
+  {
+    heading: "Ticketing",
+    items: [
+      { id: "sla", label: "SLA Policies", icon: <TimerIcon /> },
+      { id: "labels", label: "Labels", icon: <LabelIcon /> },
+      { id: "custom-fields", label: "Custom Fields", icon: <DynamicFormIcon /> },
+      { id: "checklists", label: "Checklists", icon: <ChecklistIcon /> },
+      { id: "automations", label: "Automations", icon: <BoltIcon /> },
+      { id: "interface", label: "Interface", icon: <TuneIcon /> },
+    ],
+  },
+  {
+    heading: "Channels & Integrations",
+    items: [
+      { id: "mailboxes", label: "Mailboxes", icon: <EmailIcon /> },
+      { id: "mail", label: "Mail Identities", icon: <AlternateEmailIcon /> },
+      { id: "integrations", label: "Integrations", icon: <CableIcon /> },
+    ],
+  },
+  {
+    heading: "Infrastructure",
+    items: [
+      { id: "probes", label: "Probes", icon: <RouterIcon /> },
+      { id: "devices", label: "Devices", icon: <DevicesIcon /> },
+      { id: "audit", label: "Audit Log", icon: <HistoryIcon /> },
+    ],
+  },
 ];
+
+const NAV_IDS = new Set<AdminSection>(NAV_GROUPS.flatMap((g) => g.items.map((i) => i.id)));
 
 const ROLES = ["admin", "technician", "readonly"];
 
-/** Admin console — persistent left sub-nav with a content area per section. */
-export default function AdminView() {
-  const [section, setSection] = useState<AdminSection>("overview");
+/**
+ * Admin console — persistent left sub-nav with a content area per section.
+ * The active section lives in the `?admin=` query param so sections are
+ * deep-linkable, survive refresh, and honor the browser back button.
+ */
+export default function AdminView({ onOpenTickets }: { onOpenTickets?: () => void }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const raw = searchParams.get("admin") as AdminSection | null;
+  const section: AdminSection = raw && NAV_IDS.has(raw) ? raw : "overview";
+  const setSection = (next: AdminSection) => {
+    setSearchParams((params) => {
+      params.set("admin", next);
+      return params;
+    });
+  };
 
   return (
     <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{
@@ -90,16 +147,25 @@ export default function AdminView() {
     }}>
       <Paper variant="outlined" sx={{ width: { xs: "100%", md: 230 }, maxWidth: "100%", minWidth: 0, flexShrink: 0, position: { md: "sticky" }, top: { md: 88 }, overflowX: { xs: "auto", md: "hidden" } }}>
         <List dense disablePadding sx={{ display: { xs: "flex", md: "block" }, width: { xs: "max-content", md: "auto" }, minWidth: { xs: "100%", md: 0 }, py: { xs: 0.5, md: 0 } }}>
-          {NAV.map((n) => (
-            <ListItemButton key={n.id} selected={section === n.id} onClick={() => setSection(n.id)} sx={{ flex: { xs: "0 0 auto", md: "initial" }, minWidth: { xs: 155, md: 0 } }}>
-              <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
-              <ListItemText primary={n.label} />
-            </ListItemButton>
+          {NAV_GROUPS.map((group) => (
+            <Box key={group.heading ?? "top"} sx={{ display: { xs: "contents", md: "block" } }}>
+              {group.heading && (
+                <ListSubheader disableSticky sx={{ lineHeight: "30px", display: { xs: "none", md: "block" } }}>
+                  {group.heading}
+                </ListSubheader>
+              )}
+              {group.items.map((n) => (
+                <ListItemButton key={n.id} selected={section === n.id} onClick={() => setSection(n.id)} sx={{ flex: { xs: "0 0 auto", md: "initial" }, minWidth: { xs: 155, md: 0 } }}>
+                  <ListItemIcon sx={{ minWidth: 38 }}>{n.icon}</ListItemIcon>
+                  <ListItemText primary={n.label} />
+                </ListItemButton>
+              ))}
+            </Box>
           ))}
         </List>
       </Paper>
       <Box sx={{ flexGrow: 1, minWidth: 0, width: "100%" }}>
-        {section === "overview" && <OverviewPanel onNavigate={setSection} />}
+        {section === "overview" && <OverviewPanel onNavigate={setSection} onOpenTickets={onOpenTickets} />}
         {section === "users" && <UsersPanel />}
         {section === "auth" && <AuthSettingsPanel />}
         {section === "integrations" && <IntegrationsPanel />}
@@ -110,6 +176,7 @@ export default function AdminView() {
         {section === "labels" && <LabelsPanel />}
         {section === "teams" && <TeamsPanel />}
         {section === "custom-fields" && <CustomFieldsPanel />}
+        {section === "checklists" && <ChecklistTemplatesPanel />}
         {section === "automations" && <AutomationsPanel />}
         {section === "probes" && <ProbesPanel />}
         {section === "devices" && <DevicesPanel />}
@@ -119,13 +186,13 @@ export default function AdminView() {
   );
 }
 
-function OverviewPanel({ onNavigate }: { onNavigate: (s: AdminSection) => void }) {
+function OverviewPanel({ onNavigate, onOpenTickets }: { onNavigate: (s: AdminSection) => void; onOpenTickets?: () => void }) {
   const { data, loading, error } = useAsync(() => api.getAdminOverview());
   if (loading) return <CircularProgress />;
   if (error || !data) return <Alert severity="error">{error ?? "Failed to load"}</Alert>;
 
-  const stats: { label: string; value: string; sub?: string; go: AdminSection }[] = [
-    { label: "Open tickets", value: String(data.tickets.open), sub: `${data.tickets.total} total`, go: "overview" },
+  const stats: { label: string; value: string; sub?: string; go?: AdminSection; onClick?: () => void }[] = [
+    { label: "Open tickets", value: String(data.tickets.open), sub: `${data.tickets.total} total`, onClick: onOpenTickets },
     { label: "Devices online", value: `${data.devices.online}/${data.devices.total}`, go: "devices" },
     { label: "Probes online", value: `${data.probes.online}/${data.probes.total}`, go: "probes" },
     { label: "Active users", value: String(data.users), go: "users" },
@@ -141,7 +208,7 @@ function OverviewPanel({ onNavigate }: { onNavigate: (s: AdminSection) => void }
         <Grid container spacing={2}>
           {stats.map((s) => (
             <Grid size={{ xs: 6, sm: 4, md: 2.4 }} key={s.label}>
-              <Card variant="outlined" sx={{ cursor: "pointer", "&:hover": { borderColor: "primary.main" } }} onClick={() => onNavigate(s.go)}>
+              <Card variant="outlined" sx={{ cursor: "pointer", "&:hover": { borderColor: "primary.main" } }} onClick={() => (s.onClick ? s.onClick() : s.go && onNavigate(s.go))}>
                 <CardContent>
                   <Typography variant="h4">{s.value}</Typography>
                   <Typography variant="body2" sx={{
@@ -199,6 +266,7 @@ function auditColor(action: string): "success" | "info" | "error" | "default" {
 
 function UsersPanel() {
   const { data, loading, error, reload } = useAsync(() => api.listUsers());
+  const [q, setQ] = useState("");
   const [form, setForm] = useState({ username: "", password: "", displayName: "", email: "", role: "technician" });
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -245,6 +313,7 @@ function UsersPanel() {
           <Button variant="contained" disabled={!form.username || form.password.length < 10} onClick={create}>Create</Button>
         </Stack>
       </Paper>
+      <PanelSearch value={q} onChange={setQ} placeholder="Filter users…" />
       <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
@@ -259,7 +328,7 @@ function UsersPanel() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {(data ?? []).map((u) => (
+            {(data ?? []).filter((u) => rowMatches(q, [u.username, u.displayName, u.email, u.role])).map((u) => (
               <TableRow key={u.id}>
                 <TableCell>{u.username}</TableCell>
                 <TableCell>{u.displayName ?? "—"}</TableCell>
@@ -553,7 +622,7 @@ function ProbesPanel() {
               </TableRow>
             ))}
             {(data ?? []).length === 0 && (
-              <TableRow><TableCell colSpan={6}>No probes registered.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6}>No probes registered — deploy a netviz probe pointed at /probe and discovered devices will feed the Network map automatically.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
@@ -564,6 +633,7 @@ function ProbesPanel() {
 
 function DevicesPanel() {
   const { data, loading, error, reload } = useAsync(() => api.listDevices({ pageSize: 200 }));
+  const [q, setQ] = useState("");
   const [companies, setCompanies] = useState<api.Company[]>([]);
   const [rmms, setRmms] = useState<api.RmmProviderStatus[]>([]);
   const [syncing, setSyncing] = useState<string | null>(null);
@@ -628,6 +698,7 @@ function DevicesPanel() {
         </Stack>
         {syncMsg && <Alert severity="info" sx={{ mt: 1 }}>{syncMsg}</Alert>}
       </Box>
+      <PanelSearch value={q} onChange={setQ} placeholder="Filter devices…" />
       <Paper variant="outlined" sx={{ overflowX: "auto" }}>
       <Table size="small">
         <TableHead>
@@ -646,7 +717,7 @@ function DevicesPanel() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {(data ?? []).map((d) => (
+          {(data ?? []).filter((d) => rowMatches(q, [d.displayName, d.hostname, d.ipAddress, d.macAddress, d.assetTag, d.serialNumber, d.deviceType, d.companyName])).map((d) => (
             <TableRow key={d.id}>
               <TableCell>{d.displayName || d.hostname || "—"}</TableCell>
               <TableCell>{d.ipAddress ?? "—"}</TableCell>
@@ -1096,7 +1167,7 @@ function MailboxesPanel() {
                 </TableCell>
               </TableRow>
             ))}
-            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={8}>No mailboxes configured.</TableCell></TableRow>}
+            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={8}>No mailboxes yet — add one below to turn inbound email into tickets. Each mailbox can auto-apply a label so different inboxes land tagged.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Paper>
@@ -1184,7 +1255,7 @@ function SlaPanel() {
                 </TableCell>
               </TableRow>
             ))}
-            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={7}>No SLA policies — tickets won't have deadlines until you add one.</TableCell></TableRow>}
+            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={7}>No SLA policies — tickets won't carry response/resolution deadlines until one exists. Start with a catch-all default (no company, no priority), e.g. 4h response / 3d resolution.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Paper>
@@ -1226,7 +1297,7 @@ function LabelsPanel() {
                 <TableCell align="right"><IconButton size="small" onClick={async () => { await api.deleteLabel(l.id); reload(); }}><DeleteIcon fontSize="small" /></IconButton></TableCell>
               </TableRow>
             ))}
-            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={3}>No labels yet.</TableCell></TableRow>}
+            {(data ?? []).length === 0 && <TableRow><TableCell colSpan={3}>No labels yet — create one below. Mailboxes can auto-apply a label, and automations can tag tickets with them.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Paper>
@@ -1312,6 +1383,7 @@ function MailIdentitiesPanel() {
 function AutomationsPanel() {
   const rules = useAsync(() => api.listAutomations());
   const [editing, setEditing] = useState<api.AutomationRule | null | undefined>(undefined);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: number; name: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const mutate = async (operation: () => Promise<unknown>, success: string) => {
@@ -1376,14 +1448,22 @@ function AutomationsPanel() {
                 }}
               />
               <IconButton aria-label={`Edit ${rule.name}`} onClick={() => setEditing(rule)}><EditIcon /></IconButton>
-              <IconButton color="error" aria-label={`Delete ${rule.name}`} onClick={() => {
-                if (window.confirm(`Delete automation “${rule.name}”?`)) void mutate(() => api.deleteAutomation(rule.id), "Rule deleted");
-              }}><DeleteIcon /></IconButton>
+              <IconButton color="error" aria-label={`Delete ${rule.name}`} onClick={() => setConfirmDelete({ id: rule.id, name: rule.name })}><DeleteIcon /></IconButton>
             </Stack>
           </Stack>
         </Paper>
       ))}
       {(rules.data ?? []).length === 0 && <Alert severity="info">No rules yet. Add one to automate routing, notifications, notes, and SLA escalations.</Alert>}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete automation “${confirmDelete?.name}”?`}
+        body="The rule stops immediately. Actions it already took on tickets are kept and stay attributed in history."
+        onCancel={() => setConfirmDelete(null)}
+        onConfirm={() => {
+          if (confirmDelete) void mutate(() => api.deleteAutomation(confirmDelete.id), "Rule deleted");
+          setConfirmDelete(null);
+        }}
+      />
       <AutomationEditorDialog
         open={editing !== undefined}
         rule={editing ?? null}
@@ -1414,9 +1494,15 @@ function AutomationEditorDialog({
   const [name, setName] = useState("");
   const [trigger, setTrigger] = useState<api.AutomationTrigger>("ticket_created");
   const [enabled, setEnabled] = useState(true);
+  // Builder rows are the default surface; the JSON editors are the escape
+  // hatch. Whichever surface is visible is the source of truth on save.
+  const [advanced, setAdvanced] = useState(false);
+  const [conditionDrafts, setConditionDrafts] = useState<ConditionDraft[]>([]);
+  const [actionDrafts, setActionDrafts] = useState<ActionDraft[]>([defaultAction("add_note")]);
   const [conditions, setConditions] = useState("[]");
-  const [actions, setActions] = useState('[\n  { "type": "add_note", "content": "Automated update" }\n]');
-  const [references, setReferences] = useState<{ teams: api.Team[]; users: api.Assignee[]; labels: api.Label[]; fields: api.CustomFieldDef[] }>({ teams: [], users: [], labels: [], fields: [] });
+  const [actions, setActions] = useState("[]");
+  const [preview, setPreview] = useState<api.AutomationPreview | null>(null);
+  const [references, setReferences] = useState<RuleReferences>({ teams: [], users: [], labels: [], fields: [] });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1425,30 +1511,78 @@ function AutomationEditorDialog({
     setName(rule?.name ?? "");
     setTrigger(rule?.trigger ?? "ticket_created");
     setEnabled(rule?.enabled ?? true);
+    setConditionDrafts(conditionsToDrafts(rule?.conditions ?? []));
+    setActionDrafts((rule?.actions as ActionDraft[] | undefined) ?? [defaultAction("add_note")]);
     setConditions(JSON.stringify(rule?.conditions ?? [], null, 2));
-    setActions(JSON.stringify(rule?.actions ?? [{ type: "add_note", content: "Automated update" }], null, 2));
+    setActions(JSON.stringify(rule?.actions ?? [defaultAction("add_note")], null, 2));
+    setAdvanced(false);
+    setPreview(null);
     setError(null);
     Promise.all([api.listTeams(), api.listAssignees(), api.listLabels(), api.listCustomFields()])
       .then(([teams, users, labels, fields]) => setReferences({ teams, users, labels, fields }))
       .catch(() => setReferences({ teams: [], users: [], labels: [], fields: [] }));
   }, [open, rule]);
 
-  const save = async () => {
-    if (!name.trim()) return;
-    let parsedConditions: api.AutomationCondition[];
-    let parsedActions: api.AutomationAction[];
+  /** The rule as currently edited, or an error string. */
+  const collect = (): { conditions: api.AutomationCondition[]; actions: api.AutomationAction[] } | string => {
+    if (!advanced) {
+      const built = normalizeActions(actionDrafts);
+      if (built.length === 0) return "Add at least one action.";
+      return {
+        conditions: draftsToConditions(conditionDrafts) as unknown as api.AutomationCondition[],
+        actions: built as api.AutomationAction[],
+      };
+    }
     try {
-      parsedConditions = JSON.parse(conditions);
-      parsedActions = JSON.parse(actions);
-      if (!Array.isArray(parsedConditions)) throw new Error("Conditions must be a JSON array.");
-      if (!Array.isArray(parsedActions) || parsedActions.length === 0) throw new Error("Actions must be a non-empty JSON array.");
+      const parsedConditions = JSON.parse(conditions);
+      const parsedActions = JSON.parse(actions);
+      if (!Array.isArray(parsedConditions)) return "Conditions must be a JSON array.";
+      if (!Array.isArray(parsedActions) || parsedActions.length === 0) return "Actions must be a non-empty JSON array.";
+      return { conditions: parsedConditions, actions: parsedActions };
     } catch (err) {
-      setError((err as Error).message);
+      return (err as Error).message;
+    }
+  };
+
+  const toggleAdvanced = () => {
+    if (!advanced) {
+      // Serialize builder state into the JSON editors.
+      setConditions(JSON.stringify(draftsToConditions(conditionDrafts), null, 2));
+      setActions(JSON.stringify(normalizeActions(actionDrafts), null, 2));
+      setAdvanced(true);
       return;
     }
+    // Bring JSON edits back into the builder; invalid JSON stays in advanced.
+    try {
+      const parsedConditions = JSON.parse(conditions);
+      const parsedActions = JSON.parse(actions);
+      setConditionDrafts(conditionsToDrafts(parsedConditions));
+      setActionDrafts(Array.isArray(parsedActions) && parsedActions.length ? parsedActions : [defaultAction("add_note")]);
+      setAdvanced(false);
+      setError(null);
+    } catch {
+      setError("Fix the JSON before returning to the builder.");
+    }
+  };
+
+  const runPreview = async () => {
+    const collected = collect();
+    if (typeof collected === "string") { setError(collected); return; }
+    setError(null);
+    try {
+      setPreview(await api.previewAutomation(collected.conditions));
+    } catch (err) {
+      setError(errText(err));
+    }
+  };
+
+  const save = async () => {
+    if (!name.trim()) return;
+    const collected = collect();
+    if (typeof collected === "string") { setError(collected); return; }
     setSaving(true);
     setError(null);
-    try { await onSave({ name: name.trim(), trigger, enabled, conditions: parsedConditions, actions: parsedActions }); }
+    try { await onSave({ name: name.trim(), trigger, enabled, conditions: collected.conditions, actions: collected.actions }); }
     catch (err) { setError(errText(err)); }
     finally { setSaving(false); }
   };
@@ -1466,53 +1600,65 @@ function AutomationEditorDialog({
             ))}
           </TextField>
           <FormControlLabel control={<Checkbox checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />} label="Enabled" />
-          <Paper variant="outlined" sx={{ p: 1.5 }}>
-            <Typography
-              variant="caption"
-              sx={{
-                color: "text.secondary",
-                display: "block"
-              }}>
-              Reference IDs for actions
-            </Typography>
-            <Typography variant="body2">
-              Teams: {references.teams.map((team) => `${team.name} #${team.id}`).join(", ") || "none"}
-            </Typography>
-            <Typography variant="body2">
-              Users: {references.users.map((user) => `${user.displayName || user.username} #${user.id}`).join(", ") || "none"}
-            </Typography>
-            <Typography variant="body2">
-              Labels: {references.labels.map((label) => `${label.name} #${label.id}`).join(", ") || "none"}
-            </Typography>
-            <Typography variant="body2">
-              Custom condition keys: {references.fields.map((field) => `custom.${field.key}`).join(", ") || "none"}
-            </Typography>
-          </Paper>
-          <TextField
-            label="Conditions (all must match)"
-            value={conditions}
-            onChange={(event) => setConditions(event.target.value)}
-            multiline
-            minRows={5}
-            helperText='JSON array, e.g. [{"field":"priority","op":"eq","value":"Urgent"}]. Use custom.<key> for custom fields; dueAt = manual deadline only, effectiveDueAt = manual or SLA target.'
-            slotProps={{
-              input: { sx: { fontFamily: "monospace", fontSize: 13 } }
-            }}
-          />
-          <TextField
-            label="Actions (run in order)"
-            value={actions}
-            onChange={(event) => setActions(event.target.value)}
-            multiline
-            minRows={7}
-            helperText="Action types: set_status, set_priority, assign_user, assign_team, add_label, add_note, notify_user, notify_team."
-            slotProps={{
-              input: { sx: { fontFamily: "monospace", fontSize: 13 } }
-            }}
-          />
+
+          {!advanced ? (
+            <>
+              <Typography variant="subtitle2">Conditions — all must match (none = every event)</Typography>
+              <ConditionRowsEditor drafts={conditionDrafts} references={references} onChange={setConditionDrafts} />
+              <Box>
+                <Button size="small" onClick={() => setConditionDrafts([...conditionDrafts, { field: "status", op: "eq", value: "" }])}>
+                  Add condition
+                </Button>
+              </Box>
+              <Typography variant="subtitle2">Actions — run in order</Typography>
+              <ActionRowsEditor drafts={actionDrafts} references={references} onChange={setActionDrafts} />
+              <Box>
+                <Button size="small" onClick={() => setActionDrafts([...actionDrafts, defaultAction("add_note")])}>
+                  Add action
+                </Button>
+              </Box>
+            </>
+          ) : (
+            <>
+              <TextField
+                label="Conditions (all must match)"
+                value={conditions}
+                onChange={(event) => setConditions(event.target.value)}
+                multiline
+                minRows={5}
+                helperText='JSON array, e.g. [{"field":"priority","op":"eq","value":"Urgent"}]. Use custom.<key> for custom fields; dueAt = manual deadline only, effectiveDueAt = manual or SLA target.'
+                slotProps={{ input: { sx: { fontFamily: "monospace", fontSize: 13 } } }}
+              />
+              <TextField
+                label="Actions (run in order)"
+                value={actions}
+                onChange={(event) => setActions(event.target.value)}
+                multiline
+                minRows={7}
+                helperText="Action types: set_status, set_priority, assign_user, assign_team, add_label, add_note, notify_user, notify_team."
+                slotProps={{ input: { sx: { fontFamily: "monospace", fontSize: 13 } } }}
+              />
+            </>
+          )}
+
+          {preview && (
+            <Alert severity={preview.matched > 0 ? "info" : "warning"}>
+              Would have matched <strong>{preview.matched}</strong> of {preview.sampled} tickets active in the last {preview.sinceDays} days
+              {preview.usesEventFields ? " (SLA kind/level conditions only match during real SLA events)" : ""}.
+              {preview.sample.length > 0 && (
+                <> Sample: {preview.sample.map((t) => `#${t.ticketNumber ?? t.id}`).join(", ")}</>
+              )}
+            </Alert>
+          )}
         </Stack>
       </DialogContent>
-      <DialogActions><Button onClick={onClose} disabled={saving}>Cancel</Button><Button variant="contained" onClick={() => void save()} disabled={saving || !name.trim()}>{saving ? "Saving…" : "Save rule"}</Button></DialogActions>
+      <DialogActions>
+        <Button onClick={toggleAdvanced} disabled={saving}>{advanced ? "Builder" : "Advanced JSON"}</Button>
+        <Button onClick={() => void runPreview()} disabled={saving}>Preview matches</Button>
+        <Box sx={{ flexGrow: 1 }} />
+        <Button onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button variant="contained" onClick={() => void save()} disabled={saving || !name.trim()}>{saving ? "Saving…" : "Save rule"}</Button>
+      </DialogActions>
     </Dialog>
   );
 }
@@ -1520,6 +1666,7 @@ function AutomationEditorDialog({
 function CustomFieldsPanel() {
   const fields = useAsync(() => api.listCustomFields(true));
   const [editing, setEditing] = useState<api.CustomFieldDef | null | undefined>(undefined);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: number; label: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const mutate = async (operation: () => Promise<unknown>, success: string) => {
@@ -1571,11 +1718,7 @@ function CustomFieldsPanel() {
                       input: { "aria-label": field.archived ? `Restore ${field.label}` : `Archive ${field.label}` }
                     }}
                   />
-                  <IconButton color="error" aria-label={`Delete ${field.label}`} onClick={() => {
-                    if (window.confirm(`Permanently delete “${field.label}”? Archive it instead if tickets still use this key.`)) {
-                      void mutate(() => api.deleteCustomField(field.id), "Field deleted");
-                    }
-                  }}><DeleteIcon fontSize="small" /></IconButton>
+                  <IconButton color="error" aria-label={`Delete ${field.label}`} onClick={() => setConfirmDelete({ id: field.id, label: field.label })}><DeleteIcon fontSize="small" /></IconButton>
                 </TableCell>
               </TableRow>
             ))}
@@ -1583,6 +1726,16 @@ function CustomFieldsPanel() {
           </TableBody>
         </Table>
       </Paper>
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Permanently delete “${confirmDelete?.label}”?`}
+        body="If tickets still use this key, archive it instead — archiving keeps stored values and saved-view filters working."
+        onCancel={() => setConfirmDelete(null)}
+        onConfirm={() => {
+          if (confirmDelete) void mutate(() => api.deleteCustomField(confirmDelete.id), "Field deleted");
+          setConfirmDelete(null);
+        }}
+      />
       <CustomFieldEditorDialog
         open={editing !== undefined}
         field={editing ?? null}
@@ -1668,6 +1821,7 @@ function TeamsPanel() {
   const [users, setUsers] = useState<api.ManagedUser[]>([]);
   const [editing, setEditing] = useState<api.Team | null | undefined>(undefined);
   const [addingMember, setAddingMember] = useState<Record<number, number | "">>({});
+  const [confirmDelete, setConfirmDelete] = useState<{ id: number; name: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
@@ -1720,11 +1874,7 @@ function TeamsPanel() {
                   </Typography>
                 </Box>
                 <IconButton aria-label={`Edit ${team.name}`} onClick={() => setEditing(team)}><EditIcon /></IconButton>
-                <IconButton aria-label={`Delete ${team.name}`} color="error" onClick={() => {
-                  if (window.confirm(`Delete team “${team.name}”? Tickets will become unassigned from the team.`)) {
-                    void act(() => api.deleteTeam(team.id), "Team deleted");
-                  }
-                }}><DeleteIcon /></IconButton>
+                <IconButton aria-label={`Delete ${team.name}`} color="error" onClick={() => setConfirmDelete({ id: team.id, name: team.name })}><DeleteIcon /></IconButton>
               </Stack>
               <Stack direction="row" spacing={0.75} useFlexGap sx={{
                 flexWrap: "wrap"
@@ -1770,6 +1920,16 @@ function TeamsPanel() {
         );
       })}
       {(teams.data ?? []).length === 0 && <Alert severity="info">No teams yet. Add a queue for routing tickets.</Alert>}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete team “${confirmDelete?.name}”?`}
+        body="Tickets routed to this queue keep everything else and become team-unassigned."
+        onCancel={() => setConfirmDelete(null)}
+        onConfirm={() => {
+          if (confirmDelete) void act(() => api.deleteTeam(confirmDelete.id), "Team deleted");
+          setConfirmDelete(null);
+        }}
+      />
       <TeamEditorDialog
         open={editing !== undefined}
         team={editing ?? null}
@@ -1833,6 +1993,7 @@ function TeamEditorDialog({
 function AuditPanel() {
   const [entityType, setEntityType] = useState("");
   const [action, setAction] = useState("");
+  const [q, setQ] = useState("");
   const { data, loading, error } = useAsync(
     () => api.getAuditLog({ entityType: entityType || undefined, action: action || undefined, limit: 200 }),
     [entityType, action]
@@ -1850,6 +2011,7 @@ function AuditPanel() {
           <MenuItem value="">All actions</MenuItem>
           {["create", "update", "delete", "sync"].map((a) => <MenuItem key={a} value={a}>{a}</MenuItem>)}
         </Select>
+        <PanelSearch value={q} onChange={setQ} placeholder="Filter by actor or entity…" />
       </Stack>
 
       {loading ? <CircularProgress /> : error ? <Alert severity="error">{error}</Alert> : (
@@ -1861,7 +2023,7 @@ function AuditPanel() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {(data ?? []).map((a) => (
+              {(data ?? []).filter((a) => rowMatches(q, [a.changedBy, a.entityType, String(a.entityId), a.action])).map((a) => (
                 <TableRow key={a.id}>
                   <TableCell>{new Date(a.occurredAt).toLocaleString()}</TableCell>
                   <TableCell><Chip size="small" label={a.action} color={auditColor(a.action)} /></TableCell>

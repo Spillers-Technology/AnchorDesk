@@ -11,7 +11,7 @@ describe('validateTicketInput dueAt', () => {
   });
 
   it('accepts an absent dueAt', () => {
-    expect(validateTicketInput({ status: 'Open' }, false)).toBeNull();
+    expect(validateTicketInput({ status: 'New' }, false)).toBeNull();
   });
 
   it('rejects unparseable strings and non-string values', () => {

@@ -1195,3 +1195,95 @@ export function getMyDay(from: Date, to: Date) {
   const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
   return request<MyDay>(`/me/time-entries?${params}`);
 }
+
+// ---- Checklists (2.4.0) ----------------------------------------------------
+
+export interface ChecklistTemplateItem {
+  id: number;
+  templateId: number;
+  text: string;
+  sortOrder: number;
+  /** Relative deadline: item dueAt = apply time + offset. Null = none. */
+  dueOffsetMinutes: number | null;
+}
+export interface ChecklistTemplate {
+  id: number;
+  name: string;
+  description: string | null;
+  active: boolean;
+  items: ChecklistTemplateItem[];
+}
+export interface ChecklistItem {
+  id: number;
+  ticketId: number;
+  text: string;
+  done: boolean;
+  doneBy: string | null;
+  doneAt: string | null;
+  /** Independent per-item deadline; never feeds the ticket SLA clocks. */
+  dueAt: string | null;
+  sortOrder: number;
+  templateId: number | null;
+}
+export interface ChecklistTemplateInput {
+  name: string;
+  description?: string | null;
+  active?: boolean;
+  items?: { text: string; dueOffsetMinutes?: number | null }[];
+}
+
+export function listChecklistTemplates(includeInactive = false) {
+  return request<ChecklistTemplate[]>(`/checklist-templates${includeInactive ? "?includeInactive=true" : ""}`);
+}
+export function createChecklistTemplate(data: ChecklistTemplateInput) {
+  return request<ChecklistTemplate>("/checklist-templates", { method: "POST", body: JSON.stringify(data) });
+}
+export function updateChecklistTemplate(id: number, data: Partial<ChecklistTemplateInput>) {
+  return request<ChecklistTemplate>(`/checklist-templates/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+export function deleteChecklistTemplate(id: number) {
+  return request<void>(`/checklist-templates/${id}`, { method: "DELETE" });
+}
+export function listChecklist(ticketId: number) {
+  return request<ChecklistItem[]>(`/tickets/${ticketId}/checklist`);
+}
+export function addChecklistItem(ticketId: number, data: { text: string; dueAt?: string | null }) {
+  return request<ChecklistItem>(`/tickets/${ticketId}/checklist`, { method: "POST", body: JSON.stringify(data) });
+}
+export function updateChecklistItem(
+  ticketId: number,
+  itemId: number,
+  data: { text?: string; done?: boolean; dueAt?: string | null; sortOrder?: number }
+) {
+  return request<ChecklistItem>(`/tickets/${ticketId}/checklist/${itemId}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+export function deleteChecklistItem(ticketId: number, itemId: number) {
+  return request<void>(`/tickets/${ticketId}/checklist/${itemId}`, { method: "DELETE" });
+}
+export function applyChecklistTemplate(ticketId: number, templateId: number) {
+  return request<ChecklistItem[]>(`/tickets/${ticketId}/checklist/apply-template`, {
+    method: "POST",
+    body: JSON.stringify({ templateId }),
+  });
+}
+
+export interface AutomationPreview {
+  sampled: number;
+  sinceDays: number;
+  matched: number;
+  usesEventFields: boolean;
+  sample: { id: number; ticketNumber: string | null; title: string; status: string; priority: string | null }[];
+}
+/** Dry-run a condition set against recent tickets (admin). */
+export function previewAutomation(conditions: unknown[]) {
+  return request<AutomationPreview>("/automations/preview", { method: "POST", body: JSON.stringify({ conditions }) });
+}
+
+/** First-run: does the instance still need its initial admin? */
+export function getSetupStatus() {
+  return request<{ needed: boolean }>("/auth/setup-status");
+}
+/** First-run: create the initial admin (only works while no users exist). */
+export function runFirstRunSetup(data: { username: string; password: string; displayName?: string; email?: string }) {
+  return request<{ ok: boolean; username: string }>("/auth/setup", { method: "POST", body: JSON.stringify(data) });
+}

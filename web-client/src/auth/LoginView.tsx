@@ -27,9 +27,15 @@ export default function LoginView({ onAuthenticated }: { onAuthenticated: (u: ap
   const [recovery, setRecovery] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // First-run wizard: shown while the backend reports an empty users table.
+  const [setupNeeded, setSetupNeeded] = useState(false);
+  const [setupDone, setSetupDone] = useState(false);
+  const [displayName, setDisplayName] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   useEffect(() => {
     api.getAuthConfig().then(setOpts).catch(() => setOpts({ local: true, oidc: false, saml: false }));
+    api.getSetupStatus().then((s) => setSetupNeeded(s.needed)).catch(() => setSetupNeeded(false));
     // Surface an SSO callback error passed back as ?authError=...
     const p = new URLSearchParams(window.location.search);
     if (p.get("authError")) setError(`SSO login failed (${p.get("authError")}). Please try again.`);
@@ -46,6 +52,18 @@ export default function LoginView({ onAuthenticated }: { onAuthenticated: (u: ap
       setBusy(false);
     }
   };
+
+  const submitSetup = () =>
+    run(async () => {
+      if (password !== confirmPassword) throw new Error("Passwords do not match.");
+      await api.runFirstRunSetup({ username: username.trim(), password, displayName: displayName.trim() || undefined });
+      // Hand off to the normal login (and MFA enrollment) flow with the
+      // username kept and passwords cleared.
+      setSetupNeeded(false);
+      setSetupDone(true);
+      setPassword("");
+      setConfirmPassword("");
+    });
 
   const submitCredentials = () =>
     run(async () => {
@@ -101,7 +119,31 @@ export default function LoginView({ onAuthenticated }: { onAuthenticated: (u: ap
           </Stack>
           {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
-          {recovery ? (
+          {setupNeeded && opts.local ? (
+            <Stack spacing={2}>
+              <Alert severity="info">
+                <strong>Welcome aboard.</strong> No accounts exist yet — create the first administrator
+                to finish setting up this AnchorDesk.
+              </Alert>
+              <TextField label="Admin username" value={username} autoFocus
+                onChange={(e) => setUsername(e.target.value)} />
+              <TextField label="Display name (optional)" value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)} />
+              <TextField label="Password (10+ characters)" type="password" value={password}
+                onChange={(e) => setPassword(e.target.value)} />
+              <TextField label="Confirm password" type="password" value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submitSetup()} />
+              <Button variant="contained" disabled={busy || !username.trim() || password.length < 10 || !confirmPassword}
+                onClick={submitSetup}>
+                {busy ? <CircularProgress size={22} /> : "Create admin account"}
+              </Button>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                Next you'll sign in and enroll MFA, then connect mailboxes and integrations from
+                Admin. This screen disappears once any account exists.
+              </Typography>
+            </Stack>
+          ) : recovery ? (
             <Stack spacing={2}>
               <Alert severity="warning">
                 Save these recovery codes somewhere safe. Each works once if you lose your authenticator.
@@ -116,6 +158,11 @@ export default function LoginView({ onAuthenticated }: { onAuthenticated: (u: ap
             </Stack>
           ) : step === "credentials" ? (
             <Stack spacing={2}>
+              {setupDone && (
+                <Alert severity="success">
+                  Admin account created — sign in below. You'll enroll MFA on first sign-in.
+                </Alert>
+              )}
               {opts.local && (
                 <>
                   <TextField label="Username" value={username} autoFocus

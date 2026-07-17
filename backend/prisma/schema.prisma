@@ -305,6 +305,7 @@ model Ticket {
   attachments   Attachment[]
   notifications Notification[]
   labels        TicketLabel[]
+  checklist     ChecklistItem[]
 
   @@unique([externalId, externalProvider])
   @@index([companyId])
@@ -448,6 +449,62 @@ model MailTemplate {
 
 // A managed, colored label. Powers mailbox-based tagging today and ticket
 // filtering generally. Applied to tickets through the TicketLabel join.
+// Reusable checklist boilerplate: a template's items are COPIED onto tickets
+// at apply time (never referenced live), so editing or deleting a template
+// never rewrites work already on a ticket. dueOffsetMinutes is a relative
+// deadline — item dueAt = apply time + offset — because a template cannot
+// carry absolute dates.
+model ChecklistTemplate {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(150)
+  description String?  @db.VarChar(500)
+  active      Boolean  @default(true)
+  createdBy   String?  @map("created_by") @db.VarChar(150)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  items ChecklistTemplateItem[]
+
+  @@map("checklist_templates")
+}
+
+model ChecklistTemplateItem {
+  id               Int    @id @default(autoincrement())
+  templateId       Int    @map("template_id")
+  text             String @db.VarChar(500)
+  sortOrder        Int    @default(0) @map("sort_order")
+  dueOffsetMinutes Int?   @map("due_offset_minutes")
+
+  template ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+  @@map("checklist_template_items")
+}
+
+// A ticket's working checklist. dueAt is an independent per-item deadline —
+// it never feeds the ticket's SLA/manual clocks. templateId is provenance
+// only (which boilerplate spawned this item), deliberately not a FK so
+// template deletion can't touch instantiated work.
+model ChecklistItem {
+  id         Int       @id @default(autoincrement())
+  ticketId   Int       @map("ticket_id")
+  text       String    @db.VarChar(500)
+  done       Boolean   @default(false)
+  doneBy     String?   @map("done_by") @db.VarChar(150)
+  doneAt     DateTime? @map("done_at")
+  dueAt      DateTime? @map("due_at")
+  sortOrder  Int       @default(0) @map("sort_order")
+  templateId Int?      @map("template_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([dueAt])
+  @@map("checklist_items")
+}
+
 model Label {
   id        Int      @id @default(autoincrement())
   name      String   @unique @db.VarChar(100)

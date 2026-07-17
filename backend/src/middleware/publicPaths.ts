@@ -9,6 +9,9 @@
 // The MFA endpoints authorize via a signed pre-session cookie internally.
 const PUBLIC_AUTH = [
   '/auth/config',
+  // First-run setup: both endpoints refuse to act once any user exists.
+  '/auth/setup-status',
+  '/auth/setup',
   '/auth/login',
   '/auth/logout',
   '/auth/oidc/login',

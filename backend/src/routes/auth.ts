@@ -9,7 +9,7 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../config/config';
 import * as userRepo from '../repositories/userRepository';
-import { verifyPassword, hashPassword } from '../services/auth/password';
+import { verifyPassword, hashPassword, MIN_PASSWORD_LENGTH } from '../services/auth/password';
 import { createSession, destroySession, SESSION_COOKIE } from '../services/auth/sessions';
 import { getAuthSettings, toLoginOptions, oidcRedirectUri } from '../services/auth/authConfig';
 import * as oidcService from '../services/auth/oidcService';
@@ -75,6 +75,45 @@ export async function authRoutes(server: FastifyInstance) {
 
   // Throttle credential-guessing on the password + MFA endpoints.
   const loginThrottle = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } };
+
+  // ─── First-run setup wizard ────────────────────────────────────────────────
+  // Both endpoints derive their gate from the DB (users table empty), never a
+  // flag file: once any user exists they refuse to act, so the surface closes
+  // itself the moment setup completes (or bootstrap/SSO created a user first).
+
+  server.get('/auth/setup-status', async (_req, reply) => {
+    const settings = await getAuthSettings();
+    const needed = settings.localEnabled && (await userRepo.count()) === 0;
+    return reply.send({ needed });
+  });
+
+  server.post('/auth/setup', loginThrottle, async (req: FastifyRequest, reply: FastifyReply) => {
+    const settings = await getAuthSettings();
+    if (!settings.localEnabled) return reply.status(403).send({ error: 'Local accounts are disabled — sign in with SSO instead' });
+    if ((await userRepo.count()) > 0) return reply.status(403).send({ error: 'Setup is already complete — sign in instead' });
+
+    const { username, password, displayName, email } = (req.body ?? {}) as {
+      username?: string; password?: string; displayName?: string; email?: string;
+    };
+    if (!username?.trim() || !password) return reply.status(400).send({ error: 'username and password are required' });
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return reply.status(400).send({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    }
+
+    const passwordHash = await hashPassword(password);
+    const admin = await userRepo.createLocal(
+      {
+        username: username.trim().slice(0, 100),
+        passwordHash,
+        email: email?.trim() || undefined,
+        role: 'admin',
+        displayName: displayName?.trim() || username.trim(),
+      },
+      'setup-wizard',
+    );
+    req.log.info(`First-run setup created admin '${admin.username}' (id ${admin.id}).`);
+    return reply.status(201).send({ ok: true, username: admin.username });
+  });
 
   // ─── Local username/password ───────────────────────────────────────────────
   server.post('/auth/login', loginThrottle, async (req: FastifyRequest, reply: FastifyReply) => {

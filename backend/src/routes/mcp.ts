@@ -9,7 +9,10 @@ import * as labels from '../repositories/labelRepository';
 import * as teams from '../repositories/teamRepository';
 import * as customFields from '../repositories/customFieldRepository';
 import * as savedViews from '../repositories/savedViewRepository';
+import * as checklist from '../repositories/checklistRepository';
+import * as checklistTemplates from '../repositories/checklistTemplateRepository';
 import { CustomFieldValidationError, coerceCustomFieldFilters } from '../services/customFields';
+import { PRIORITY_LIST_TEXT, STATUS_LIST_TEXT, normalizePriority, normalizeStatus } from '../services/ticketVocab';
 import * as ticketMail from '../services/mail/ticketMail';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
 import { actorFor } from '../middleware/auth';
@@ -28,7 +31,7 @@ function buildMcpServer(actor: string, userId: number): McpServer {
     'list_tickets',
     'List tickets with optional filters. Returns { items, total, page, pageSize } so you can page through large result sets.',
     {
-      status: z.string().optional().describe('Filter by status, e.g. "Open", "Closed"'),
+      status: z.string().optional().describe(`Filter by exact status. Local statuses: ${STATUS_LIST_TEXT}. Synced external tickets may carry provider-specific statuses.`),
       assignee: z.string().optional().describe('Filter by assignee name'),
       companyName: z.string().optional().describe('Filter by company name'),
       q: z.string().optional().describe('Free-text search across title, summary, company, ticket number'),
@@ -62,13 +65,16 @@ function buildMcpServer(actor: string, userId: number): McpServer {
 
   server.tool(
     'get_ticket',
-    'Get full details of a single ticket including its notes.',
+    'Get full details of a single ticket including its notes and checklist.',
     { id: z.number().int().describe('Local database ticket ID') },
     async ({ id }) => {
       const ticket = await tickets.getById(id);
       if (!ticket) return { content: [{ type: 'text', text: `Ticket ${id} not found` }], isError: true };
-      const ticketNotes = await notes.listForTicket(id);
-      return { content: [{ type: 'text', text: JSON.stringify({ ticket, notes: ticketNotes }, null, 2) }] };
+      const [ticketNotes, checklistItems] = await Promise.all([
+        notes.listForTicket(id),
+        checklist.listForTicket(id),
+      ]);
+      return { content: [{ type: 'text', text: JSON.stringify({ ticket, notes: ticketNotes, checklist: checklistItems }, null, 2) }] };
     },
   );
 
@@ -79,8 +85,8 @@ function buildMcpServer(actor: string, userId: number): McpServer {
       title: z.string().describe('Short title for the ticket'),
       summary: z.string().optional().describe('One-line summary'),
       description: z.string().optional().describe('Full description'),
-      status: z.string().optional().default('New'),
-      priority: z.string().optional().default('3'),
+      status: z.string().optional().default('New').describe(`One of: ${STATUS_LIST_TEXT} (case-insensitive)`),
+      priority: z.string().optional().default('Medium').describe(`One of: ${PRIORITY_LIST_TEXT} (case-insensitive)`),
       companyName: z.string().optional(),
       assignee: z.string().optional(),
       teamId: z.number().int().optional().describe('Route the ticket to a team/queue (see list_teams)'),
@@ -89,9 +95,13 @@ function buildMcpServer(actor: string, userId: number): McpServer {
     },
     async (args) => {
       const changedBy = actor;
+      const status = normalizeStatus(args.status);
+      if (!status) return { content: [{ type: 'text', text: `Unknown status "${args.status}" — use one of: ${STATUS_LIST_TEXT}` }], isError: true };
+      const priority = normalizePriority(args.priority);
+      if (!priority) return { content: [{ type: 'text', text: `Unknown priority "${args.priority}" — use one of: ${PRIORITY_LIST_TEXT}` }], isError: true };
       try {
         const ticket = await tickets.create(
-          { ...args, dueAt: args.dueAt === undefined ? undefined : new Date(args.dueAt) },
+          { ...args, status, priority, dueAt: args.dueAt === undefined ? undefined : new Date(args.dueAt) },
           changedBy,
         );
         return { content: [{ type: 'text', text: JSON.stringify(ticket, null, 2) }] };
@@ -112,8 +122,8 @@ function buildMcpServer(actor: string, userId: number): McpServer {
       title: z.string().optional(),
       summary: z.string().optional(),
       description: z.string().optional(),
-      status: z.string().optional(),
-      priority: z.string().optional(),
+      status: z.string().optional().describe(`One of: ${STATUS_LIST_TEXT} (case-insensitive)`),
+      priority: z.string().optional().describe(`One of: ${PRIORITY_LIST_TEXT} (case-insensitive)`),
       assignee: z.string().optional(),
       companyName: z.string().optional(),
       teamId: z.number().int().nullable().optional().describe('Route to a team/queue; null clears it (see list_teams)'),
@@ -122,6 +132,16 @@ function buildMcpServer(actor: string, userId: number): McpServer {
     },
     async ({ id, dueAt, ...fields }) => {
       const changedBy = actor;
+      if (fields.status !== undefined) {
+        const status = normalizeStatus(fields.status);
+        if (!status) return { content: [{ type: 'text', text: `Unknown status "${fields.status}" — use one of: ${STATUS_LIST_TEXT}` }], isError: true };
+        fields.status = status;
+      }
+      if (fields.priority !== undefined) {
+        const priority = normalizePriority(fields.priority);
+        if (!priority) return { content: [{ type: 'text', text: `Unknown priority "${fields.priority}" — use one of: ${PRIORITY_LIST_TEXT}` }], isError: true };
+        fields.priority = priority;
+      }
       try {
         const updated = await tickets.update(
           id,
@@ -150,6 +170,65 @@ function buildMcpServer(actor: string, userId: number): McpServer {
       const changedBy = actor;
       const note = await notes.create(ticketId, { content, author, noteType: 'note' }, changedBy);
       return { content: [{ type: 'text', text: JSON.stringify(note, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'list_checklist_templates',
+    'List reusable checklist templates that can be applied to tickets (items with optional relative deadlines).',
+    {},
+    async () => {
+      const templates = await checklistTemplates.list();
+      return { content: [{ type: 'text', text: JSON.stringify(templates, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'apply_checklist_template',
+    'Copy a checklist template\'s items onto a ticket. Item deadlines are computed from each item\'s relative offset at apply time. Returns the ticket\'s full checklist.',
+    {
+      ticketId: z.number().int(),
+      templateId: z.number().int().describe('See list_checklist_templates'),
+    },
+    async ({ ticketId, templateId }) => {
+      if (!(await tickets.getById(ticketId))) {
+        return { content: [{ type: 'text', text: `Ticket ${ticketId} not found` }], isError: true };
+      }
+      const items = await checklist.applyTemplate(ticketId, templateId, actor);
+      if (!items) return { content: [{ type: 'text', text: `Template ${templateId} not found or inactive` }], isError: true };
+      return { content: [{ type: 'text', text: JSON.stringify(items, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'add_checklist_item',
+    'Add a single checklist item to a ticket, optionally with its own independent deadline.',
+    {
+      ticketId: z.number().int(),
+      text: z.string().max(500),
+      dueAt: z.string().datetime({ offset: true }).optional().describe('Per-item deadline (ISO 8601); independent of the ticket clocks'),
+    },
+    async ({ ticketId, text, dueAt }) => {
+      if (!(await tickets.getById(ticketId))) {
+        return { content: [{ type: 'text', text: `Ticket ${ticketId} not found` }], isError: true };
+      }
+      const item = await checklist.add(ticketId, { text, dueAt: dueAt ? new Date(dueAt) : null }, actor);
+      return { content: [{ type: 'text', text: JSON.stringify(item, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'toggle_checklist_item',
+    'Mark a ticket checklist item done or not done (done items record who and when).',
+    {
+      ticketId: z.number().int(),
+      itemId: z.number().int(),
+      done: z.boolean(),
+    },
+    async ({ ticketId, itemId, done }) => {
+      const item = await checklist.update(ticketId, itemId, { done }, actor);
+      if (!item) return { content: [{ type: 'text', text: `Checklist item ${itemId} not found on ticket ${ticketId}` }], isError: true };
+      return { content: [{ type: 'text', text: JSON.stringify(item, null, 2) }] };
     },
   );
 

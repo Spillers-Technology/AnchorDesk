@@ -9,6 +9,7 @@ import { attachmentRoutes } from './routes/attachments';
 import { notificationRoutes } from './routes/notifications';
 import { slaRoutes } from './routes/sla';
 import { labelRoutes } from './routes/labels';
+import { checklistRoutes } from './routes/checklists';
 import { timeRoutes } from './routes/time';
 import { wsRoutes } from './routes/ws';
 import { deviceRoutes } from './routes/devices';
@@ -34,6 +35,7 @@ import { pruneExpiredSessions } from './services/auth/sessions';
 import { pruneExpiredCodes } from './services/auth/oauthProvider';
 import { seedSettings } from './services/settingsService';
 import { ensurePgExtras } from './db/pgExtras';
+import { runDataMigrations } from './db/dataMigrations';
 import { startScriptScheduler } from './services/scriptScheduler';
 import { startImapScheduler } from './services/imapScheduler';
 import { startSlaScheduler } from './services/slaScheduler';
@@ -118,6 +120,7 @@ async function start() {
   server.register(slaRoutes);
   // Labels (managed tags) + ticket tag/untag
   server.register(labelRoutes);
+  server.register(checklistRoutes);
   // Teams (queues/groups) — ticket routing + membership
   server.register(teamRoutes);
   // Custom ticket field definitions (values ride on Ticket.customFields)
@@ -169,6 +172,7 @@ async function start() {
 
   // Postgres-specific indexes (full-text search + partial indexes).
   await ensurePgExtras(server.log).catch((err) => server.log.error({ err }, 'pgExtras failed'));
+  await runDataMigrations(server.log).catch((err) => server.log.error({ err }, 'data migrations failed'));
 
   // First-boot auth bootstrap (seed settings + create admin if users table empty).
   await bootstrapAuth(server.log).catch((err) => server.log.error({ err }, 'Auth bootstrap failed'));

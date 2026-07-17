@@ -181,7 +181,7 @@ async function captureDevice(browser, device) {
       await shoot(page, device, "sync");
     }
 
-    const adminViews = ["admin", "admin-teams", "admin-custom-fields", "admin-automations", "admin-devices", "device-assets"];
+    const adminViews = ["admin", "admin-teams", "admin-custom-fields", "admin-checklists", "checklist-template-editor", "admin-automations", "admin-devices", "device-assets"];
     if (adminViews.some(view)) {
       await openDrawer(page, "Admin console");
       await page.getByText("Open tickets", { exact: false }).waitFor({ timeout: 20_000 });
@@ -196,6 +196,17 @@ async function captureDevice(browser, device) {
         await page.getByText("Custom Fields", { exact: true }).first().click();
         await page.getByText("Define structured fields", { exact: false }).waitFor({ timeout: 20_000 });
         await shoot(page, device, "admin-custom-fields");
+      }
+      if (view("admin-checklists") || view("checklist-template-editor")) {
+        await page.getByText("Checklists", { exact: true }).first().click();
+        await page.getByText("Reusable boilerplate lists", { exact: false }).waitFor({ timeout: 20_000 });
+        if (view("admin-checklists")) await shoot(page, device, "admin-checklists");
+        if (view("checklist-template-editor")) {
+          await page.getByRole("button", { name: "New template" }).click();
+          await page.getByRole("heading", { name: "New checklist template" }).waitFor({ timeout: 20_000 });
+          await shoot(page, device, "checklist-template-editor");
+          await page.keyboard.press("Escape");
+        }
       }
       if (view("admin-automations")) {
         await page.getByText("Automations", { exact: true }).first().click();

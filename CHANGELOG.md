@@ -1,5 +1,58 @@
 # Changelog
 
+## 2.4.0 — 2026-07-16 — Checklist & Console (minor)
+
+Checklists with reusable templates, a reworked admin console with a visual
+automation builder, a first-run setup wizard, and a self-healing upgrade
+path.
+
+### Added
+
+- **Ticket checklists with templates.** Admin-managed boilerplate lists
+  (Admin → Checklists) are copied onto tickets in one action; template items
+  carry relative due offsets that become independent per-item deadlines at
+  apply time. Items toggle with who/when attribution, carry overdue chips,
+  and live-update every open view. Applying, editing, and deleting are
+  audited on the ticket; deleting a template never touches instantiated
+  work. REST (`/checklist-templates`, `/tickets/:id/checklist`,
+  `apply-template`) and MCP (`list_checklist_templates`,
+  `apply_checklist_template`, `add_checklist_item`, `toggle_checklist_item`,
+  checklist in `get_ticket`) ship together.
+- **Visual automation builder.** Condition and action rows with real
+  team/user/label pickers replace the raw JSON textareas; a Preview button
+  dry-runs conditions against the last 7 days of tickets via
+  `POST /automations/preview`. JSON remains available behind an Advanced
+  toggle.
+- **First-run setup wizard.** On an empty instance the login screen offers
+  to create the initial admin (`/auth/setup-status`, `/auth/setup` — both
+  gated by the users table being empty, closing themselves once any account
+  exists). No more editing `.env` for a first account.
+- **Boot-time data migrations** (`db/dataMigrations.ts`) — idempotent data
+  fixes run on every start, beginning with normalization of
+  out-of-vocabulary ticket statuses/priorities. `docs/upgrading.md`
+  documents the pull-restart-done upgrade path with per-version notes.
+
+### Changed
+
+- **Admin console rework.** Sections are deep-linkable via `?admin=` (back
+  button works), the rail is grouped by concern, the console lazy-loads out
+  of the main bundle (~70 kB own chunk), all `window.confirm` calls became a
+  shared consequence-explaining ConfirmDialog, Users/Devices/Audit tables
+  gained quick filters, empty states explain the first action, and the
+  Overview "Open tickets" card now opens the ticket queue.
+- **Status/priority vocabulary is enforced on local writes.** The backend
+  now owns the canonical lists (`services/ticketVocab.ts`); REST and MCP
+  canonicalize case-insensitively and reject unknowns. The MCP tools no
+  longer suggest the fictional "Open" status, and `create_ticket`'s priority
+  default is `Medium` (was the legacy numeric `'3'`). External provider sync
+  keeps its own vocabularies.
+
+### Fixed
+
+- MCP-created tickets can no longer carry statuses invisible to every board
+  column, filter, and SLA policy match; existing stray rows are healed by
+  the boot data migration.
+
 ## 2.3.0 — 2026-07-16 — Compass Calibration (minor)
 
 A follow-up pass on Clock & Compass: the MCP surface reaches parity with the

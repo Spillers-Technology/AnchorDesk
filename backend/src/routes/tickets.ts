@@ -9,6 +9,7 @@ import { parseId } from '../util/ids';
 import { isPlainRecord } from '../util/objects';
 import { hasPrismaCode } from '../util/prismaErrors';
 import { CustomFieldValidationError, coerceCustomFieldFilters } from '../services/customFields';
+import { PRIORITY_LIST_TEXT, STATUS_LIST_TEXT, normalizePriority, normalizeStatus } from '../services/ticketVocab';
 import * as customFieldRepo from '../repositories/customFieldRepository';
 
 interface IdParam { id: string }
@@ -41,6 +42,18 @@ export function validateTicketInput(value: unknown, creating: boolean): string |
   }
   if (value.customFields !== undefined && !isPlainRecord(value.customFields)) {
     return 'customFields must be an object';
+  }
+  // Local writes stick to the canonical vocabulary (case-insensitively
+  // canonicalized in place); external sync bypasses this route on purpose.
+  if (typeof value.status === 'string' && value.status.trim()) {
+    const canonical = normalizeStatus(value.status);
+    if (!canonical) return `status must be one of: ${STATUS_LIST_TEXT}`;
+    value.status = canonical;
+  }
+  if (typeof value.priority === 'string' && value.priority.trim()) {
+    const canonical = normalizePriority(value.priority);
+    if (!canonical) return `priority must be one of: ${PRIORITY_LIST_TEXT}`;
+    value.priority = canonical;
   }
   if (value.dueAt !== undefined && value.dueAt !== null) {
     if (typeof value.dueAt !== 'string' || Number.isNaN(Date.parse(value.dueAt))) {
