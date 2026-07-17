@@ -12,6 +12,7 @@ import * as savedViews from '../repositories/savedViewRepository';
 import * as checklist from '../repositories/checklistRepository';
 import * as checklistTemplates from '../repositories/checklistTemplateRepository';
 import { CustomFieldValidationError, coerceCustomFieldFilters } from '../services/customFields';
+import { PRIORITY_LIST_TEXT, STATUS_LIST_TEXT, normalizePriority, normalizeStatus } from '../services/ticketVocab';
 import * as ticketMail from '../services/mail/ticketMail';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
 import { actorFor } from '../middleware/auth';
@@ -30,7 +31,7 @@ function buildMcpServer(actor: string, userId: number): McpServer {
     'list_tickets',
     'List tickets with optional filters. Returns { items, total, page, pageSize } so you can page through large result sets.',
     {
-      status: z.string().optional().describe('Filter by status, e.g. "Open", "Closed"'),
+      status: z.string().optional().describe(`Filter by exact status. Local statuses: ${STATUS_LIST_TEXT}. Synced external tickets may carry provider-specific statuses.`),
       assignee: z.string().optional().describe('Filter by assignee name'),
       companyName: z.string().optional().describe('Filter by company name'),
       q: z.string().optional().describe('Free-text search across title, summary, company, ticket number'),
@@ -84,8 +85,8 @@ function buildMcpServer(actor: string, userId: number): McpServer {
       title: z.string().describe('Short title for the ticket'),
       summary: z.string().optional().describe('One-line summary'),
       description: z.string().optional().describe('Full description'),
-      status: z.string().optional().default('New'),
-      priority: z.string().optional().default('3'),
+      status: z.string().optional().default('New').describe(`One of: ${STATUS_LIST_TEXT} (case-insensitive)`),
+      priority: z.string().optional().default('Medium').describe(`One of: ${PRIORITY_LIST_TEXT} (case-insensitive)`),
       companyName: z.string().optional(),
       assignee: z.string().optional(),
       teamId: z.number().int().optional().describe('Route the ticket to a team/queue (see list_teams)'),
@@ -94,9 +95,13 @@ function buildMcpServer(actor: string, userId: number): McpServer {
     },
     async (args) => {
       const changedBy = actor;
+      const status = normalizeStatus(args.status);
+      if (!status) return { content: [{ type: 'text', text: `Unknown status "${args.status}" — use one of: ${STATUS_LIST_TEXT}` }], isError: true };
+      const priority = normalizePriority(args.priority);
+      if (!priority) return { content: [{ type: 'text', text: `Unknown priority "${args.priority}" — use one of: ${PRIORITY_LIST_TEXT}` }], isError: true };
       try {
         const ticket = await tickets.create(
-          { ...args, dueAt: args.dueAt === undefined ? undefined : new Date(args.dueAt) },
+          { ...args, status, priority, dueAt: args.dueAt === undefined ? undefined : new Date(args.dueAt) },
           changedBy,
         );
         return { content: [{ type: 'text', text: JSON.stringify(ticket, null, 2) }] };
@@ -117,8 +122,8 @@ function buildMcpServer(actor: string, userId: number): McpServer {
       title: z.string().optional(),
       summary: z.string().optional(),
       description: z.string().optional(),
-      status: z.string().optional(),
-      priority: z.string().optional(),
+      status: z.string().optional().describe(`One of: ${STATUS_LIST_TEXT} (case-insensitive)`),
+      priority: z.string().optional().describe(`One of: ${PRIORITY_LIST_TEXT} (case-insensitive)`),
       assignee: z.string().optional(),
       companyName: z.string().optional(),
       teamId: z.number().int().nullable().optional().describe('Route to a team/queue; null clears it (see list_teams)'),
@@ -127,6 +132,16 @@ function buildMcpServer(actor: string, userId: number): McpServer {
     },
     async ({ id, dueAt, ...fields }) => {
       const changedBy = actor;
+      if (fields.status !== undefined) {
+        const status = normalizeStatus(fields.status);
+        if (!status) return { content: [{ type: 'text', text: `Unknown status "${fields.status}" — use one of: ${STATUS_LIST_TEXT}` }], isError: true };
+        fields.status = status;
+      }
+      if (fields.priority !== undefined) {
+        const priority = normalizePriority(fields.priority);
+        if (!priority) return { content: [{ type: 'text', text: `Unknown priority "${fields.priority}" — use one of: ${PRIORITY_LIST_TEXT}` }], isError: true };
+        fields.priority = priority;
+      }
       try {
         const updated = await tickets.update(
           id,
