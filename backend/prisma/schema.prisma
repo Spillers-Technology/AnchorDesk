@@ -70,6 +70,11 @@ model ApiToken {
   // First chars of the raw token (e.g. "adk_1a2b3c"), shown in the UI so a user
   // can tell tokens apart without us ever storing the secret.
   prefix     String    @db.VarChar(20)
+  // Capability ceiling for this token, applied on top of the owner's role.
+  // `intake` = create tickets only (unattended agents, e.g. the AVR phone
+  // receptionist): REST POST /tickets and the MCP create_ticket tool; nothing
+  // that reads, searches, or mutates existing records.
+  scope      ApiTokenScope @default(full)
   lastUsedAt DateTime? @map("last_used_at")
   expiresAt  DateTime? @map("expires_at")
   revokedAt  DateTime? @map("revoked_at")
@@ -832,6 +837,11 @@ enum UserRole {
   admin
   technician
   readonly
+}
+
+enum ApiTokenScope {
+  full
+  intake
 }
 
 enum AuthProvider {

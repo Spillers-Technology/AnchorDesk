@@ -164,6 +164,14 @@ export async function ticketRoutes(server: FastifyInstance) {
     } catch (error) {
       if (error instanceof CustomFieldValidationError) return reply.status(400).send({ error: error.message });
       if (hasPrismaCode(error, 'P2003')) return reply.status(400).send({ error: 'A referenced team, user, company, or contact does not exist' });
+      // (externalId, externalProvider) is unique. Creating the same external
+      // identity twice returns the existing ticket instead of failing, so
+      // unattended clients (the AVR fallback keyed on its call UUID) can POST
+      // blindly without needing search access to dedupe first.
+      if (hasPrismaCode(error, 'P2002') && body.externalId && body.externalProvider) {
+        const existing = await ticketRepo.findByExternal(body.externalId, body.externalProvider);
+        if (existing) return reply.status(200).send(existing);
+      }
       throw error;
     }
   });

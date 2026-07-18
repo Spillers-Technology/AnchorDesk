@@ -51,7 +51,7 @@ jest.mock("../services/auth/mcpOAuth", () => ({
   buildMcpProtectedResourceMetadata: jest.fn(() => ({})),
 }));
 
-import type { UserRole } from "@prisma/client";
+import type { ApiTokenScope, UserRole } from "@prisma/client";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -84,8 +84,11 @@ const mockedTemplates = {
   remove: checklistTemplates.remove as jest.Mock,
 };
 
-async function connect(role: UserRole = "admin") {
-  const server = buildMcpServer(actor, 7, role);
+async function connect(
+  role: UserRole = "admin",
+  scope: ApiTokenScope = "full",
+) {
+  const server = buildMcpServer(actor, 7, role, scope);
   const client = new Client({ name: "anchordesk-mcp-test", version: "1.0.0" });
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
@@ -318,5 +321,47 @@ describe("MCP checklist protocol surface", () => {
     });
     expect(result.isError).toBe(true);
     expect(resultText(result)).toBe("A template with that name already exists");
+  });
+});
+
+describe("intake token scope", () => {
+  it("offers exactly create_ticket to an intake-scoped session", async () => {
+    const client = await connect("technician", "intake");
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toEqual(["create_ticket"]);
+  });
+
+  it("still offers the full catalogue to full-scope sessions", async () => {
+    const client = await connect("technician", "full");
+    const { tools } = await client.listTools();
+    const names = tools.map((t) => t.name);
+    expect(names).toContain("create_ticket");
+    expect(names).toContain("get_ticket");
+    expect(names).toContain("search_tickets");
+    expect(names.length).toBeGreaterThan(20);
+  });
+
+  it("lets an intake session create a ticket", async () => {
+    (tickets.create as jest.Mock).mockResolvedValue({
+      id: 99,
+      ticketNumber: "10099",
+      title: "avr follow up",
+    });
+    const client = await connect("technician", "intake");
+    const result = await call(client, "create_ticket", {
+      title: "avr follow up",
+    });
+    expect(result.isError).toBeUndefined();
+    expect(tickets.create as jest.Mock).toHaveBeenCalledTimes(1);
+    expect(resultText(result)).toContain("10099");
+  });
+
+  it("rejects a read tool call from an intake session at the protocol level", async () => {
+    const client = await connect("technician", "intake");
+    const result = await call(client, "get_ticket", { id: 42 });
+    // The tool was never registered, so the SDK reports an error result —
+    // and the repository must never have been consulted.
+    expect(result.isError).toBe(true);
+    expect(mockedTickets.getById).not.toHaveBeenCalled();
   });
 });

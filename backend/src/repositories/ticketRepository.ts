@@ -479,6 +479,14 @@ export async function setSyncState(
   });
 }
 
+/** Ticket by its unique external identity, or null. */
+export async function findByExternal(externalId: string, externalProvider: string) {
+  const row = await prisma.ticket.findUnique({
+    where: { externalId_externalProvider: { externalId, externalProvider } },
+  });
+  return row ? getById(row.id) : null;
+}
+
 /** Upsert a ticket from an external sync source. Returns {ticket, created}. */
 export async function upsertExternal(
   externalId: string,
