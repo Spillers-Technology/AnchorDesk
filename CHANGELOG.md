@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased — Intake-scoped API tokens
+
+Security boundary for unattended agents (the AVR phone receptionist): a
+personal access token can now be minted with `scope: "intake"`, a create-only
+capability ceiling applied on top of the owner's role.
+
+### Added
+
+- **`intake` token scope.** `POST /auth/tokens` accepts `scope: "full" |
+  "intake"` (default `full`). An intake token may only `POST /tickets` and use
+  the MCP transport; every other REST route — including all `/tickets/:id`
+  subresources — answers 403. Enforced centrally in the auth baseline, not
+  per-route.
+- **Scope-filtered MCP catalogue.** An intake-scoped MCP session is offered
+  exactly one tool, `create_ticket`; the rest of the catalogue is never
+  registered for the session, so it is invisible as well as uncallable.
+  Protocol-level tests cover the catalogue, a permitted create, and a denied
+  read.
+- **Idempotent create on external identity.** `POST /tickets` with a duplicate
+  `(externalId, externalProvider)` now returns the existing ticket with 200
+  instead of failing, so create-only clients can dedupe without search access
+  (the AVR disconnect fallback keys on its call UUID).
+
+### Notes
+
+- Schema: `api_tokens.scope` (enum `full|intake`, default `full`) — applied by
+  the standard `prisma db push` on rollout; existing tokens stay `full`.
+- Token management UI does not yet expose the scope selector; mint intake
+  tokens via the API.
+
 ## 2.4.1 — 2026-07-16 — Checklist MCP Parity (patch)
 
 Completes the checklist's MCP surface, verifies the advertised contract over

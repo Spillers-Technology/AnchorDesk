@@ -25,15 +25,22 @@ export async function apiTokenRoutes(server: FastifyInstance) {
     if (req.authChannel !== 'web') {
       return reply.status(403).send({ error: 'Tokens can only be created from an interactive login' });
     }
-    const { name, expiresInDays } = (req.body ?? {}) as { name?: string; expiresInDays?: number };
+    const { name, expiresInDays, scope } = (req.body ?? {}) as {
+      name?: string;
+      expiresInDays?: number;
+      scope?: string;
+    };
     if (!name || !name.trim()) return reply.status(400).send({ error: 'name required' });
+    if (scope !== undefined && scope !== 'full' && scope !== 'intake') {
+      return reply.status(400).send({ error: "scope must be 'full' or 'intake'" });
+    }
 
     const days =
       typeof expiresInDays === 'number' && Number.isFinite(expiresInDays) && expiresInDays > 0
         ? Math.floor(expiresInDays)
         : undefined;
 
-    const { token, secret } = await apiTokens.create(req.user.id, name, req.actorSub, days);
+    const { token, secret } = await apiTokens.create(req.user.id, name, req.actorSub, days, scope ?? 'full');
     // `secret` is returned only here — the client must surface it immediately.
     return reply.status(201).send({ token, secret });
   });

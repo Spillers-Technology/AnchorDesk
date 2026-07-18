@@ -12,7 +12,7 @@
  * action came through (see middleware/auth.ts) so "act as themselves" holds.
  */
 import { createHash, randomBytes } from 'crypto';
-import { ApiToken, User } from '@prisma/client';
+import { ApiToken, ApiTokenScope, User } from '@prisma/client';
 import { prisma } from '../../db/prisma';
 import * as audit from '../../repositories/auditRepository';
 
@@ -57,6 +57,7 @@ export async function create(
   name: string,
   actor: string,
   expiresInDays?: number,
+  scope: ApiTokenScope = 'full',
 ): Promise<{ token: PublicApiToken; secret: string }> {
   const { raw, prefix } = generateRawToken();
   const expiresAt =
@@ -65,14 +66,14 @@ export async function create(
       : null;
 
   const row = await prisma.apiToken.create({
-    data: { userId, name: name.trim().slice(0, 150) || 'token', tokenHash: hashToken(raw), prefix, expiresAt },
+    data: { userId, name: name.trim().slice(0, 150) || 'token', tokenHash: hashToken(raw), prefix, expiresAt, scope },
   });
   await audit.record({
     entityType: 'api_token',
     entityId: row.id,
     action: 'create',
     changedBy: actor,
-    newValue: { name: row.name, prefix: row.prefix, expiresAt: row.expiresAt },
+    newValue: { name: row.name, prefix: row.prefix, expiresAt: row.expiresAt, scope: row.scope },
   });
   return { token: toPublic(row), secret: raw };
 }
@@ -84,11 +85,11 @@ export async function listForUser(userId: number): Promise<PublicApiToken[]> {
 }
 
 /**
- * Resolve a presented raw token to its (active) owning user, or null. Rejects
- * revoked/expired tokens and inactive users. Stamps lastUsedAt best-effort so a
- * write failure never blocks auth.
+ * Resolve a presented raw token to its (active) owning user and the token's
+ * scope, or null. Rejects revoked/expired tokens and inactive users. Stamps
+ * lastUsedAt best-effort so a write failure never blocks auth.
  */
-export async function resolve(token: string): Promise<User | null> {
+export async function resolve(token: string): Promise<{ user: User; scope: ApiTokenScope } | null> {
   if (!isPatFormat(token)) return null;
   const row = await prisma.apiToken.findUnique({
     where: { tokenHash: hashToken(token) },
@@ -102,7 +103,7 @@ export async function resolve(token: string): Promise<User | null> {
   prisma.apiToken
     .update({ where: { id: row.id }, data: { lastUsedAt: new Date() } })
     .catch(() => {});
-  return row.user;
+  return { user: row.user, scope: row.scope };
 }
 
 /**

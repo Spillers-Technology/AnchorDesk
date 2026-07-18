@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import type { UserRole } from '@prisma/client';
+import type { ApiTokenScope, UserRole } from '@prisma/client';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
@@ -68,16 +68,33 @@ const checklistTemplateItems = z.array(z.object({
   dueOffsetMinutes: z.number().int().min(0).max(MAX_DUE_OFFSET_MINUTES).nullable().optional(),
 })).max(MAX_TEMPLATE_ITEMS);
 
+// The only tools an intake-scoped credential is ever offered. Kept deliberately
+// tiny: intake exists for unattended agents (the AVR phone receptionist), whose
+// callers are unauthenticated by definition.
+const INTAKE_TOOLS = new Set(['create_ticket']);
+
 /**
  * Build a server bound to one connection's identity. `actor` is the audit string
  * for every mutation made over this session — the authenticated user, tagged
  * with the `mcp` channel — so MCP actions are attributed to the real person who
  * issued the personal access token, not a shared placeholder.
+ *
+ * `scope` is the presented credential's capability ceiling: an intake-scoped
+ * session registers only INTAKE_TOOLS, so the rest of the catalogue is never
+ * visible to the client, let alone callable.
  */
-export function buildMcpServer(actor: string, userId: number, role: UserRole): McpServer {
+export function buildMcpServer(actor: string, userId: number, role: UserRole, scope: ApiTokenScope = 'full'): McpServer {
   const server = new McpServer({ name: 'anchordesk', version: MCP_SERVER_VERSION });
 
-  server.tool(
+  // Scope-aware registration shim: every tool below registers through this.
+  // Typed as McpServer['tool'] so call sites keep the SDK's overload/schema
+  // inference; the implementation only inspects the tool name.
+  const tool: McpServer['tool'] = ((...args: [string, ...unknown[]]) => {
+    if (scope === 'intake' && !INTAKE_TOOLS.has(args[0])) return undefined;
+    return (server.tool as unknown as (...a: unknown[]) => unknown)(...args);
+  }) as McpServer['tool'];
+
+  tool(
     'list_tickets',
     'List tickets with optional filters. Returns { items, total, page, pageSize } so you can page through large result sets.',
     {
@@ -113,7 +130,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'get_ticket',
     'Get full details of a single ticket including its notes and checklist.',
     { id: z.number().int().describe('Local database ticket ID') },
@@ -128,7 +145,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'create_ticket',
     'Create a new ticket in the local database.',
     {
@@ -164,7 +181,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'update_ticket',
     'Update fields on an existing ticket.',
     {
@@ -208,7 +225,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'add_note',
     'Add a note to a ticket.',
     {
@@ -223,7 +240,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'list_checklist_templates',
     'List reusable checklist templates and their ordered items. Pass includeInactive only when administering retired templates.',
     {
@@ -236,7 +253,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'create_checklist_template',
     'Create a reusable checklist template. This is an AnchorDesk administrator action; item deadlines are offsets from future application time.',
     {
@@ -258,7 +275,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'update_checklist_template',
     'Update a reusable checklist template by id. Supplying items replaces the template item list but never changes checklist items already copied onto tickets. Administrator only.',
     {
@@ -283,7 +300,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'delete_checklist_template',
     'Delete a reusable checklist template by id. Checklist items previously copied onto tickets are preserved. Administrator only.',
     {
@@ -299,7 +316,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'list_ticket_checklist',
     'List the ordered working checklist for one ticket, including completion attribution and independent per-item deadlines.',
     {
@@ -312,7 +329,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'apply_checklist_template',
     'Copy a checklist template\'s items onto a ticket. Item deadlines are computed from each item\'s relative offset at apply time. Returns the ticket\'s full checklist.',
     {
@@ -330,7 +347,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'add_checklist_item',
     'Add a single checklist item to a ticket, optionally with its own independent deadline.',
     {
@@ -349,7 +366,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'update_checklist_item',
     'Update any editable field on one ticket checklist item: its text, completion state, independent deadline, or ordering value.',
     {
@@ -373,7 +390,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'toggle_checklist_item',
     'Mark a ticket checklist item done or not done (done items record who and when).',
     {
@@ -389,7 +406,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'delete_checklist_item',
     'Permanently remove one checklist item from a ticket.',
     {
@@ -404,7 +421,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'log_time',
     'Log billable time on a ticket, either as a duration (minutes) or a start/stop window.',
     {
@@ -440,7 +457,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'send_ticket_email',
     'Send an HTML/plain email from a ticket. The message is threaded and recorded on the ticket timeline as an email note.',
     {
@@ -468,7 +485,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'get_ticket_history',
     'Get the full audit log for a ticket showing every field change.',
     { ticketId: z.number().int() },
@@ -478,7 +495,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'search_tickets',
     'Typo-tolerant ranked search (Postgres full-text + trigram) across ticket text, priority, ticket number, and note bodies. Better than list_tickets\' q filter for finding a specific ticket.',
     {
@@ -491,7 +508,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'list_labels',
     'List the managed labels (tags) that can be applied to tickets.',
     {},
@@ -500,7 +517,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'set_ticket_label',
     'Apply or remove a label (tag) on a ticket.',
     {
@@ -515,7 +532,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'list_teams',
     'List teams (queues/groups) with their members. Route a ticket to a team via create_ticket/update_ticket teamId.',
     {},
@@ -524,7 +541,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'list_custom_fields',
     'List the admin-defined custom ticket field definitions (key, label, type, options). Set values via create_ticket/update_ticket customFields.',
     {},
@@ -533,7 +550,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     },
   );
 
-  server.tool(
+  tool(
     'list_saved_views',
     'List your saved ticket views (personal + shared filter sets). Replay one by passing its filters to list_tickets.',
     {},
@@ -568,7 +585,7 @@ export async function mcpRoutes(app: FastifyInstance) {
     reply.raw.on('close', () => transports.delete(transport.sessionId));
 
     const actor = actorFor(req.user.username, 'mcp');
-    const mcpServer = buildMcpServer(actor, req.user.id, req.user.role);
+    const mcpServer = buildMcpServer(actor, req.user.id, req.user.role, req.tokenScope);
     await mcpServer.connect(transport);
   });
 

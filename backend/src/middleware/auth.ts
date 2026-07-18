@@ -19,7 +19,7 @@
  */
 import { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import * as oidc from 'openid-client';
-import { UserRole } from '@prisma/client';
+import { ApiTokenScope, UserRole } from '@prisma/client';
 import { config } from '../config/config';
 import { resolveSession, SESSION_COOKIE } from '../services/auth/sessions';
 import { getAuthSettings } from '../services/auth/authConfig';
@@ -51,6 +51,9 @@ declare module 'fastify' {
     actorSub: string;
     // How this request authenticated: 'web' (session/OIDC) or 'api' (personal token).
     authChannel: AuthChannel;
+    // Capability ceiling of the presented credential. Sessions and OIDC tokens
+    // are always 'full'; personal access tokens carry their own scope.
+    tokenScope: ApiTokenScope;
   }
 }
 
@@ -157,6 +160,7 @@ export async function registerAuthHook(server: FastifyInstance) {
       request.user = DEV_ADMIN;
       request.actorSub = 'system';
       request.authChannel = 'web';
+      request.tokenScope = 'full';
     });
     return;
   }
@@ -172,6 +176,7 @@ export async function registerAuthHook(server: FastifyInstance) {
         request.user = toAuthUser(user);
         request.actorSub = user.username;
         request.authChannel = 'web';
+        request.tokenScope = 'full';
         return enforceBaseline(request, reply);
       }
     }
@@ -184,11 +189,12 @@ export async function registerAuthHook(server: FastifyInstance) {
       const bearer = authHeader.slice(7);
 
       if (apiTokens.isPatFormat(bearer)) {
-        const user = await apiTokens.resolve(bearer);
-        if (user) {
-          request.user = toAuthUser(user);
-          request.actorSub = actorFor(user.username, 'api');
+        const resolved = await apiTokens.resolve(bearer);
+        if (resolved) {
+          request.user = toAuthUser(resolved.user);
+          request.actorSub = actorFor(resolved.user.username, 'api');
           request.authChannel = 'api';
+          request.tokenScope = resolved.scope;
           return enforceBaseline(request, reply);
         }
         // A malformed/revoked PAT is never a valid OIDC token — fail fast.
@@ -201,6 +207,7 @@ export async function registerAuthHook(server: FastifyInstance) {
           request.user = user;
           request.actorSub = actorFor(user.username, 'api');
           request.authChannel = 'api';
+          request.tokenScope = 'full';
           return enforceBaseline(request, reply);
         }
       } catch (err) {
@@ -212,13 +219,32 @@ export async function registerAuthHook(server: FastifyInstance) {
   });
 }
 
-// Baseline RBAC: readonly users may only read.
+// Baseline RBAC: readonly users may only read, and intake-scoped tokens may
+// only create tickets.
 function enforceBaseline(request: FastifyRequest, reply: FastifyReply) {
   const method = request.method.toUpperCase();
   const isWrite = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
   if (isWrite && request.user.role === 'readonly') {
     return reply.status(403).send({ error: 'Read-only role cannot modify data' });
   }
+  if (request.tokenScope === 'intake' && !isIntakeAllowed(method, request.url)) {
+    return reply.status(403).send({ error: 'Intake-scoped token may only create tickets' });
+  }
+}
+
+/**
+ * The entire REST/MCP surface an intake-scoped token may touch:
+ *   - POST /tickets            — create (the fallback-ticket path)
+ *   - GET  /mcp/sse, POST /mcp/messages — the MCP transport; the tool
+ *     catalogue itself is filtered to create_ticket in buildMcpServer.
+ * Everything else — including every /tickets/:id subresource — is denied.
+ */
+function isIntakeAllowed(method: string, url: string): boolean {
+  const pathname = url.split('?')[0];
+  if (method === 'POST' && pathname === '/tickets') return true;
+  if (method === 'GET' && pathname === '/mcp/sse') return true;
+  if (method === 'POST' && pathname === '/mcp/messages') return true;
+  return false;
 }
 
 /** preHandler factory: require one of the given roles (e.g. admin-only routes). */
