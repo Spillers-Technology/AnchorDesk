@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import * as api from "../api/client";
+import { setReplayUser } from "../openreplay";
 
 interface AuthState {
   user: api.AuthUser | null;
@@ -38,6 +39,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    setReplayUser(user?.username ?? null);
+  }, [user]);
 
   const value: AuthState = {
     user,

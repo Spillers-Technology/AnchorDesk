@@ -1,7 +1,7 @@
 {
   "name": "anchordesk-web-client",
   "private": true,
-  "version": "2.4.1",
+  "version": "2.4.2",
   "license": "MIT",
   "engines": {
     "node": ">=22.12.0"

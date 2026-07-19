@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.4.2 — 2026-07-19 — Session Replay Telemetry (patch)
+
+Opt-in OpenReplay session recording for the web client, disabled by default.
+
+### Added
+
+- **Runtime-configurable session replay.** The web-client image ships a
+  `/openreplay.js` placeholder that records nothing. When the container sets
+  `OPENREPLAY_PROJECT_KEY` (plus optional `OPENREPLAY_INGEST_POINT` for
+  self-hosted backends and `OPENREPLAY_TRACKER_URL` to pin the bundle), an
+  entrypoint script rewrites it into a live OpenReplay loader at startup — no
+  rebuild, and deployments without the key ship no analytics. Recording uses
+  privacy-safe defaults: all input values hidden, on-screen numbers and email
+  addresses obscured.
+- **Per-user session identity.** After sign-in the client stamps the replay
+  session with the account username (`setUserID`), so sessions are searchable
+  by who was actually using the helpdesk. No UI changes.
+
 ## 2.4.1 — 2026-07-16 — Checklist MCP Parity (patch)
 
 Completes the checklist's MCP surface, verifies the advertised contract over
