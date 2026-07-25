@@ -223,6 +223,22 @@ full-screen at phone width, all added to the capture matrix
 Found in the pre-release review pass, judged not worth a late refactor, and
 recorded here so they are not rediscovered as surprises.
 
+- **Merge does not take the sync account lock.** Bumping `syncRevision` makes an
+  in-flight reconcile's compare-and-set fail, which covers the field write-back.
+  It does not cover the whole reconcile: a run whose CAS lands *before* the merge
+  commits can still go on to `pullNotes` afterwards and attach remote comments to
+  the tombstone, and the outbound provider call is not under the CAS at all. The
+  real fix is for merge to acquire the same per-account lock `syncService` uses,
+  so a merge and a reconcile of the same account cannot interleave. In practice
+  the window is one provider round-trip wide and the damage is a note on the
+  tombstone rather than a divergence, which is why it is recorded rather than
+  rushed.
+- **Unmerge does not verify restore counts.** Every restore is scoped to the
+  target the merge moved the rows to, so a row that has since moved elsewhere is
+  skipped rather than stolen — but the skip is silent, and the unmerge still
+  commits and marks the ledger reversed. Comparing affected counts against the
+  ledger and refusing the whole restore on a mismatch would match the stated
+  "refuses rather than half-restores" contract more literally.
 - **Preview-to-commit warning staleness.** Warnings are computed by
   `previewMerge` outside the transaction; only the blockers are re-checked under
   the row locks. A concurrent `PATCH` that moves the target to another company
