@@ -21,7 +21,8 @@ MUI's default breakpoints, used consistently:
 - **`xs` (<600px) = phone.** Dialogs go full-screen via the shared
   [`useIsPhone()`](../web-client/src/theme/useIsPhone.ts) hook
   (`fullScreen={isPhone}` on `TicketDialog`, the email composer,
-  `CreateTicketDialog`, `RunScriptDialog`). Paddings compact
+  `CreateTicketDialog`, `RunScriptDialog`, the Ticket Sync connection/job
+  editors, and sync run history). Paddings compact
   (`p: { xs: 1.5, sm: 2, md: 3 }` on main), secondary actions collapse to
   icons, master/detail layouts stack.
 - **`sm`–`md` (600–900px) = foldable/tablet.** Windowed dialogs with 8px
@@ -69,15 +70,20 @@ Playwright is loaded externally (never a package.json dependency) — see
 `ANCHORDESK_CAPTURE_OUT` overrides). Filter while iterating:
 
 ```bash
-ANCHORDESK_CAPTURE_DEVICES=galaxy ANCHORDESK_CAPTURE_VIEWS=admin-teams,device-assets \
+ANCHORDESK_CAPTURE_DEVICES=galaxy ANCHORDESK_CAPTURE_VIEWS=admin-ticket-sync,ticket-sync-run-detail \
   node docs/scripts/capture-mobile-media.mjs
 ```
 
 Review every shot for: no horizontal page scroll, full-screen dialogs with a
 reachable close, visible touch affordances, nothing clipped at the right edge.
 A vitest guard (`dialogsFullScreen.mobile.test.tsx`) additionally asserts in CI
-that the create-ticket, run-script, advanced-filter, and ticket-cockpit dialogs
-render full-screen at phone width.
+that the create-ticket, run-script, advanced-filter, ticket-cockpit, Ticket Sync
+connection/job editor, and sync run-history dialogs render full-screen at phone
+width. The Ticket Sync matrix currently includes its consolidated admin page,
+both editors, run history, and expanded record activity. The 2.6 relations
+matrix adds the merge dialog (`ticket-merge-dialog`), the same dialog with
+acknowledgement checkboxes showing (`ticket-merge-warnings`), and the ticket
+hierarchy panel with its parent picker and child list (`ticket-children`).
 
 The curated 2.2 release proof below shows the selected-device Network flow at
 360px, including touch map controls and the provider identities attached to the

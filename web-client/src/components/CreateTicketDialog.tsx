@@ -113,7 +113,6 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
         assignee: assignee ? assignee.displayName || assignee.username : undefined,
         teamId: form.teamId === "" ? undefined : form.teamId,
         customFields,
-        source: "local",
       });
       setForm({ ...emptyForm });
       setCompany(null); setContacts([]); setContactId("");

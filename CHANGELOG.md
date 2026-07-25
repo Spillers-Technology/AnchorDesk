@@ -1,5 +1,138 @@
 # Changelog
 
+## 2.6.0 — 2026-07-25 — Relations (minor)
+
+Ticket **merge** and **parent/child hierarchy**, on top of the sync correctness
+pass that was developed as 2.5 and never shipped separately — this release
+carries both. Design notes:
+[relations](docs/roadmap-relations-2.6.md) · [sync](docs/roadmap-sync-2.5.md).
+
+### Added — Relations (2.6)
+
+- **Ticket merge, reversibly.** Fold a duplicate into the ticket you are
+  keeping: notes (with their time entries), attachments, checklist items,
+  children, labels, and device links move to the target. The source is **never
+  deleted** — its number is already loose in email subject tokens and external
+  references, so it stays a resolvable tombstone (`mergedIntoId` + `mergedAt`,
+  status plain `Closed`, adding nothing to the status vocabulary, so Kanban
+  columns, saved views, and automations are untouched).
+- **Merge is local — it never pushes.** No provider call is made on the merge
+  path: not a close, not a comment, not a link. Jira has no merge primitive, so
+  any push invented here would be a guess applied to a system we cannot roll
+  back. A merged ticket instead **stops reconciling unconditionally**, guarded
+  in both `twoWaySync` and the read-only `upsertExternal` inbound path so a
+  remote fetch cannot resurrect a tombstone. Its run outcome is `merged`,
+  deliberately distinct from `skipped` — a tombstone left alone is the design
+  working, and collapsing the two would leave every run permanently degraded.
+- **The stop is stated, not implied.** Merging a two-way-synced source, or
+  across companies, requires the caller to echo back the warning codes; without
+  them the route answers 400 with `requiresAcknowledgement`. The same gate
+  applies to MCP, so an agent cannot merge past a warning a human would have had
+  to read.
+- **Unmerge replays the ledger exactly.** `TicketMerge.undoPlan` records the
+  precise note / attachment / checklist-item / child / label / device ids that
+  moved, so unmerge restores that and nothing else; anything added to the
+  survivor afterwards stays there. A ledger that fails re-validation refuses the
+  restore rather than doing half of it.
+- **One-level parent/child hierarchy**, enforced twice: under row locks in
+  `ticketRepository.setParent`, and by a Postgres trigger created in
+  `db/pgExtras.ts` — the repository protects the application path, the trigger
+  protects the `psql` session at 2am. A ticket with a parent may not itself be a
+  parent, which removes cycle detection entirely. Hierarchy is never pushed or
+  pulled.
+- **Mail threading follows the merge.** All `imapService` thread-resolution
+  paths funnel through `resolveMergeTarget()`, which walks `mergedIntoId` to the
+  survivor (chains walked, not path-compressed, so the ledger keeps describing a
+  state that exists). Without it, a customer's reply opens correspondence on a
+  closed tombstone nobody is watching.
+- **Surface.** REST `GET /tickets/:id/merge-preview`, `POST /tickets/:id/merge`,
+  `POST /tickets/:id/unmerge`, `GET /tickets/:id/children`, `parentId` on
+  `PATCH /tickets/:id`, and `?parentId=` / `?hasParent=` / `?includeMerged=`
+  list filters. Per the release invariant, MCP ships in the same change:
+  `preview_ticket_merge`, `merge_tickets`, `unmerge_ticket`,
+  `set_ticket_parent`, `list_ticket_children`, with `get_ticket` gaining
+  `parent` / `children` / `mergedInto`. UI: a merge dialog with target search,
+  a preview of exactly what moves, and the acknowledgements as explicit
+  checkboxes; a hierarchy panel with parent picker and child progress.
+
+### Added — Sync you can actually trust (developed as 2.5)
+
+- **Jira sync works again.** `/rest/api/3/search` was removed by Atlassian (410
+  Gone); migrated to `/rest/api/3/search/jql` with opaque `nextPageToken` paging
+  and explicit `fields`. The incremental cutoff now uses **unquoted epoch
+  milliseconds** — a quoted literal is reinterpreted in the *account's*
+  timezone, which silently skipped hours of updates every run.
+- **Bad Jira credentials no longer fail silently.** `/search/jql` answers
+  `200 {"issues":[]}` for an invalid or absent token — it degrades to anonymous
+  access. Only `/myself` returns 401, so `JiraProvider` verifies identity
+  whenever a fetch comes back empty.
+- **`Connection` is a first-class record.** Credentials moved off the global
+  settings row, so one install can sync several Jira tenants; external ids are
+  only unique *within* an account (two sites both have `HELP-1`). Credential
+  resolution **fails closed** — a disabled or deleted link never falls back to
+  another tenant's account.
+- **`SyncRun` is operational truth.** Every attempt records
+  success/degraded/error, duration, exact counters, latest issue, and actor,
+  including zero-ticket successes and failures before fetch. Starts are
+  serialized per external account in Postgres, across backend replicas.
+- **Conflicts are an unconditional hold.** Previously a held conflict was
+  cleared on the next fetch and the local edit overwritten. Providers declare
+  `writableFields`, pushes send only a real delta and are verified against a
+  re-read, and one include/exclude filtering vocabulary covers every provider.
+- **Ticket sync has one admin home** — Admin → Ticket Sync owns connection
+  add/edit/test, editable jobs, filters, manual runs, and run history.
+- **Remote error bodies are redacted** before reaching `sync_log`, API
+  responses, or logs: a wrong `baseUrl` receives the Basic auth header and can
+  echo it back.
+
+### Fixed
+
+- **Unmerge no longer loses labels or device links.** The merge deletes every
+  source association but the v1 ledger recorded only the ids *added* to the
+  target, so any label both tickets carried was stripped from the source and
+  never restored. The ledger (now v2) records the source's full sets; the two
+  are used for different purposes — strip from the target what the merge added,
+  give the source back everything it had.
+- **A merge can no longer be overwritten by an in-flight sync.** The tombstone
+  guard is checked once, before the provider round-trip, and the write-back
+  compare-and-set matches on `(id, syncRevision)` alone — so a reconcile already
+  past that point could stamp the tombstone synced or reapply a remote open
+  status over it. Merge now increments `syncRevision`, making any in-flight
+  reconcile's write match zero rows.
+- **Reciprocal merges can no longer build a cycle.** The survivor is resolved
+  before the transaction; under the locks only the *source* was re-checked, so
+  A→B and B→A previewing concurrently could both commit. The target is now
+  re-checked under the lock and the merge refuses, asking for a fresh preview.
+- **Merging a parent into a child ticket is refused with an explanation**
+  instead of tripping the one-level trigger mid-transaction.
+- **Unmerge validates the ledger against reality.** It locks the tombstone,
+  refuses when the ledger names a different target than the ticket is merged
+  into, and scopes every restore to the target the rows were moved to — so a
+  hand-edited or stale ledger can no longer pull a row away from its current
+  owner.
+- **Inbound mail resolves merges on the duplicate-recovery path too.** The
+  `P2002` branch assigned an existing root ticket without following
+  `mergedIntoId`, landing replies on a tombstone.
+- **The hierarchy trigger is concurrency-safe.** It read an unlocked snapshot,
+  so two direct transactions doing `A.parent := B` and `B.parent := A` both
+  passed and committed a cycle. It now locks the prospective parent row.
+  Startup validation also allowlists `tgenabled` as origin/always rather than
+  merely rejecting `disabled`, so a replica-only trigger is no longer accepted
+  as enforcement.
+- **"At most one live merge ledger per source" is now structural** — a partial
+  unique index created and verified at boot, rather than a schema comment
+  claiming a guarantee the non-unique index did not provide.
+- **`resolveMergeTarget` no longer fails open quietly** on a long chain or a
+  cycle: the cap is raised well above any plausible chain and exhaustion is
+  logged loudly, because the value it returns in that case is a tombstone.
+- **Unmerge publishes after commit**, not inside its transaction, so subscribers
+  cannot observe a restore that then rolls back.
+- **Child ticket titles no longer overflow the card** on narrow screens — at
+  `xs` the row becomes a column, which sized the `noWrap` title to max-content
+  instead of ellipsizing it.
+- **The merge dialog explains why Merge is disabled** when the acknowledgement
+  checkboxes have scrolled out of view.
+
 ## 2.4.2 — 2026-07-19 — Session Replay Telemetry (patch)
 
 Opt-in OpenReplay session recording for the web client, disabled by default.

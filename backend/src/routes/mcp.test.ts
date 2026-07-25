@@ -188,6 +188,58 @@ describe("MCP checklist protocol surface", () => {
     ).toBe(true);
   });
 
+  // MCP parity is a release invariant, so the 2.6 relation tools are guarded at
+  // the protocol level the same way the checklist tools are.
+  it("advertises the merge and hierarchy tools with their consent contract", async () => {
+    const client = await connect();
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+
+    const relationToolNames = [
+      "preview_ticket_merge",
+      "merge_tickets",
+      "unmerge_ticket",
+      "set_ticket_parent",
+      "list_ticket_children",
+    ];
+    expect([...byName.keys()]).toEqual(
+      expect.arrayContaining(relationToolNames),
+    );
+    for (const name of relationToolNames) {
+      expect(byName.get(name)?.description).toEqual(expect.any(String));
+      expect(byName.get(name)?.inputSchema.type).toBe("object");
+    }
+
+    // The acknowledgement channel must exist on the tool itself — without it an
+    // agent has no way to consent, and the merge can never succeed.
+    expect(byName.get("merge_tickets")?.inputSchema.properties).toEqual(
+      expect.objectContaining({
+        sourceId: expect.any(Object),
+        targetId: expect.any(Object),
+        acknowledge: expect.any(Object),
+      }),
+    );
+    // The description has to state that this does NOT touch the external system,
+    // because that is the property an agent would otherwise assume it has.
+    expect(byName.get("merge_tickets")?.description).toMatch(/LOCAL record/);
+    expect(byName.get("merge_tickets")?.description).toMatch(/stops syncing/);
+
+    expect(byName.get("preview_ticket_merge")?.annotations?.readOnlyHint).toBe(
+      true,
+    );
+    expect(byName.get("merge_tickets")?.annotations?.destructiveHint).toBe(true);
+    expect(byName.get("list_ticket_children")?.annotations?.readOnlyHint).toBe(
+      true,
+    );
+
+    // Hierarchy is one level and local-only; both must be said out loud, since
+    // an agent cannot discover either from the schema.
+    expect(byName.get("set_ticket_parent")?.description).toMatch(
+      /one level of hierarchy/,
+    );
+    expect(byName.get("set_ticket_parent")?.description).toMatch(/local only/);
+  });
+
   it("lists, fully updates, and deletes ticket checklist items through MCP", async () => {
     const client = await connect("technician");
     const rows = [{ id: 9, ticketId: 42, text: "Call customer", done: false }];

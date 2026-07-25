@@ -54,12 +54,14 @@ import DynamicFormIcon from "@mui/icons-material/DynamicForm";
 import BoltIcon from "@mui/icons-material/Bolt";
 import ChecklistIcon from "@mui/icons-material/Checklist";
 import AlternateEmailIcon from "@mui/icons-material/AlternateEmail";
+import SyncIcon from "@mui/icons-material/Sync";
 import EditIcon from "@mui/icons-material/Edit";
 import { useSearchParams } from "react-router-dom";
 import * as api from "../api/client";
 import { TICKET_PRIORITIES } from "../ticketVocab";
 import { useIsPhone } from "../theme/useIsPhone";
 import ChecklistTemplatesPanel from "./admin/ChecklistTemplatesPanel";
+import TicketSyncPanel from "./admin/TicketSyncPanel";
 import ConfirmDialog from "./admin/ConfirmDialog";
 import PanelSearch, { rowMatches } from "./admin/PanelSearch";
 import {
@@ -76,7 +78,7 @@ import {
 
 type AdminSection =
   | "overview" | "users" | "auth" | "integrations" | "interface" | "sla" | "mailboxes" | "mail" | "labels"
-  | "teams" | "custom-fields" | "checklists" | "automations" | "probes" | "devices" | "audit";
+  | "teams" | "custom-fields" | "checklists" | "automations" | "ticket-sync" | "probes" | "devices" | "audit";
 
 /** Rail sections grouped the way admins think about them. */
 const NAV_GROUPS: { heading: string | null; items: { id: AdminSection; label: string; icon: React.ReactNode }[] }[] = [
@@ -108,6 +110,7 @@ const NAV_GROUPS: { heading: string | null; items: { id: AdminSection; label: st
     items: [
       { id: "mailboxes", label: "Mailboxes", icon: <EmailIcon /> },
       { id: "mail", label: "Mail Identities", icon: <AlternateEmailIcon /> },
+      { id: "ticket-sync", label: "Ticket Sync", icon: <SyncIcon /> },
       { id: "integrations", label: "Integrations", icon: <CableIcon /> },
     ],
   },
@@ -168,7 +171,7 @@ export default function AdminView({ onOpenTickets }: { onOpenTickets?: () => voi
         {section === "overview" && <OverviewPanel onNavigate={setSection} onOpenTickets={onOpenTickets} />}
         {section === "users" && <UsersPanel />}
         {section === "auth" && <AuthSettingsPanel />}
-        {section === "integrations" && <IntegrationsPanel />}
+        {section === "integrations" && <IntegrationsPanel onNavigate={setSection} />}
         {section === "interface" && <InterfacePanel />}
         {section === "sla" && <SlaPanel />}
         {section === "mailboxes" && <MailboxesPanel />}
@@ -178,6 +181,7 @@ export default function AdminView({ onOpenTickets }: { onOpenTickets?: () => voi
         {section === "custom-fields" && <CustomFieldsPanel />}
         {section === "checklists" && <ChecklistTemplatesPanel />}
         {section === "automations" && <AutomationsPanel />}
+        {section === "ticket-sync" && <TicketSyncPanel />}
         {section === "probes" && <ProbesPanel />}
         {section === "devices" && <DevicesPanel />}
         {section === "audit" && <AuditPanel />}
@@ -901,7 +905,7 @@ function DeviceEditorDialog({
   );
 }
 
-function IntegrationsPanel() {
+function IntegrationsPanel({ onNavigate }: { onNavigate: (s: AdminSection) => void }) {
   const { data, loading, error, reload } = useAsync(() => api.getIntegrations());
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -948,31 +952,10 @@ function IntegrationsPanel() {
         onSave={(patch) => save("smtp", patch)}
       />
 
-      <IntegrationCard
-        title="ConnectWise Manage"
-        configured={!!data.connectwise.server}
-        fields={[
-          { k: "server", label: "Server", value: data.connectwise.server },
-          { k: "company", label: "Company", value: data.connectwise.company },
-          { k: "publicKey", label: "Public key", value: data.connectwise.publicKey },
-          { k: "privateKey", label: "Private key", secret: true, has: data.connectwise.hasPrivateKey },
-          { k: "clientId", label: "Client ID", secret: true, has: data.connectwise.hasClientId },
-        ]}
-        onSave={(patch) => save("connectwise", patch)}
-      />
-
-      <IntegrationCard
-        title="Jira Cloud (two-way tickets)"
-        configured={!!data.jira.baseUrl && !!data.jira.email}
-        fields={[
-          { k: "baseUrl", label: "Site URL (e.g. https://org.atlassian.net)", value: data.jira.baseUrl },
-          { k: "email", label: "Account email", value: data.jira.email },
-          { k: "apiToken", label: "API token", secret: true, has: data.jira.hasApiToken },
-          { k: "projectKey", label: "Project key (optional)", value: data.jira.projectKey },
-          { k: "jql", label: "JQL filter (optional)", value: data.jira.jql },
-        ]}
-        onSave={(patch) => save("jira", patch)}
-      />
+      <Alert severity="info" action={<Button color="inherit" size="small" onClick={() => onNavigate("ticket-sync")}>Open</Button>}>
+        ConnectWise and Jira ticket sync — connections, scope, filtering, and health — moved to{" "}
+        <strong>Ticket sync</strong>, under Channels &amp; Integrations.
+      </Alert>
 
       <IntegrationCard
         title="Tactical RMM"

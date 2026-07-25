@@ -13,6 +13,9 @@ export interface CreateNoteInput {
   timeStop?: Date;
   minutes?: number;
   externalId?: string;
+  /** Explicit customer-visible outbound comment. Never infer this from
+   * noteType: RMM/script notes also use `note` and must remain local. */
+  queueForTicketSync?: boolean;
   // Email correspondence metadata (noteType = 'email').
   direction?: 'inbound' | 'outbound';
   htmlContent?: string;
@@ -30,6 +33,17 @@ export interface UpdateNoteInput {
   timeStart?: Date | null;
   timeStop?: Date | null;
   minutes?: number | null;
+}
+
+export class ExternalNoteImmutableError extends Error {
+  constructor() {
+    super('queued or externally linked customer notes cannot be edited or deleted');
+    this.name = 'ExternalNoteImmutableError';
+  }
+}
+
+function isExternallyImmutable(note: { syncPending: boolean; externalId: string | null; noteType: NoteType }) {
+  return note.syncPending || (note.noteType === 'note' && note.externalId != null);
 }
 
 /** Sum of logged minutes (time_entry notes) on a ticket. */
@@ -69,58 +83,86 @@ export async function listForTicket(ticketId: number) {
 }
 
 export async function create(ticketId: number, input: CreateNoteInput, actorSub: string) {
-  const note = await prisma.note.create({
-    data: {
-      ticketId,
-      content: input.content,
-      author: clamp(input.author, 150),
-      authorId: input.authorId,
-      noteType: input.noteType ?? 'note',
-      timeStart: input.timeStart,
-      timeStop: input.timeStop,
-      minutes: input.minutes,
-      // Clamp the bounded VarChar columns so a long Message-ID / subject from the
-      // wild can't overflow and 500 the insert (columns are 255/320; see schema).
-      externalId: clamp(input.externalId, 255),
-      direction: input.direction,
-      htmlContent: input.htmlContent,
-      emailFrom: clamp(input.emailFrom, 320),
-      emailTo: input.emailTo,
-      emailCc: input.emailCc,
-      emailBcc: input.emailBcc,
-      subject: clamp(input.subject, 255),
-      inReplyTo: clamp(input.inReplyTo, 255),
-    },
-  });
+  const note = await prisma.$transaction(async (tx) => {
+    const ticket = input.queueForTicketSync
+      ? await tx.ticket.findUnique({
+          where: { id: ticketId },
+          select: {
+            externalId: true,
+            externalProvider: true,
+          },
+        })
+      : null;
+    const queuedForSync = Boolean(
+      input.queueForTicketSync &&
+      ticket?.externalId &&
+      (ticket.externalProvider === 'jira' || ticket.externalProvider === 'connectwise')
+    );
 
-  await audit.record({
-    entityType: 'note',
-    entityId: note.id,
-    action: 'create',
-    changedBy: actorSub,
-    newValue: note as unknown as Record<string, unknown>,
-  });
-
-  // First outbound email is the customer-facing "first response" — stop the SLA
-  // response clock once. Guarded on null so later replies don't move it.
-  if (note.noteType === 'email' && note.direction === 'outbound') {
-    await prisma.ticket.updateMany({
-      where: { id: ticketId, firstRespondedAt: null },
-      data: { firstRespondedAt: note.createdAt },
+    const row = await tx.note.create({
+      data: {
+        ticketId,
+        content: input.content,
+        author: clamp(input.author, 150),
+        authorId: input.authorId,
+        noteType: input.noteType ?? 'note',
+        timeStart: input.timeStart,
+        timeStop: input.timeStop,
+        minutes: input.minutes,
+        // Clamp the bounded VarChar columns so a long Message-ID / subject from the
+        // wild can't overflow and 500 the insert (columns are 255/320; see schema).
+        externalId: clamp(input.externalId, 255),
+        syncPending: queuedForSync,
+        direction: input.direction,
+        htmlContent: input.htmlContent,
+        emailFrom: clamp(input.emailFrom, 320),
+        emailTo: input.emailTo,
+        emailCc: input.emailCc,
+        emailBcc: input.emailBcc,
+        subject: clamp(input.subject, 255),
+        inReplyTo: clamp(input.inReplyTo, 255),
+      },
     });
-  }
+
+    await audit.record({
+      entityType: 'note',
+      entityId: row.id,
+      action: 'create',
+      changedBy: actorSub,
+      newValue: row as unknown as Record<string, unknown>,
+    }, tx);
+
+    // First outbound email is the customer-facing "first response" — stop the SLA
+    // response clock once. Guarded on null so later replies don't move it.
+    if (row.noteType === 'email' && row.direction === 'outbound') {
+      await tx.ticket.updateMany({
+        where: { id: ticketId, firstRespondedAt: null },
+        data: { firstRespondedAt: row.createdAt },
+      });
+    }
+    return row;
+  });
 
   publish({ type: 'note.added', ticketId, note, actor: actorSub });
   return note;
 }
 
-export async function update(id: number, input: UpdateNoteInput, actorSub: string) {
-  const before = await prisma.note.findUnique({ where: { id } });
+export async function update(id: number, ticketId: number, input: UpdateNoteInput, actorSub: string) {
+  const before = await prisma.note.findFirst({ where: { id, ticketId } });
   if (!before) return null;
+  if (isExternallyImmutable(before)) throw new ExternalNoteImmutableError();
 
   const note = await prisma.note.update({
     where: { id },
-    data: { ...input },
+    // Explicit field projection: runtime request objects must never be able to
+    // mutate ticket ownership, remote provenance, author, direction, or type.
+    data: {
+      content: input.content,
+      htmlContent: input.htmlContent,
+      timeStart: input.timeStart,
+      timeStop: input.timeStop,
+      minutes: input.minutes,
+    },
   });
 
   await audit.record({
@@ -135,9 +177,10 @@ export async function update(id: number, input: UpdateNoteInput, actorSub: strin
   return note;
 }
 
-export async function remove(id: number, actorSub: string) {
-  const before = await prisma.note.findUnique({ where: { id } });
+export async function remove(id: number, ticketId: number, actorSub: string) {
+  const before = await prisma.note.findFirst({ where: { id, ticketId } });
   if (!before) return null;
+  if (isExternallyImmutable(before)) throw new ExternalNoteImmutableError();
 
   await prisma.note.delete({ where: { id } });
 

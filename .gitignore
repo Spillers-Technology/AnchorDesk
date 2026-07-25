@@ -47,3 +47,6 @@ proxy/data/
 
 # Mobile screenshot matrix (working artifacts; curated shots are committed one level up)
 docs/assets/screenshots/mobile/
+
+# Local credential scratch (never commit)
+/jira

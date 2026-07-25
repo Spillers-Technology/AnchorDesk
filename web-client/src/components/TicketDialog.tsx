@@ -39,6 +39,8 @@ import EmailIcon from "@mui/icons-material/Email";
 import DownloadIcon from "@mui/icons-material/Download";
 import NoteAddIcon from "@mui/icons-material/NoteAdd";
 import HistoryIcon from "@mui/icons-material/History";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import MergeIcon from "@mui/icons-material/Merge";
 import { Ticket, Note } from "../interfaces";
 import NotesSection from "./NotesSection";
 import ChecklistSection from "./ChecklistSection";
@@ -54,6 +56,8 @@ import { PrioritySignal, StatusSignal } from "./TicketSignals";
 import { htmlToPlainText, isRichTextEmpty, toEditorHtml } from "../html";
 import { useIsPhone } from "../theme/useIsPhone";
 import TicketHistory from "./TicketHistory";
+import MergeTicketDialog from "./MergeTicketDialog";
+import ConfirmDialog from "./admin/ConfirmDialog";
 
 interface TicketDialogProps {
   ticket: Ticket;
@@ -65,6 +69,8 @@ interface TicketDialogProps {
   onUpdated?: (field?: string) => void;
   /** Called after the ticket's notes/timeline change (email sent, time logged). */
   onNotesChanged?: () => void;
+  /** Opens another ticket without leaving the ticket cockpit. */
+  onOpenTicket?: (ticketId: number) => void;
 }
 
 /** Prefill payload for the email composer (set when replying to a message). */
@@ -73,7 +79,16 @@ interface ComposePrefill {
   subject?: string;
 }
 
-const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, notes, currentUser, onUpdated, onNotesChanged }) => {
+const TicketDialog: React.FC<TicketDialogProps> = ({
+  ticket,
+  open,
+  onClose,
+  notes,
+  currentUser,
+  onUpdated,
+  onNotesChanged,
+  onOpenTicket,
+}) => {
   const isPhone = useIsPhone();
   const [title, setTitle] = useState(ticket.ticketTitle);
   const [priority, setPriority] = useState(ticket.priority);
@@ -108,6 +123,11 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
     Record<string, { loading: boolean; data?: api.RmmLiveData; error?: string }>
   >({});
   const [showHistory, setShowHistory] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [confirmUnmerge, setConfirmUnmerge] = useState(false);
+  const [unmerging, setUnmerging] = useState(false);
+  const [relationError, setRelationError] = useState("");
+  const [mergedInto, setMergedInto] = useState<api.MergeTicketSummary | null>(null);
 
   const reloadAttachments = useCallback(() => {
     if (ticket.localId == null) return;
@@ -126,6 +146,35 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
       );
     }).catch(() => {});
   }, [ticket.localId]);
+
+  const effectiveMergedIntoId =
+    full && Object.prototype.hasOwnProperty.call(full, "mergedIntoId")
+      ? (full.mergedIntoId == null ? null : Number(full.mergedIntoId))
+      : (ticket.mergedIntoId ?? null);
+
+  useEffect(() => {
+    if (!open || effectiveMergedIntoId == null) {
+      setMergedInto(null);
+      return;
+    }
+    let active = true;
+    api.getTicket(effectiveMergedIntoId)
+      .then((value) => {
+        if (!active || !value || typeof value !== "object") return;
+        const row = value as Record<string, unknown>;
+        setMergedInto({
+          id: Number(row.id),
+          ticketNumber: String(row.ticketNumber ?? row.id),
+          title: String(row.title ?? ""),
+        });
+      })
+      .catch(() => {
+        if (active) setMergedInto(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [effectiveMergedIntoId, open]);
 
   // Two-way sync: reconcile now, or resolve a held conflict by picking a side.
   const [syncing, setSyncing] = useState(false);
@@ -215,12 +264,24 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   // assignable users, and the device pool for linking.
   useEffect(() => {
     if (!open || ticket.localId == null) return;
+    setFull(null);
+    setTitle(ticket.ticketTitle);
+    setPriority(ticket.priority);
+    setCompanyName(ticket.company.CompanyName);
+    setStatus(ticket.status);
     setShowHistory(false);
+    setMergeOpen(false);
+    setConfirmUnmerge(false);
+    setRelationError("");
+    setMergedInto(null);
     const id = ticket.localId;
     api.getTicket(id).then((t) => {
       const tt = t as any;
       setFull(tt);
-      setStatus(tt.status ?? status);
+      setTitle(String(tt.title ?? ticket.ticketTitle));
+      setPriority(String(tt.priority ?? ticket.priority));
+      setCompanyName(String(tt.companyName ?? tt.company?.name ?? ticket.company.CompanyName));
+      setStatus(String(tt.status ?? ticket.status));
       setAssigneeId((tt.assigneeId as number) ?? "");
       setTeamId((tt.teamId as number) ?? "");
       setDueAt(toDateTimeLocal(tt.dueAt));
@@ -426,6 +487,35 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
   const created = full?.createdAt ? new Date(full.createdAt).toLocaleString() : ticket.dateEntered;
   const description = full?.description ?? ticket.ticketSummary;
   const hasIntegrations = source !== "local" || devices.length > 0 || jobs.length > 0;
+  const relationParent = (full?.parent ?? null) as RelatedTicketSummary | null;
+  const relationChildren = (Array.isArray(full?.children) ? full.children : []) as RelatedTicketChild[];
+  const doneChildren = relationChildren.filter((child) => isDoneStatus(child.status)).length;
+  const canMutate = currentUser?.canWrite !== false;
+
+  const handleMerged = (updated: api.RelatedTicketRecord, target: api.MergeTicketSummary) => {
+    setFull((current) => (current ? { ...current, ...updated } : updated));
+    setMergedInto(target);
+    setMergeOpen(false);
+    onUpdated?.("merge");
+  };
+
+  const unmerge = async () => {
+    if (ticket.localId == null) return;
+    setUnmerging(true);
+    setRelationError("");
+    try {
+      const updated = await api.unmergeTicket(ticket.localId);
+      setFull((current) => (current ? { ...current, ...updated } : updated));
+      setMergedInto(null);
+      setConfirmUnmerge(false);
+      onUpdated?.("unmerge");
+    } catch (error) {
+      setRelationError(apiErrorMessage(error));
+      setConfirmUnmerge(false);
+    } finally {
+      setUnmerging(false);
+    }
+  };
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg" fullScreen={isPhone}>
@@ -497,7 +587,47 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
         </Stack>
       </Box>
       <DialogContent dividers sx={{ bgcolor: "background.default", p: { xs: 1.5, md: 2 } }}>
-        {source !== "local" && full?.externalId && (
+        {effectiveMergedIntoId != null && (
+          <Alert
+            severity="warning"
+            sx={{
+              mb: 2,
+              "& .MuiAlert-message": { width: "100%" },
+            }}
+          >
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              sx={{ alignItems: { xs: "flex-start", sm: "center" }, justifyContent: "space-between" }}
+            >
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle2">
+                  Merged into {mergedInto ? `#${mergedInto.ticketNumber}` : "another ticket"}
+                </Typography>
+                {mergedInto?.title && (
+                  <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>{mergedInto.title}</Typography>
+                )}
+              </Box>
+              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
+                <Button
+                  color="inherit"
+                  size="small"
+                  disabled={!onOpenTicket}
+                  onClick={() => onOpenTicket?.(effectiveMergedIntoId)}
+                >
+                  Open survivor
+                </Button>
+                {canMutate && (
+                  <Button color="inherit" size="small" onClick={() => setConfirmUnmerge(true)}>
+                    Unmerge
+                  </Button>
+                )}
+              </Stack>
+            </Stack>
+          </Alert>
+        )}
+        {relationError && <Alert severity="error" sx={{ mb: 2 }}>{relationError}</Alert>}
+        {effectiveMergedIntoId == null && source !== "local" && full?.externalId && (
           <SyncStatusBar
             state={full?.syncState as string | undefined}
             provider={externalProvider ?? source}
@@ -509,6 +639,22 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
         <Grid container spacing={2}>
           {/* Main column */}
           <Grid size={{ xs: 12, md: 7 }}>
+            {effectiveMergedIntoId == null && (relationParent || relationChildren.length > 0 || canMutate) && (
+              <TicketRelationsCard
+                ticketId={ticket.localId}
+                parent={relationParent}
+                children={relationChildren}
+                doneChildren={doneChildren}
+                canWrite={canMutate}
+                onOpenTicket={onOpenTicket}
+                onChanged={() => {
+                  reloadFull();
+                  onUpdated?.("parentId");
+                }}
+                onError={setRelationError}
+              />
+            )}
+
             <Card>
               <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
                 <Typography variant="subtitle2" gutterBottom sx={{
@@ -928,6 +1074,11 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
         </Grid>
       </DialogContent>
       <DialogActions>
+        {ticket.localId != null && effectiveMergedIntoId == null && canMutate && (
+          <Button color="warning" startIcon={<MergeIcon />} onClick={() => setMergeOpen(true)}>
+            Merge
+          </Button>
+        )}
         <Box sx={{ flexGrow: 1 }} />
         <Button onClick={onClose}>Close</Button>
       </DialogActions>
@@ -951,9 +1102,256 @@ const TicketDialog: React.FC<TicketDialogProps> = ({ ticket, open, onClose, note
           onSent={() => { onNotesChanged?.(); reloadAttachments(); }}
         />
       )}
+      {ticket.localId != null && (
+        <MergeTicketDialog
+          open={mergeOpen}
+          source={{
+            id: ticket.localId,
+            ticketNumber: String(full?.ticketNumber ?? ticket.ticketnumber),
+            title: String(full?.title ?? title),
+          }}
+          onClose={() => setMergeOpen(false)}
+          onMerged={handleMerged}
+        />
+      )}
+      <ConfirmDialog
+        open={confirmUnmerge}
+        title={`Unmerge ticket #${String(full?.ticketNumber ?? ticket.ticketnumber)}?`}
+        body="Only records moved by the original merge are restored. Work added to the surviving ticket afterward stays there."
+        confirmLabel="Unmerge"
+        busy={unmerging}
+        onCancel={() => setConfirmUnmerge(false)}
+        onConfirm={() => void unmerge()}
+      />
     </Dialog>
   );
 };
+
+interface RelatedTicketSummary {
+  id: number;
+  ticketNumber: string;
+  title: string;
+  status: string;
+}
+
+interface RelatedTicketChild extends RelatedTicketSummary {
+  priority: string;
+}
+
+function isDoneStatus(status: string): boolean {
+  return status === "Resolved" || status === "Closed" || status === "Deleted";
+}
+
+function apiErrorMessage(error: unknown): string {
+  if (error instanceof api.ApiError) {
+    try {
+      const body = JSON.parse(error.body) as { error?: string };
+      if (body.error) return body.error;
+    } catch {
+      // Keep the shared client's complete message when the response is not JSON.
+    }
+  }
+  return error instanceof Error ? error.message : "The relationship could not be updated.";
+}
+
+function TicketRelationsCard({
+  ticketId,
+  parent,
+  children,
+  doneChildren,
+  canWrite,
+  onOpenTicket,
+  onChanged,
+  onError,
+}: {
+  ticketId?: number;
+  parent: RelatedTicketSummary | null;
+  children: RelatedTicketChild[];
+  doneChildren: number;
+  canWrite: boolean;
+  onOpenTicket?: (ticketId: number) => void;
+  onChanged: () => void;
+  onError: (message: string) => void;
+}) {
+  const [parentQuery, setParentQuery] = useState("");
+  const [parentOptions, setParentOptions] = useState<api.MergeTicketSummary[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!ticketId || parent || parentQuery.trim().length === 0) {
+      setParentOptions([]);
+      setSearching(false);
+      return;
+    }
+    let active = true;
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      api.searchTickets(parentQuery.trim(), 20)
+        .then((values) => {
+          if (!active) return;
+          const options = values.flatMap((value) => {
+            if (!value || typeof value !== "object") return [];
+            const row = value as Record<string, unknown>;
+            const id = Number(row.id);
+            if (!Number.isInteger(id) || id <= 0 || id === ticketId) return [];
+            return [{
+              id,
+              ticketNumber: String(row.ticketNumber ?? row.id),
+              title: String(row.title ?? ""),
+            }];
+          });
+          setParentOptions(options);
+        })
+        .catch((error) => {
+          if (active) onError(apiErrorMessage(error));
+        })
+        .finally(() => {
+          if (active) setSearching(false);
+        });
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [onError, parent, parentQuery, ticketId]);
+
+  const saveParent = async (parentId: number | null) => {
+    if (!ticketId) return;
+    setSaving(true);
+    onError("");
+    try {
+      await api.setTicketParent(ticketId, parentId);
+      setParentQuery("");
+      onChanged();
+    } catch (error) {
+      onError(apiErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card sx={{ mb: 2 }}>
+      <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 1.5 }}>
+          <AccountTreeIcon fontSize="small" color="action" />
+          <Typography variant="subtitle2" color="text.secondary">Ticket hierarchy</Typography>
+        </Stack>
+
+        <Typography variant="caption" color="text.secondary">Parent</Typography>
+        {parent ? (
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1}
+            sx={{ alignItems: { xs: "flex-start", sm: "center" }, mt: 0.5, minWidth: 0 }}
+          >
+            <StatusSignal status={parent.status} />
+            <Chip
+              variant="outlined"
+              color="primary"
+              label={`Parent #${parent.ticketNumber} · ${parent.title}`}
+              clickable={Boolean(onOpenTicket)}
+              onClick={onOpenTicket ? () => onOpenTicket(parent.id) : undefined}
+              onDelete={canWrite && !saving ? () => void saveParent(null) : undefined}
+              sx={{
+                minWidth: 0,
+                maxWidth: "100%",
+                "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis" },
+              }}
+            />
+          </Stack>
+        ) : canWrite ? (
+          <Autocomplete
+            size="small"
+            sx={{ mt: 0.5 }}
+            options={parentOptions}
+            inputValue={parentQuery}
+            value={null}
+            loading={searching}
+            filterOptions={(values) => values}
+            getOptionLabel={(option) => `#${option.ticketNumber} · ${option.title}`}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            onInputChange={(_event, value, reason) => {
+              if (reason !== "reset") setParentQuery(value);
+            }}
+            onChange={(_event, value) => {
+              if (value) void saveParent(value.id);
+            }}
+            disabled={saving}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Set parent"
+                placeholder="Search by ticket number or title"
+              />
+            )}
+          />
+        ) : (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>No parent</Typography>
+        )}
+
+        <Divider sx={{ my: 1.5 }} />
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{ justifyContent: "space-between", alignItems: "center", mb: children.length ? 0.75 : 0 }}
+        >
+          <Typography variant="subtitle2">Children</Typography>
+          <Chip
+            size="small"
+            variant="outlined"
+            label={`${doneChildren} of ${children.length} done`}
+            color={children.length > 0 && doneChildren === children.length ? "success" : "default"}
+          />
+        </Stack>
+        {children.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">No child tickets.</Typography>
+        ) : (
+          <Stack spacing={0.5}>
+            {children.map((child) => (
+              <Button
+                key={child.id}
+                color="inherit"
+                disabled={!onOpenTicket}
+                onClick={() => onOpenTicket?.(child.id)}
+                sx={{
+                  justifyContent: "flex-start",
+                  textTransform: "none",
+                  px: 1,
+                  py: 0.75,
+                  minWidth: 0,
+                }}
+              >
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={{ xs: 0.5, sm: 1 }}
+                  sx={{ width: "100%", minWidth: 0, alignItems: { xs: "flex-start", sm: "center" } }}
+                >
+                  {/* width:100% is load-bearing at xs: the Stack turns into a
+                      column with flex-start alignment, which sizes this item to
+                      max-content — so a noWrap title would run past the card
+                      edge instead of ellipsizing. */}
+                  <Typography
+                    variant="body2"
+                    noWrap
+                    sx={{ minWidth: 0, width: "100%", flexGrow: 1, textAlign: "left" }}
+                  >
+                    #{child.ticketNumber} · {child.title}
+                  </Typography>
+                  <Stack direction="row" spacing={1.5} sx={{ flex: "0 0 auto" }}>
+                    <StatusSignal status={child.status} />
+                    <PrioritySignal priority={child.priority} />
+                  </Stack>
+                </Stack>
+              </Button>
+            ))}
+          </Stack>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 /**
  * Two-way sync status bar for an external ticket. Shows the current state and,

@@ -69,6 +69,106 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 >
 > **As of 2.4.1:** checklist MCP parity is complete. In addition to the 2.4.0 apply/add/toggle tools and checklist data in `get_ticket`, agents can explicitly list, fully update, and delete working items; admins can create/update/delete templates through role-gated MCP tools. The server initialize version follows `backend/package.json`, and an SDK client/in-memory transport test guards the advertised tool contract. ChatGPT freezes approved MCP actions: refresh them under Workspace Settings → Apps → Action control on Enterprise/Edu, or recreate and republish the app on Business.
 
+> **As of 2.5.0 ("Sync you can actually trust") — shipped inside the 2.6.0 tag,
+> never released on its own:** a sync
+> correctness and multi-account pass. Plan + issue tracking:
+> [docs/roadmap-sync-2.5.md](docs/roadmap-sync-2.5.md); UX statement of work:
+> [docs/sow-sync-ux.md](docs/sow-sync-ux.md).
+> - **Jira sync actually works.** `/rest/api/3/search` was removed by Atlassian
+>   (410 Gone) — migrated to `/rest/api/3/search/jql` (opaque `nextPageToken`
+>   paging, explicit `fields`, unbounded JQL rejected). The incremental cutoff
+>   uses **unquoted epoch milliseconds**: a quoted literal is reinterpreted in
+>   the *account's* timezone, which silently skipped hours of updates per run.
+> - **Bad Jira credentials no longer fail silently.** `/search/jql` answers
+>   `200 {"issues":[],"isLast":true}` for an invalid, wrong-type, or absent
+>   token — it degrades to anonymous access. Only `/myself` returns 401, so
+>   `JiraProvider` verifies identity whenever a fetch comes back empty.
+> - **`Connection` is a first-class record.** Credentials moved off the global
+>   `settings` row, so one install can sync several Jira tenants. A sync job has
+>   `connectionId`; a ticket records `syncConnectionId` (external ids are only
+>   unique *within* an account — two sites both have `HELP-1`). Credential
+>   resolution **fails closed**: a disabled or deleted link never falls back to
+>   another tenant's account. ConnectWise is deliberately excluded from
+>   connections until its client is de-singletoned. A Jira connection's
+>   `baseUrl` is immutable after creation because the connection id is the
+>   ticket's tenant identity; use a new connection for a different site. Jira
+>   jobs must select that connection explicitly; credential rotation resets the
+>   watermark/health revision of every linked job.
+> - **Ticket sync has one admin home.** The old top-level Sync destination is
+>   gone; Admin → Ticket Sync (`?admin=ticket-sync`) owns connection
+>   add/edit/test, editable jobs, provider-neutral include/exclude filters,
+>   unfiltered first-run acknowledgement, manual runs, and phone-safe guided
+>   setup.
+> - **`SyncRun` is operational truth.** Every manual/scheduled attempt records
+>   success/degraded/error, duration, exact counters, latest issue, actor, and
+>   linked record activity — including zero-ticket successes and failures before
+>   fetch. Job cards show current-revision health, last attempt/success, and
+>   consecutive failures; run history/detail is a full-screen phone dialog.
+>   `lastSyncedAt` remains only an incremental watermark. Scope edits increment
+>   `configRevision`, clear that watermark, and prevent an older in-flight run
+>   from stamping it back. Starts are serialized by external account in
+>   Postgres, including across backend replicas; account/scope edits serialize
+>   against active runs.
+> - **`syncScheduler`** runs enabled jobs; previously `runAllSync()` was only
+>   reachable from the manual Run button.
+> - **Conflicts are an unconditional hold** — previously a held conflict was
+>   cleared on the next fetch and the local edit overwritten. Providers declare
+>   `writableFields`, pushes send only a real delta and are verified against a
+>   re-read, and `syncFilter.ts` gives every provider one include/exclude
+>   filtering vocabulary (pushed into JQL where it is a safe superset).
+> - **The rule:** remote error bodies are redacted before reaching `sync_log`,
+>   API responses, or logs — a wrong `baseUrl` receives the Basic auth header
+>   and can echo it back.
+
+> **As of 2.6.0 ("Relations"):** ticket **merge** and
+> **parent/child hierarchy**. Design + rationale:
+> [docs/roadmap-relations-2.6.md](docs/roadmap-relations-2.6.md).
+> - **The governing decision:** merge and hierarchy are **local-record
+>   operations that never push**. No provider call is made by the merge path —
+>   not a close, not a comment, not a link. Jira has no merge primitive, so any
+>   push invented here would be a guess about intent applied to a system we
+>   cannot roll back. Mapping merge onto a real `duplicates` link is a 3.0 item.
+> - **Merge is a link plus a ledger.** The source is never deleted: its number is
+>   already loose in email subject tokens and external references, so it stays a
+>   resolvable tombstone (`mergedIntoId` + `mergedAt`, status plain `Closed` — no
+>   new vocabulary value, so Kanban/saved views/automations are untouched).
+>   `TicketMerge.undoPlan` (v2) records the exact note / attachment /
+>   checklist-item / child ids that moved, the labels/devices **added to the
+>   target**, and the source's **full** label/device sets — the last two are
+>   different sets, and restoring from the "added" list alone permanently lost
+>   any association both tickets shared. Unmerge replays precisely that rather
+>   than guessing; a ledger that fails re-validation refuses the restore instead
+>   of doing half of it, and every restore is scoped to the target the rows were
+>   moved to so a stale ledger cannot steal a row from its current owner.
+> - **A merged ticket stops reconciling, unconditionally** — a guard in
+>   `twoWaySync` parallel to the existing conflict hold, plus one in the
+>   read-only `upsertExternal` path so a remote fetch cannot resurrect a
+>   tombstone. Its outcome is `merged`, deliberately distinct from `skipped`:
+>   skipping degrades run health, whereas a tombstone left alone is the design
+>   working, and collapsing the two would leave every run permanently degraded.
+> - **The stop is stated, not implied.** Merging a two-way-synced source (or
+>   across companies) requires the caller to echo back warning codes; without
+>   them the route 400s with `requiresAcknowledgement`. The same gate applies to
+>   MCP, so an agent cannot merge past a warning a human would have had to read.
+> - **Mail threading follows the merge.** Every `imapService` path that lands on
+>   an existing ticket — the three thread-resolution routes *and* the `P2002`
+>   duplicate-recovery branch — funnels through `resolveMergeTarget()`, which walks
+>   `mergedIntoId` (chains walked, not path-compressed; cycle- and depth-capped
+>   because it runs on the inbound-mail hot path). Without it a customer's reply
+>   opens correspondence on a closed tombstone nobody is watching.
+> - **Note reparenting is push-safe by construction.** `pushUnsyncedNotes`
+>   selects `externalId: null AND syncPending: true`, so an already-delivered
+>   note can never be re-pushed to the target's remote. The one hole — a note
+>   still queued for the source's remote, moved onto a target with no writable
+>   remote — is closed by clearing `syncPending` at merge time and recording the
+>   cleared ids for undo.
+> - **Hierarchy is one level, enforced twice.** A ticket with a parent may not
+>   itself be a parent, which removes cycle detection entirely. Checked under row
+>   locks in `ticketRepository.setParent` **and** by a trigger created in
+>   `db/pgExtras.ts` — the repository protects the application path, the trigger
+>   protects the `psql` session at 2am, which is how this data actually gets
+>   corrupted. Hierarchy is never pushed or pulled.
+
 Key design goals:
 - Excellent standalone ticketing experience first
 - Sync to/from external platforms second
@@ -266,13 +366,17 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/tickets` | List tickets — **paged** `{ items, total, page, pageSize }` (filters include status, assignee, company, label, `teamId`, typed `cf.<key>` equality, q, closed visibility, page, pageSize) |
+| GET | `/tickets` | List tickets — **paged** `{ items, total, page, pageSize }` (filters include status, assignee, company, label, `teamId`, typed `cf.<key>` equality, q, closed visibility, `parentId`, `hasParent`, `includeMerged`, page, pageSize) |
 | GET | `/tickets/search?q=` | **Postgres full-text search** (ranked) |
 | GET | `/tickets/:id` | Get one ticket with notes |
 | POST | `/tickets` | Create ticket (`dueAt`: optional ISO 8601 manual deadline) |
 | PATCH | `/tickets/:id` | Update ticket fields (`dueAt`: ISO 8601, or `null` to restore the SLA resolution target) |
 | DELETE | `/tickets/:id` | Soft-delete (status → Deleted) |
 | GET | `/tickets/:id/history` | Full audit log for this ticket |
+| GET | `/tickets/:id/merge-preview?targetId=` | Dry run: what would move, plus warnings and blockers |
+| POST | `/tickets/:id/merge` | `{ targetId, acknowledge? }` — 400 with `requiresAcknowledgement` until every warning is echoed back; 409 on a blocker |
+| POST | `/tickets/:id/unmerge` | Replays the merge ledger exactly; 422 if that ledger is unreadable |
+| GET | `/tickets/:id/children` | Child tickets (one level) |
 | GET | `/tickets/:id/notes` | List notes |
 | POST | `/tickets/:id/notes` | Add note |
 | PATCH | `/tickets/:id/notes/:noteId` | Edit note |
@@ -292,6 +396,19 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | GET/POST/PATCH/DELETE | `/automations/*` | Admin event-rule management, including SLA escalation rules |
 | GET/POST/PATCH/DELETE | `/views/*` | Own plus shared saved filters; only admins may publish/edit shared views |
 | GET/POST/DELETE | `/devices/:id/external-refs/*` | Provider identities attached to one physical device |
+
+### External ticket sync (2.5.0)
+
+| Method | Path | Description |
+|---|---|---|
+| GET/POST | `/connections` | Admin: list/create Jira account credentials (safe DTO; secrets never returned) |
+| PATCH/DELETE | `/connections/:id` | Admin: rotate credentials/edit/delete; Jira site identity is immutable and referenced rows block deletion |
+| POST | `/connections/:id/test` | Admin: non-mutating identity + visible-project check |
+| GET/POST | `/sync/providers` | Admin: list/create jobs with safe scope/filter config and explicit run health |
+| PATCH/DELETE | `/sync/providers/:providerId` | Admin: edit or delete a job |
+| POST | `/sync/run?provider=` | Admin: run one job or all enabled jobs |
+| GET | `/sync/runs` · `/sync/runs/:runId` | Admin: durable attempt summaries and bounded record-level activity |
+| GET | `/sync/log` | Admin: recent record-oriented activity (legacy/detail endpoint) |
 
 ### ConnectWise passthrough (requires CWM_* env vars)
 
@@ -324,8 +441,11 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | `backend/src/services/auth/` | `password`, `sessions`, `oidcService`, `samlService`, `totp`, `authConfig`, `bootstrap` |
 | `backend/src/routes/auth.ts` | Login flows (local/OIDC/SAML), MFA, logout, self-service |
 | `backend/src/routes/users.ts` | Admin user management + `/auth/settings` |
-| `backend/src/db/pgExtras.ts` | Postgres full-text + partial indexes (ensured on boot) |
+| `backend/src/db/pgExtras.ts` | Postgres full-text + partial indexes; ticket numbering, `pg_trgm`, and legacy external identity are fail-closed startup invariants |
 | `backend/src/providers/TicketProvider.ts` | **Strategy interface** for external sync sources |
+| `backend/src/repositories/connectionRepository.ts` · `syncProviderRepository.ts` · `syncRunRepository.ts` | External accounts, editable job scope/revisions, and durable run health |
+| `backend/src/services/syncService.ts` · `syncScheduler.ts` | Shared manual/scheduled reconciliation path; durable account-level overlap guard |
+| `backend/src/services/merge/mergeService.ts` · `mergeLedger.ts` | Reversible ticket merge (never pushes) + the re-validated undo inventory |
 | `backend/src/providers/NetVizProvider.ts` | netviz device-ingest normalizer (**owns the wire contract**) |
 | `backend/src/services/mail/MailTransport.ts` | **Strategy interface** for outbound mail (SMTP impl alongside) |
 | `backend/src/services/mail/ticketMail.ts` | Send + thread + record an email on a ticket (route delegates here) |
@@ -335,7 +455,8 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | `web-client/src/auth/` | `AuthContext`, `LoginView`, `AccountMenu` |
 | `backend/src/services/oui/` · `deviceClassify.ts` | Lazy OUI vendor lookup and non-destructive port/vendor device classification |
 | `web-client/src/components/NetworkView.tsx` · `NetworkMap.tsx` | AnchorDesk filtering/linked tickets around the netviz Canvas map |
-| `web-client/src/components/AdminView.tsx` | Admin: Users, Authentication, Teams, Custom Fields, Automations, Sync, Probes, Devices, Mail |
+| `web-client/src/components/AdminView.tsx` | Admin: Users, Authentication, Teams, Custom Fields, Automations, Ticket Sync, Probes, Devices, Mail |
+| `web-client/src/components/admin/TicketSyncPanel.tsx` · `SyncRunHistoryDialog.tsx` | Connection/job setup, filters, truthful health, and activity drill-down |
 | `web-client/src/App.tsx` | Main React component, auth gating, state management |
 | `docs/architecture.md` | Architecture diagram and pattern rationale |
 | `docs/schema.md` | Database schema documentation |

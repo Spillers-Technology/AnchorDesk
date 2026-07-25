@@ -14,6 +14,7 @@ anchordesk uses the **Strategy pattern** for external integrations. Each provide
 interface TicketProvider {
   readonly name: string;
   readonly canWriteBack?: boolean;
+  readonly writableFields?: ReadonlyArray<keyof TicketWriteback>;
   fetchTickets(since?: Date): Promise<ExternalTicket[]>;
   getTicket?(externalTicketId: string): Promise<ExternalTicket | null>;
   fetchNotes(externalTicketId: string): Promise<ExternalNote[]>;
@@ -92,10 +93,13 @@ cd backend && npx prisma db push
 
 ### 3. Configure a provider instance
 
-For supported ticket-provider types, use the **Sync** view to create, enable,
-run, or delete provider instances. Today the UI exposes `connectwise` and
-`jira`; add your provider to the route allowlist and UI selector before exposing
-it. The equivalent API is:
+For supported ticket-provider types, use **Admin → Ticket Sync** to manage the
+account connection, create/edit scope and filters, test credentials, run jobs,
+and inspect durable health/history. Today the UI exposes `connectwise` and
+`jira`; Jira credentials live in a first-class `Connection`, while ConnectWise
+stays on its legacy singleton until its client is de-singletoned. Add your
+provider to the route allowlists and UI selector before exposing it. The job API
+is:
 
 ```http
 POST /sync/providers
@@ -105,14 +109,21 @@ Content-Type: application/json
   "name": "My Platform",
   "type": "myplatform",
   "enabled": true,
+  "connectionId": 12,
   "config": {
     "board": "Support"
   }
 }
 ```
 
-Credentials shared by an integration belong in **Admin → Integrations** (seeded
-from environment variables), not in the provider row.
+Credentials belong in a `Connection` record, not in the provider row. The job's
+`config` is safe non-secret scope/filter data. If the remote account is part of
+ticket identity, keep its immutable identity fields separate from rotatable
+credentials; Jira's site URL, for example, cannot be changed after creation.
+Never choose a connection implicitly: the Jira job must persist the exact
+`connectionId` it may read and write. Starts are serialized per external
+account, so multiple filtered jobs on one connection do not race the same
+outbound backlog.
 
 ### 4. Wire into the sync service
 
@@ -122,10 +133,19 @@ The sync service instantiates providers via a factory based on
 ```typescript
 // backend/src/providers/ticketProviderFactory.ts
 
-export function createTicketProvider(type: string, cfg: Record<string, unknown> = {}): TicketProvider {
+export function createTicketProvider(
+  type: string,
+  cfg: Record<string, unknown> = {},
+  credentials: ProviderCredentials = {}
+): TicketProvider {
   switch (type) {
     case 'connectwise': return new ConnectWiseProvider((cfg.board as string) ?? undefined);
-    case 'jira':        return new JiraProvider((cfg.jql as string) ?? undefined);
+    case 'jira':        return new JiraProvider(
+      jiraService.credentialsFrom(credentials),
+      cfg.jql as string | undefined,
+      parseSyncFilter(cfg.filter),
+      cfg.projectKey as string | undefined
+    );
     case 'myplatform':  return new MyPlatformProvider(cfg);
     // ...
   }
@@ -136,12 +156,29 @@ export function createTicketProvider(type: string, cfg: Record<string, unknown> 
 
 ## Notes
 
-- `externalId` + `name` (provider name) must be stable across syncs — they're used to deduplicate records
+- `externalId` + provider type + connection identity must be stable across
+  syncs. Two tenants can both have `HELP-1`; never deduplicate globally by
+  provider type alone.
 - For two-way sync, set `canWriteBack = true` and implement `getTicket`, `updateTicket`, and `pushNote`
 - `pushTicket` is optional and only needed when the provider can create a new remote ticket from a local ticket
-- All sync activity is logged to `sync_log` automatically by the sync service
+- Every attempt is a `SyncRun`; record activity is linked in `sync_log`.
 - If your platform doesn't paginate the same way, handle pagination internally in `fetchTickets` and return a flat array
-- Add the new provider type to the create-route allowlist before exposing it in the Sync UI
+- Add the new provider type to the connection/job route allowlists before
+  exposing it in Admin → Ticket Sync.
+
+---
+
+## Merge and hierarchy contract
+
+Ticket merge and parent/child hierarchy are local-record operations in 2.6.
+Providers must never push or pull either relation. A merged source stops
+reconciling and returns the outcome `merged`, deliberately distinct from
+`skipped`: leaving a tombstone alone is expected behavior and must not degrade
+run health.
+
+Do not map merge to a remote close, comment, duplicate link, subtask, or parent
+field. Provider link and hierarchy mapping belongs to the 3.0 `TicketLink` work;
+until that lands, provider authors must leave both features local-only.
 
 ---
 

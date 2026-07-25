@@ -93,6 +93,13 @@ async function buildContext(event: DomainEvent, ticketId: number): Promise<EvalC
     include: { labels: true },
   });
   if (!ticket) return null;
+  // A merge sets the source's status to `Closed`, which would otherwise look
+  // exactly like a real resolution to every "when status becomes Closed" rule —
+  // firing satisfaction surveys and closure notices at customers about a
+  // duplicate. A merged ticket was not resolved; it was filed into another
+  // ticket, and the survivor raises its own events. Same spirit as the
+  // automation-actor loop guard above.
+  if (ticket.mergedIntoId) return null;
   const ctx = ticketContext(ticket);
   if (event.type === 'sla.atRisk') {
     ctx.kind = event.kind;

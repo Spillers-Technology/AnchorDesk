@@ -1,16 +1,26 @@
 import { AuditAction, Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
 
-/** Record a mutation event to the append-only audit log. */
-export async function record(opts: {
-  entityType: string;
-  entityId: number;
-  action: AuditAction;
-  changedBy: string;
-  oldValue?: Record<string, unknown> | null;
-  newValue?: Record<string, unknown> | null;
-}) {
-  return prisma.auditLog.create({
+/**
+ * Record a mutation event to the append-only audit log.
+ *
+ * Pass `db` (a `$transaction` callback's `tx`) when the mutation and its audit
+ * row must commit or fail together — a caller that runs the mutation and this
+ * call as two separate statements against the singleton client can end up with
+ * a committed, unaudited mutation if the audit write fails afterward.
+ */
+export async function record(
+  opts: {
+    entityType: string;
+    entityId: number;
+    action: AuditAction;
+    changedBy: string;
+    oldValue?: Record<string, unknown> | null;
+    newValue?: Record<string, unknown> | null;
+  },
+  db: Prisma.TransactionClient | typeof prisma = prisma
+) {
+  return db.auditLog.create({
     data: {
       entityType: opts.entityType,
       entityId: opts.entityId,

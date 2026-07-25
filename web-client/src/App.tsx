@@ -31,7 +31,6 @@ import DashboardAppBar from "./components/DashboardAppBar";
 import DashboardDrawer from "./components/DashboardDrawer";
 import TicketCard from "./components/TicketCard";
 import FilterDialog from "./components/FilterDialog";
-import SyncView from "./components/SyncView";
 // Lazy: the admin console is role-gated and heavy; keep it out of the main chunk.
 const AdminView = lazy(() => import("./components/AdminView"));
 import NetworkView from "./components/NetworkView";
@@ -97,6 +96,9 @@ function mapDbTicket(t: Record<string, unknown>): Ticket & { localId: number } {
     source: String(t.source ?? "local"),
     externalProvider: t.externalProvider ? String(t.externalProvider) : undefined,
     externalId: t.externalId ? String(t.externalId) : undefined,
+    parentId: t.parentId == null ? null : Number(t.parentId),
+    mergedIntoId: t.mergedIntoId == null ? null : Number(t.mergedIntoId),
+    mergedAt: t.mergedAt == null ? null : String(t.mergedAt),
     labels: (t.labels as Ticket["labels"]) ?? [],
   };
 }
@@ -156,7 +158,7 @@ function App() {
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [ticketNotes, setTicketNotes] = useState<Note[]>([]);
-  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban" | "sync" | "admin" | "network" | "companies" | "myday">(
+  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban" | "admin" | "network" | "companies" | "myday">(
     () => (new URLSearchParams(window.location.search).has("admin") ? "admin" : "kanban")
   );
   const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(null);
@@ -672,8 +674,6 @@ function App() {
             onOpenTicket={openTicketById}
             onViewNetwork={(name) => { setNetworkCompany(name); setViewMode("network"); }}
           />
-        ) : viewMode === "sync" ? (
-          <SyncView onTicketsChanged={fetchTickets} />
         ) : (
           <>
         {error && <Typography color="error">Error: {error.message}</Typography>}
@@ -795,6 +795,7 @@ function App() {
           onClose={handleTicketDialogClose}
           notes={ticketNotes}
           currentUser={currentUser}
+          onOpenTicket={openTicketById}
           onNotesChanged={async () => {
             if (selectedTicket?.localId != null) setTicketNotes(await fetchTicketNotes(selectedTicket.localId));
           }}

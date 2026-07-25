@@ -80,10 +80,19 @@ async function main() {
     await page.waitForTimeout(800); // let the canvas settle
     await page.screenshot({ path: path.join(outDir, "anchordesk-network.jpg"), type: "jpeg", quality: 90 });
 
-    console.log("Rendering Sync...");
-    await openDrawer(page, "Sync");
-    await page.getByText("Configured Providers", { exact: false }).waitFor({ timeout: 20_000 });
+    console.log("Rendering Ticket sync...");
+    await openDrawer(page, "Admin console");
+    await page.getByText("Open tickets", { exact: false }).waitFor({ timeout: 20_000 });
+    await page.getByText("Ticket Sync", { exact: true }).first().click();
+    await page.getByText("Sync jobs", { exact: true }).waitFor({ timeout: 20_000 });
     await page.screenshot({ path: path.join(outDir, "anchordesk-sync.jpg"), type: "jpeg", quality: 90 });
+    await page
+      .getByRole("button", { name: "View run history for SpillersTech — Jira helpdesk" })
+      .click();
+    await page
+      .getByRole("heading", { name: "SpillersTech — Jira helpdesk — run history" })
+      .waitFor({ timeout: 20_000 });
+    await page.screenshot({ path: path.join(outDir, "anchordesk-sync-history.jpg"), type: "jpeg", quality: 90 });
 
     console.log(`Captured screenshots in ${path.relative(repoRoot, outDir)}`);
   } finally {

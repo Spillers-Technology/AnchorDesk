@@ -26,6 +26,9 @@ The core entity. Created locally or synced from an external source.
 | `assignee_id` | FK → users | Local user FK if assignee is a local user |
 | `team_id` | FK → teams | Responsible queue/group, independent of individual assignment |
 | `custom_fields` | JSON | Values keyed by active `custom_field_defs.key`; validated on every write |
+| `parent_id` | FK → tickets | Optional direct parent; indexed self-relation with `ON DELETE SET NULL` |
+| `merged_into_id` | FK → tickets | Surviving ticket for a merged source; null on live tickets |
+| `merged_at` | DATETIME | When this source became a merged tombstone |
 | `source` | ENUM | `local`, `connectwise`, `jira`, `imap`, `api` |
 | `external_id` | VARCHAR(255) | ID in the upstream system; may hold an RFC 5322 Message-ID for IMAP tickets |
 | `external_provider` | VARCHAR | e.g. `connectwise`, `imap` |
@@ -38,6 +41,41 @@ The core entity. Created locally or synced from an external source.
 | `updated_at` | DATETIME | Auto-updated on every change |
 
 **Unique constraint:** `(external_id, external_provider)` — prevents duplicate imports from the same source.
+
+Hierarchy is deliberately one level in 2.6: a ticket with a parent may not
+itself have children. `ticketRepository.setParent` checks the candidate rows
+under locks, and the `trg_tickets_single_level_hierarchy` trigger created by
+`backend/src/db/pgExtras.ts` enforces the same invariant for direct database
+writes.
+
+A merge never deletes the source. `merged_into_id` and `merged_at` turn it into
+a resolvable tombstone while its status becomes the existing plain `Closed`
+value. Merge adds no status vocabulary, so Kanban columns, saved views, and
+automations continue to use the normal ticket states.
+
+---
+
+### `ticket_merges`
+
+The reversible ledger for a ticket merge. The source and target remain ordinary
+ticket rows; this record describes the merge operation and exactly how to undo
+it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INT PK | |
+| `source_id` | FK → tickets | Tombstone ticket that was merged |
+| `target_id` | FK → tickets | Surviving ticket |
+| `actor` | VARCHAR(255) | User/channel attribution for the merge |
+| `merged_at` | DATETIME | Merge timestamp |
+| `unmerged_at` | DATETIME | Null while the merge is active; set after a successful restore |
+| `undo_plan` | JSON | Versioned inventory of the exact rows and source state changed by the merge |
+
+`undo_plan` exists so unmerge can restore the exact note, attachment,
+checklist-item, child, and label ids moved by that operation, along with the
+source's prior status and sync state. It is not re-derived from the survivor:
+work added after the merge must stay there, and an invalid ledger fails closed
+instead of performing a partial restore.
 
 ---
 
@@ -56,6 +94,7 @@ Normalized per-ticket notes and time entries.
 | `time_start` | DATETIME | Start time for time entries |
 | `time_stop` | DATETIME | Stop time for time entries |
 | `external_id` | VARCHAR(255) | ID in upstream system or RFC 5322 Message-ID (for sync/thread dedup) |
+| `origin_ticket_id` | INT | Original ticket id when a merge reparents the note; null when it has never moved |
 | `direction` | VARCHAR | `inbound` or `outbound` for email notes |
 | `html_content` | TEXT | Sanitized HTML body for email and rich internal notes |
 | `email_from`, `email_to`, `email_cc`, `email_bcc` | VARCHAR/TEXT | Email correspondence metadata |
@@ -75,7 +114,7 @@ Append-only event stream. Every mutation (create/update/delete/sync) writes a re
 | `id` | BIGINT PK | |
 | `entity_type` | VARCHAR | `ticket`, `note`, etc. |
 | `entity_id` | INT | ID of the affected entity |
-| `action` | ENUM | `create`, `update`, `delete`, `sync` |
+| `action` | ENUM | `create`, `update`, `delete`, `sync`, `merge`, `unmerge` |
 | `changed_by` | VARCHAR | Actor and channel (web/API/MCP), `automation:<rule>`, or `system` |
 | `old_value` | JSON | Full snapshot of the record before the change |
 | `new_value` | JSON | Full snapshot of the record after the change |
@@ -127,19 +166,64 @@ Secrets are write-only over the API.
 
 ---
 
+### `connections`
+
+One external account identity and its credentials. Jira supports multiple
+connections; ConnectWise remains on its legacy process-global configuration
+until its client is de-singletoned.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INT PK | Stable tenant/account identity |
+| `name` | VARCHAR UNIQUE | Human label |
+| `type` | ENUM | Currently managed through this table: `jira` |
+| `config` | JSON | Credential shape; secret values never leave the repository DTO |
+| `enabled` | BOOL | Disabled explicit links fail closed |
+| `last_test_*` | DATETIME/BOOL/TEXT | Persisted non-mutating credential-test result |
+| `created_at`, `updated_at` | DATETIME | |
+
+For Jira, `config.baseUrl` is immutable after creation. Imported tickets retain
+`sync_connection_id`, so repointing the same row at another site would cross a
+tenant boundary; create a new connection instead.
+
+---
+
 ### `sync_providers`
 
-Configured external integrations. One row per configured source.
+Configured external ticket-sync jobs. One account can have several jobs with
+different project/query/filter scopes.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | INT PK | |
 | `name` | VARCHAR UNIQUE | Human label e.g. `ConnectWise Production` |
 | `type` | ENUM | `connectwise`, `jira`, `imap`, `tactical_rmm`, `ninjaone`, `datto_rmm`, `meshcentral`, `netviz` |
-| `config` | JSON | Provider-specific non-secret settings. Shared credentials are managed under Admin → Integrations |
+| `config` | JSON | Provider-specific non-secret scope/filter settings |
 | `enabled` | BOOL | Disable without deleting |
-| `last_synced_at` | DATETIME | Timestamp of last successful sync run |
+| `connection_id` | FK → connections, nullable | Required explicit account for Jira; ConnectWise remains null while singleton |
+| `last_synced_at` | DATETIME | Incremental fetch watermark only; not run health |
+| `config_revision` | INT | Incremented when account/scope/filter changes; guards watermark advancement |
 | `created_at` | DATETIME | |
+
+---
+
+### `sync_runs`
+
+Durable boundary for every manual or scheduled job attempt, including
+zero-ticket successes and failures before a remote fetch.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INT PK | |
+| `provider_id` | FK → sync_providers | Job that ran |
+| `config_revision` | INT | Scope revision used by this attempt |
+| `trigger` | ENUM | `manual` or `scheduled` |
+| `status` | ENUM | `running`, `success`, `degraded`, `error` |
+| `initiated_by` | VARCHAR | Actor for manual runs; `system` for scheduler |
+| `started_at`, `completed_at`, `duration_ms` | DATETIME / INT | Attempt timing |
+| `tickets_created`, `tickets_updated`, `notes_upserted` | INT | Result counters |
+| `tickets_filtered`, `tickets_skipped`, `tickets_conflicted`, `error_count` | INT | `tickets_filtered` counts local post-fetch rejection |
+| `latest_error` | TEXT | Redacted latest actionable issue sample |
 
 ---
 
@@ -151,6 +235,7 @@ Record of each individual sync operation (one row per external ticket synced).
 |---|---|---|
 | `id` | BIGINT PK | |
 | `provider_id` | FK → sync_providers | |
+| `run_id` | FK → sync_runs, nullable | Durable attempt boundary; null on legacy rows |
 | `external_id` | VARCHAR(255) | External ticket ID |
 | `internal_id` | FK → tickets | Local ticket ID if matched/created |
 | `direction` | ENUM | `inbound` or `outbound` |

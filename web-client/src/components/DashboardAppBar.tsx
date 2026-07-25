@@ -15,7 +15,7 @@ interface DashboardAppBarProps {
   drawerOpen: boolean;
   toggleDrawer: () => void;
   currentView: string;
-  viewMode: "cards" | "table" | "kanban" | "sync" | "admin" | "network" | "companies" | "myday";
+  viewMode: "cards" | "table" | "kanban" | "admin" | "network" | "companies" | "myday";
   onOpenTicket?: (ticketId: number) => void;
 }
 
@@ -31,8 +31,6 @@ const DashboardAppBar: React.FC<DashboardAppBarProps> = ({
         return "Tickets";
       case "myTickets":
         return "My Tickets";
-      case "sync":
-        return "Sync Management";
       case "admin":
         return "Admin";
       case "network":
