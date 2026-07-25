@@ -132,10 +132,14 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 >   already loose in email subject tokens and external references, so it stays a
 >   resolvable tombstone (`mergedIntoId` + `mergedAt`, status plain `Closed` — no
 >   new vocabulary value, so Kanban/saved views/automations are untouched).
->   `TicketMerge.undoPlan` records the exact note / attachment / checklist-item /
->   child / label ids that moved, so **unmerge replays precisely that** rather
+>   `TicketMerge.undoPlan` (v2) records the exact note / attachment /
+>   checklist-item / child ids that moved, the labels/devices **added to the
+>   target**, and the source's **full** label/device sets — the last two are
+>   different sets, and restoring from the "added" list alone permanently lost
+>   any association both tickets shared. Unmerge replays precisely that rather
 >   than guessing; a ledger that fails re-validation refuses the restore instead
->   of doing half of it.
+>   of doing half of it, and every restore is scoped to the target the rows were
+>   moved to so a stale ledger cannot steal a row from its current owner.
 > - **A merged ticket stops reconciling, unconditionally** — a guard in
 >   `twoWaySync` parallel to the existing conflict hold, plus one in the
 >   read-only `upsertExternal` path so a remote fetch cannot resurrect a
@@ -146,8 +150,9 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 >   across companies) requires the caller to echo back warning codes; without
 >   them the route 400s with `requiresAcknowledgement`. The same gate applies to
 >   MCP, so an agent cannot merge past a warning a human would have had to read.
-> - **Mail threading follows the merge.** All three `imapService` thread-
->   resolution paths funnel through `resolveMergeTarget()`, which walks
+> - **Mail threading follows the merge.** Every `imapService` path that lands on
+>   an existing ticket — the three thread-resolution routes *and* the `P2002`
+>   duplicate-recovery branch — funnels through `resolveMergeTarget()`, which walks
 >   `mergedIntoId` (chains walked, not path-compressed; cycle- and depth-capped
 >   because it runs on the inbound-mail hot path). Without it a customer's reply
 >   opens correspondence on a closed tombstone nobody is watching.
