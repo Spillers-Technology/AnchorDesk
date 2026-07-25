@@ -67,6 +67,10 @@ export interface Ticket {
   // Two-way sync state for external tickets (null/undefined for local ones).
   syncState?: "synced" | "pending" | "conflict" | "error" | null;
   syncedAt?: string | null;
+  // Local-only ticket relationships (2.6).
+  parentId?: number | null;
+  mergedIntoId?: number | null;
+  mergedAt?: string | null;
   // Labels (1.8.0) — managed tags, e.g. which mailbox a ticket arrived on.
   labels?: { label: { id: number; name: string; color: string } }[];
 }

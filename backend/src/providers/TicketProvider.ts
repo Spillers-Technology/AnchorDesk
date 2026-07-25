@@ -22,11 +22,20 @@ export interface ExternalTicket {
   updatedAt?: Date;
 }
 
-/** The subset of fields two-way sync pushes back to the external system. */
+/**
+ * The subset of fields two-way sync pushes back to the external system.
+ *
+ * This must stay in step with `twoWaySync.fingerprint()`. Any field that is
+ * fingerprinted but not writable here is silently dropped on push and then
+ * hidden forever by the refreshed baseline hash — see the title/description
+ * data-loss bug fixed in 2.5.
+ */
 export interface TicketWriteback {
   status?: string;
   priority?: string;
   assignee?: string;
+  title?: string;
+  description?: string;
 }
 
 export interface ExternalNote {
@@ -39,6 +48,9 @@ export interface ExternalNote {
   createdAt?: Date;
 }
 
+/** Fields a provider is actually able to write back. */
+export type WritableField = keyof TicketWriteback;
+
 export interface TicketProvider {
   /** Human-readable name used in sync_log records. */
   readonly name: string;
@@ -46,6 +58,17 @@ export interface TicketProvider {
   /** Whether this provider supports writing local changes back out (two-way).
    *  When true it must implement getTicket, updateTicket, and pushNote. */
   readonly canWriteBack?: boolean;
+
+  /**
+   * Which fields this provider can genuinely push outbound.
+   *
+   * Two-way sync uses this to decide what a local edit may be held responsible
+   * for: a field outside this set is never treated as unsynced local work and
+   * never verified after a push. Without it, sending a field the remote silently
+   * ignores (ConnectWise has no title/description write) makes every push look
+   * like a failure.
+   */
+  readonly writableFields?: ReadonlyArray<WritableField>;
 
   /** Fetch tickets modified since `since`, or all tickets if omitted. */
   fetchTickets(since?: Date): Promise<ExternalTicket[]>;

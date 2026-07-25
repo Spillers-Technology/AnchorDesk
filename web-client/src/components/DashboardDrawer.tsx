@@ -13,13 +13,12 @@ import ViewModuleIcon from "@mui/icons-material/ViewModule";
 import TableRowsIcon from "@mui/icons-material/TableRows";
 import ViewKanbanIcon from "@mui/icons-material/ViewKanban";
 import HubIcon from "@mui/icons-material/Hub";
-import SyncIcon from "@mui/icons-material/Sync";
 import SettingsIcon from "@mui/icons-material/Settings";
 import AnchorIcon from "@mui/icons-material/Anchor";
 import BusinessIcon from "@mui/icons-material/Business";
 import ViewTimelineIcon from "@mui/icons-material/ViewTimeline";
 
-type ViewMode = "cards" | "table" | "kanban" | "sync" | "admin" | "network" | "companies" | "myday";
+type ViewMode = "cards" | "table" | "kanban" | "admin" | "network" | "companies" | "myday";
 
 interface DashboardDrawerProps {
   drawerOpen: boolean;
@@ -51,7 +50,6 @@ const TIME_NAV: NavItem[] = [
 const OPS_NAV: NavItem[] = [
   { mode: "companies", label: "Companies", icon: <BusinessIcon /> },
   { mode: "network", label: "Network", icon: <HubIcon /> },
-  { mode: "sync", label: "Sync", icon: <SyncIcon /> },
 ];
 
 export default function DashboardDrawer({ drawerOpen, toggleDrawer, setViewMode, currentView, isAdmin, legacyTableView }: DashboardDrawerProps) {

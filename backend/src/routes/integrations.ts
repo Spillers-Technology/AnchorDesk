@@ -31,8 +31,21 @@ export async function integrationRoutes(server: FastifyInstance) {
   server.patch<{ Params: { key: string } }>('/integrations/:key', adminOnly, async (req, reply) => {
     const { key } = req.params;
     if (!isKey(key)) return reply.status(404).send({ error: 'unknown integration' });
-    const updated = await settings.updateSetting(key, (req.body ?? {}) as Record<string, unknown>);
-    return reply.send(settings.toPublic(key, updated));
+    try {
+      const updated = await settings.updateSetting(key, (req.body ?? {}) as Record<string, unknown>);
+      return reply.send(settings.toPublic(key, updated));
+    } catch (err) {
+      if (
+        err instanceof settings.IntegrationSettingConflictError ||
+        err instanceof settings.IntegrationSettingBusyError
+      ) {
+        return reply.status(409).send({ error: err.message });
+      }
+      if (err instanceof settings.IntegrationSettingValidationError) {
+        return reply.status(400).send({ error: err.message });
+      }
+      throw err;
+    }
   });
 
   // ─── IMAP mailboxes ─────────────────────────────────────────────────────────

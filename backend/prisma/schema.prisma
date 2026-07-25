@@ -278,6 +278,15 @@ model Ticket {
   syncedAt         DateTime?    @map("synced_at")
   remoteHash       String?      @map("remote_hash") @db.VarChar(64)
   remoteUpdatedAt  DateTime?    @map("remote_updated_at")
+  // Monotonic version for sync-relevant local mutations. A reconcile may only
+  // overwrite fields or clear pending state when this still matches the
+  // version it read before performing remote I/O.
+  syncRevision     Int          @default(0) @map("sync_revision")
+  // Which external account this ticket came from. Required once more than one
+  // connection of the same type can exist: without it, reconcile would resolve
+  // credentials by provider type alone and could push a ticket back to the wrong
+  // tenant. Null means "the legacy single account" (env/settings-seeded).
+  syncConnectionId Int?         @map("sync_connection_id")
   // SLA tracking. The resolved policy (slaPolicyId) yields response/resolution
   // deadlines, recomputed when priority or company changes. firstRespondedAt is
   // stamped on the first outbound tech note/email and freezes the response clock.
@@ -289,15 +298,31 @@ model Ticket {
   // (chips, at-risk/breach evaluation, automations); clearing it falls back to
   // resolutionDueAt. The response clock is a separate promise and is unaffected.
   dueAt            DateTime?    @map("due_at")
+  // Hierarchy. Deliberately a scalar rather than a link table: cardinality and
+  // acyclicity are constraints a generic graph table cannot cheaply enforce, and
+  // "children of #123" must be one indexed lookup. 2.6 invariant: exactly one
+  // level — a ticket with a parent may not itself be a parent, which removes
+  // cycle detection entirely. Enforced in ticketRepository AND by a trigger in
+  // db/pgExtras.ts, because direct psql access is how this actually gets broken.
+  // Never pushed or pulled: provider hierarchy mapping is a 3.0 item.
+  parentId         Int?         @map("parent_id")
+  // Merge. The source is never deleted — its ticket number is already loose in
+  // email subject tokens and external references, and each of those must still
+  // resolve. Source status becomes plain `Closed` (no new vocabulary value, so
+  // Kanban/saved views/automations are untouched); `mergedIntoId != null` is the
+  // predicate that drives merge rendering. A merged ticket stops reconciling
+  // unconditionally — see twoWaySync's guard and docs/roadmap-relations-2.6.md.
+  mergedIntoId     Int?         @map("merged_into_id")
+  mergedAt         DateTime?    @map("merged_at")
   closedAt         DateTime?    @map("closed_at")
   createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt @map("updated_at")
 
-  assigneeUser  User?          @relation("AssignedTickets", fields: [assigneeId], references: [id])
-  team          Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  company       Company?       @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  contact       Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  slaPolicy     SlaPolicy?     @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
+  assigneeUser  User?           @relation("AssignedTickets", fields: [assigneeId], references: [id])
+  team          Team?           @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  company       Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact       Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  slaPolicy     SlaPolicy?      @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
   notes         Note[]
   syncEntries   SyncLog[]
   deviceLinks   DeviceLink[]
@@ -307,42 +332,98 @@ model Ticket {
   labels        TicketLabel[]
   checklist     ChecklistItem[]
 
-  @@unique([externalId, externalProvider])
+  parent         Ticket?       @relation("TicketHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children       Ticket[]      @relation("TicketHierarchy")
+  // SetNull rather than Cascade: losing the survivor must not delete the
+  // tombstones that point at it, or the ticket numbers people hold stop
+  // resolving. An orphaned tombstone reverts to an ordinary closed ticket.
+  mergedInto     Ticket?       @relation("TicketMergeTarget", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedSources  Ticket[]      @relation("TicketMergeTarget")
+  mergesAsSource TicketMerge[] @relation("MergeSource")
+  mergesAsTarget TicketMerge[] @relation("MergeTarget")
+
+  // Identity must include the account: two Jira sites routinely both contain
+  // "HELP-1". Keyed on provider alone, tenant B's import would find tenant A's
+  // row, merge B's fields into it, and never create B's ticket.
+  // (Postgres treats NULLs as distinct, so legacy unattached rows are not
+  // constrained against each other — the boot migration attaches them, and new
+  // ingests always record their resolved connection.)
+  @@unique([externalId, externalProvider, syncConnectionId])
+  @@index([syncConnectionId])
   @@index([companyId])
   @@index([teamId])
   @@index([responseDueAt])
   @@index([resolutionDueAt])
   @@index([dueAt])
+  @@index([parentId])
+  @@index([mergedIntoId])
   @@map("tickets")
 }
 
+/// One merge, and the exact inventory of what it moved.
+///
+/// Unmerge that re-derives "what probably came from #123" is a guess that gets
+/// worse every day the surviving ticket keeps living. This records the precise
+/// note / attachment / checklist-item / child / label ids that moved, plus the
+/// source's prior status and sync state, so unmerge replays exactly that and
+/// nothing else. Anything added to the target after the merge stays on the
+/// target — the behaviour people expect, and the only one the ledger can
+/// honestly promise.
+model TicketMerge {
+  id         Int       @id @default(autoincrement())
+  sourceId   Int       @map("source_id")
+  targetId   Int       @map("target_id")
+  actor      String    @db.VarChar(255)
+  mergedAt   DateTime  @default(now()) @map("merged_at")
+  unmergedAt DateTime? @map("unmerged_at")
+  /// Versioned undo inventory; shape owned by services/merge/mergeLedger.ts.
+  undoPlan   Json      @map("undo_plan")
+
+  source Ticket @relation("MergeSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target Ticket @relation("MergeTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  // At most one live (un-reversed) merge per source. A source that is already
+  // merged is rejected at the route, but the index makes it structural.
+  @@index([sourceId, unmergedAt])
+  @@index([targetId, mergedAt])
+  @@map("ticket_merges")
+}
+
 model Note {
-  id          Int       @id @default(autoincrement())
-  ticketId    Int       @map("ticket_id")
-  content     String    @db.Text
-  author      String    @db.VarChar(150)
-  authorId    Int?      @map("author_id")
-  noteType    NoteType  @default(note) @map("note_type")
-  timeStart   DateTime? @map("time_start")
-  timeStop    DateTime? @map("time_stop")
+  id             Int       @id @default(autoincrement())
+  ticketId       Int       @map("ticket_id")
+  content        String    @db.Text
+  author         String    @db.VarChar(150)
+  authorId       Int?      @map("author_id")
+  noteType       NoteType  @default(note) @map("note_type")
+  timeStart      DateTime? @map("time_start")
+  timeStop       DateTime? @map("time_stop")
   // Canonical billable duration for time_entry notes (minutes). Lets users log
   // "30m" directly without start/stop; totals sum this field.
-  minutes     Int?
-  externalId  String?   @map("external_id") @db.VarChar(255)
+  minutes        Int?
+  externalId     String?   @map("external_id") @db.VarChar(255)
+  // Durable outbound-comment outbox marker. Only explicitly customer-visible
+  // local notes set this; internal/RMM/provider-ingested notes stay false even
+  // when their noteType is `note`.
+  syncPending    Boolean   @default(false) @map("sync_pending")
+  // Set when a merge moved this note off another ticket. Kept so the timeline
+  // can attribute it ("from #1042") and so the merge ledger's restore is
+  // verifiable against the rows themselves, not only against its own JSON.
+  originTicketId Int?      @map("origin_ticket_id")
   // Email correspondence metadata (noteType = email). `content` holds the plain-text
   // body (search/preview); `htmlContent` holds the sanitized HTML rendered in the
   // conversation view. `direction` is "inbound" | "outbound". `inReplyTo` is the
   // Message-ID this email replied to, for thread rendering.
-  direction   String?   @db.VarChar(10)
-  htmlContent String?   @map("html_content") @db.Text
-  emailFrom   String?   @map("email_from") @db.VarChar(320)
-  emailTo     String?   @map("email_to") @db.Text
-  emailCc     String?   @map("email_cc") @db.Text
-  emailBcc    String?   @map("email_bcc") @db.Text
-  subject     String?   @db.VarChar(255)
-  inReplyTo   String?   @map("in_reply_to") @db.VarChar(255)
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  direction      String?   @db.VarChar(10)
+  htmlContent    String?   @map("html_content") @db.Text
+  emailFrom      String?   @map("email_from") @db.VarChar(320)
+  emailTo        String?   @map("email_to") @db.Text
+  emailCc        String?   @map("email_cc") @db.Text
+  emailBcc       String?   @map("email_bcc") @db.Text
+  subject        String?   @db.VarChar(255)
+  inReplyTo      String?   @map("in_reply_to") @db.VarChar(255)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   ticket      Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   authorUser  User?        @relation("AuthoredNotes", fields: [authorId], references: [id])
@@ -546,23 +627,116 @@ model AuditLog {
   @@map("audit_log")
 }
 
+/// Credentials for one external account (a Jira site, a ConnectWise instance).
+///
+/// Credentials used to live in a single `settings` row per provider type, which
+/// hard-capped AnchorDesk at one Jira account and one ConnectWise account per
+/// install. An MSP syncing several clients' tenants is a normal case, so the
+/// account is a record you can have many of, and a sync job points at one.
+///
+/// `config` holds the type-specific credential shape (Jira: baseUrl/email/
+/// apiToken; ConnectWise: server/company/publicKey/privateKey/clientId).
+/// Secrets are never serialized outbound — the API returns `hasX: boolean`.
+model Connection {
+  id              Int          @id @default(autoincrement())
+  name            String       @unique @db.VarChar(100)
+  type            ProviderType
+  config          Json
+  enabled         Boolean      @default(true)
+  /// Incremented whenever credentials change. Connection tests compare this
+  /// revision so an in-flight result cannot certify a newer credential set.
+  configRevision  Int          @default(1) @map("config_revision")
+  /// Result of the last non-mutating credential test; no secrets.
+  lastTestAt      DateTime?    @map("last_test_at")
+  lastTestOk      Boolean?     @map("last_test_ok")
+  lastTestMessage String?      @map("last_test_message") @db.Text
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  providers SyncProvider[]
+
+  @@index([type])
+  @@map("connections")
+}
+
 model SyncProvider {
-  id           Int          @id @default(autoincrement())
-  name         String       @unique @db.VarChar(100)
-  type         ProviderType
-  config       Json
-  enabled      Boolean      @default(true)
-  lastSyncedAt DateTime?    @map("last_synced_at")
-  createdAt    DateTime     @default(now()) @map("created_at")
+  id             Int          @id @default(autoincrement())
+  name           String       @unique @db.VarChar(100)
+  type           ProviderType
+  config         Json
+  enabled        Boolean      @default(true)
+  lastSyncedAt   DateTime?    @map("last_synced_at")
+  /// Incremented whenever account/scope/filter changes. A run may advance the
+  /// incremental watermark only when it still matches the revision it started.
+  configRevision Int          @default(1) @map("config_revision")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  /// Which external account this job syncs against. Jira jobs require one;
+  /// null is retained only for the legacy-global ConnectWise path and for a
+  /// safely disabled/incomplete migration row.
+  connectionId Int?        @map("connection_id")
+  connection   Connection? @relation(fields: [connectionId], references: [id])
 
   syncLogs SyncLog[]
+  syncRuns SyncRun[]
 
+  @@index([connectionId])
   @@map("sync_providers")
+}
+
+/// One durable attempt to execute a sync job. `lastSyncedAt` on SyncProvider is
+/// only an incremental-fetch watermark; this record is the source of truth for
+/// operational health, including zero-ticket successes and failures that happen
+/// before a remote fetch begins.
+model SyncRun {
+  id                Int            @id @default(autoincrement())
+  providerId        Int            @map("provider_id")
+  configRevision    Int            @map("config_revision")
+  /// 1 = this run held the full-operation account advisory lock introduced in
+  /// 2.5. Legacy rows default to 0 and are never auto-recovered based on that
+  /// lock, because an older live process would not know to hold it.
+  lockProtocol      Int            @default(0) @map("lock_protocol")
+  trigger           SyncRunTrigger
+  status            SyncRunStatus  @default(running)
+  initiatedBy       String?        @map("initiated_by") @db.VarChar(255)
+  startedAt         DateTime       @default(now()) @map("started_at")
+  completedAt       DateTime?      @map("completed_at")
+  durationMs        Int?           @map("duration_ms")
+  ticketsCreated    Int            @default(0) @map("tickets_created")
+  ticketsUpdated    Int            @default(0) @map("tickets_updated")
+  notesUpserted     Int            @default(0) @map("notes_upserted")
+  ticketsFiltered   Int            @default(0) @map("tickets_filtered")
+  ticketsSkipped    Int            @default(0) @map("tickets_skipped")
+  ticketsConflicted Int            @default(0) @map("tickets_conflicted")
+  errorCount        Int            @default(0) @map("error_count")
+  latestError       String?        @map("latest_error") @db.Text
+
+  provider SyncProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  syncLogs SyncLog[]
+
+  @@index([providerId, startedAt], map: "idx_sync_run_provider")
+  @@index([status, startedAt], map: "idx_sync_run_status")
+  @@map("sync_runs")
+}
+
+/// One fail-closed claim for remote work against an external account. The
+/// owner token makes release compare-and-set: a late finally block can never
+/// delete a newer owner's claim. Claims are not expired automatically because
+/// losing a database connection does not prove an in-flight remote write
+/// stopped; an orphan therefore requires explicit operator recovery.
+model SyncAccountClaim {
+  accountKey String   @id @map("account_key") @db.VarChar(255)
+  ownerToken String   @unique @map("owner_token") @db.Uuid
+  claimedAt  DateTime @default(now()) @map("claimed_at")
+
+  @@index([claimedAt])
+  @@map("sync_account_claims")
 }
 
 model SyncLog {
   id         BigInt        @id @default(autoincrement())
   providerId Int           @map("provider_id")
+  runId      Int?          @map("run_id")
   externalId String?       @map("external_id") @db.VarChar(255)
   internalId Int?          @map("internal_id")
   direction  SyncDirection
@@ -571,9 +745,11 @@ model SyncLog {
   syncedAt   DateTime      @default(now()) @map("synced_at")
 
   provider SyncProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  run      SyncRun?     @relation(fields: [runId], references: [id], onDelete: SetNull)
   ticket   Ticket?      @relation(fields: [internalId], references: [id])
 
   @@index([providerId, syncedAt], map: "idx_sync_provider")
+  @@index([runId, syncedAt], map: "idx_sync_run_log")
   @@map("sync_log")
 }
 
@@ -874,6 +1050,11 @@ enum AuditAction {
   update
   delete
   sync
+  // A merge is not an update: it moves rows between two tickets and is
+  // reversible through its own ledger. Recording it as `update` would make the
+  // ticket history unable to explain where a conversation went.
+  merge
+  unmerge
 }
 
 enum ProviderType {
@@ -920,4 +1101,16 @@ enum SyncStatus {
   success
   error
   skipped
+}
+
+enum SyncRunTrigger {
+  manual
+  scheduled
+}
+
+enum SyncRunStatus {
+  running
+  success
+  degraded
+  error
 }

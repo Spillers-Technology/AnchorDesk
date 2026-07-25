@@ -19,6 +19,7 @@ import { mailRoutes } from './routes/mail';
 import { mailConfigRoutes } from './routes/mailConfig';
 import { cwRoutes } from './routes/cw';
 import { syncRoutes } from './routes/sync';
+import { connectionRoutes } from './routes/connections';
 import { pingRoutes } from './routes/ping';
 import { mcpRoutes } from './routes/mcp';
 import { oauthRoutes } from './routes/oauth';
@@ -39,6 +40,7 @@ import { runDataMigrations } from './db/dataMigrations';
 import { startScriptScheduler } from './services/scriptScheduler';
 import { startImapScheduler } from './services/imapScheduler';
 import { startSlaScheduler } from './services/slaScheduler';
+import { startSyncScheduler } from './services/syncScheduler';
 import { initWsHub } from './services/realtime/wsHub';
 import { initNotificationService } from './services/notificationService';
 import { initAutomationService } from './services/automation/automationService';
@@ -49,6 +51,7 @@ import { savedViewRoutes } from './routes/views';
 import { config } from './config/config';
 import { prisma } from './db/prisma';
 import { backfillLegacyExternalRefs } from './repositories/deviceRepository';
+import { recoverInterruptedRuns } from './repositories/syncRunRepository';
 
 async function start() {
   const server = fastify({ logger: true });
@@ -145,6 +148,7 @@ async function start() {
   server.register(cwRoutes);
   // Sync management (trigger runs, view providers, view log)
   server.register(syncRoutes);
+  server.register(connectionRoutes);
   // Health check
   server.register(pingRoutes);
   // MCP server — SSE transport at /mcp/sse, messages at /mcp/messages
@@ -167,29 +171,50 @@ async function start() {
     server.log.info({ count: backfilledRefs }, 'Backfilled legacy device external references');
   }
 
-  await server.listen({ port: Number(config.serverPort), host: '0.0.0.0' });
-  server.log.info(`anchordesk backend listening on :${config.serverPort}`);
+  // Seed integration settings from env + hydrate runtime config. This runs
+  // BEFORE data migrations: the 2.5 migration adopts settings-row credentials
+  // into a Connection, and on a fresh env-only install that row does not exist
+  // until seeding has happened — otherwise adoption would silently wait for the
+  // next restart.
+  // Sync-account adoption depends on the seeded row, and an incomplete
+  // identity migration is unsafe to run against. Both are therefore startup
+  // gates rather than warnings.
+  await seedSettings();
+  await runDataMigrations(server.log);
 
-  // Postgres-specific indexes (full-text search + partial indexes).
-  await ensurePgExtras(server.log).catch((err) => server.log.error({ err }, 'pgExtras failed'));
-  await runDataMigrations(server.log).catch((err) => server.log.error({ err }, 'data migrations failed'));
+  // Correctness indexes run after data migrations so legacy rows are first
+  // normalized/adopted. The external-ticket identity index is validated and
+  // deliberately fails startup if unavailable; optional search indexes remain
+  // best-effort inside ensurePgExtras.
+  await ensurePgExtras(server.log);
+  // This also proves the SyncRun schema is queryable before either manual or
+  // scheduled sync can start. A failed recovery check is a startup failure, not
+  // permission to run without trustworthy health records.
+  const interruptedSyncRuns = await recoverInterruptedRuns();
+  if (interruptedSyncRuns > 0) {
+    server.log.warn({ count: interruptedSyncRuns }, 'Closed sync runs interrupted by a previous shutdown');
+  }
 
-  // First-boot auth bootstrap (seed settings + create admin if users table empty).
+  // First-boot auth bootstrap (create admin if users table empty).
   await bootstrapAuth(server.log).catch((err) => server.log.error({ err }, 'Auth bootstrap failed'));
-
-  // Seed integration settings from env + hydrate runtime config.
-  await seedSettings().catch((err) => server.log.error({ err }, 'Settings seed failed'));
 
   // Wire the WebSocket hub + notification service to the in-process event bus.
   initWsHub();
   initNotificationService();
   initAutomationService();
 
+  // Do not accept manual sync/API traffic until schema extras, migrations,
+  // interrupted-run recovery, and auth bootstrap have completed.
+  await server.listen({ port: Number(config.serverPort), host: '0.0.0.0' });
+  server.log.info(`anchordesk backend listening on :${config.serverPort}`);
+
   // Poll for due scheduled script jobs + inbound email-to-ticket.
   startScriptScheduler(server.log);
   startImapScheduler(server.log);
   // Evaluate SLA timers; emit at-risk / breach events to the live layer.
   startSlaScheduler(server.log);
+  // Reconcile enabled external ticket providers (ConnectWise / Jira).
+  startSyncScheduler(server.log);
 
   // Sweep expired sessions + spent OAuth auth codes hourly.
   setInterval(() => {

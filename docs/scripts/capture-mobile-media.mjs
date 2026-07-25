@@ -147,6 +147,49 @@ async function captureDevice(browser, device) {
       await page.waitForTimeout(250);
     }
 
+    if (view("ticket-merge-dialog") || view("ticket-merge-warnings")) {
+      const mergeSource = page.getByText("Patch reboot window for accounting PCs", { exact: false }).first();
+      await mergeSource.evaluate((el) => el.scrollIntoView({ block: "center" }));
+      await page.waitForTimeout(200);
+      await mergeSource.dispatchEvent("click");
+      await page.getByRole("dialog").first().waitFor({ timeout: 20_000 });
+      await page.getByRole("button", { name: "Merge", exact: true }).click();
+      await page.getByRole("heading", { name: "Merge ticket #10485" }).waitFor({ timeout: 20_000 });
+
+      if (view("ticket-merge-dialog")) {
+        await page.getByLabel("Surviving ticket").waitFor({ timeout: 20_000 });
+        await shoot(page, device, "ticket-merge-dialog");
+      }
+
+      if (view("ticket-merge-warnings")) {
+        await page.getByLabel("Surviving ticket").fill("10482");
+        await page.getByRole("option", { name: /#10482 · VPN drops every 12 minutes/ }).click();
+        await page.getByText("Acknowledgements required", { exact: true }).waitFor({ timeout: 20_000 });
+        await page.getByLabel("Acknowledge sync-stop").waitFor({ timeout: 20_000 });
+        await page.getByLabel("Acknowledge cross-company").waitFor({ timeout: 20_000 });
+        await shoot(page, device, "ticket-merge-warnings");
+      }
+
+      await page.keyboard.press("Escape");
+      await page.getByRole("heading", { name: "Merge ticket #10485" }).waitFor({ state: "hidden", timeout: 5_000 });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(250);
+    }
+
+    if (view("ticket-children")) {
+      const parentTicket = page.getByText("ERP outage coordination", { exact: true }).first();
+      await parentTicket.evaluate((el) => el.scrollIntoView({ block: "center" }));
+      await page.waitForTimeout(200);
+      await parentTicket.dispatchEvent("click");
+      await page.getByText("Ticket hierarchy", { exact: true }).waitFor({ timeout: 20_000 });
+      await page.getByText("1 of 2 done", { exact: true }).waitFor({ timeout: 20_000 });
+      await page.getByText("#10489 · Restore ERP database replica", { exact: true }).waitFor({ timeout: 20_000 });
+      await page.getByText("#10490 · Notify warehouse leads after ERP recovery", { exact: true }).waitFor({ timeout: 20_000 });
+      await shoot(page, device, "ticket-children");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(250);
+    }
+
     if (view("cards")) {
       await page.locator('button[value="cards"]').click();
       await ticketCard().waitFor({ timeout: 20_000 });
@@ -175,13 +218,7 @@ async function captureDevice(browser, device) {
       await shoot(page, device, "network");
     }
 
-    if (view("sync")) {
-      await openDrawer(page, "Sync");
-      await page.getByText("Configured Providers", { exact: false }).waitFor({ timeout: 20_000 });
-      await shoot(page, device, "sync");
-    }
-
-    const adminViews = ["admin", "admin-teams", "admin-custom-fields", "admin-checklists", "checklist-template-editor", "admin-automations", "admin-devices", "device-assets"];
+    const adminViews = ["admin", "admin-teams", "admin-custom-fields", "admin-checklists", "checklist-template-editor", "admin-automations", "admin-ticket-sync", "ticket-sync-connection-editor", "ticket-sync-job-editor", "ticket-sync-run-history", "ticket-sync-run-detail", "admin-devices", "device-assets"];
     if (adminViews.some(view)) {
       await openDrawer(page, "Admin console");
       await page.getByText("Open tickets", { exact: false }).waitFor({ timeout: 20_000 });
@@ -212,6 +249,44 @@ async function captureDevice(browser, device) {
         await page.getByText("Automations", { exact: true }).first().click();
         await page.getByText("Run ordered actions", { exact: false }).waitFor({ timeout: 20_000 });
         await shoot(page, device, "admin-automations");
+      }
+      if (view("admin-ticket-sync") || view("ticket-sync-connection-editor") || view("ticket-sync-job-editor") || view("ticket-sync-run-history") || view("ticket-sync-run-detail")) {
+        await page.getByText("Ticket Sync", { exact: true }).first().click();
+        await page.getByText("Sync jobs", { exact: true }).waitFor({ timeout: 20_000 });
+        if (view("admin-ticket-sync")) await shoot(page, device, "admin-ticket-sync");
+
+        if (view("ticket-sync-connection-editor")) {
+          await page.getByRole("button", { name: "Add Jira connection" }).click();
+          await page.getByRole("heading", { name: "Add Jira connection" }).waitFor({ timeout: 20_000 });
+          await shoot(page, device, "ticket-sync-connection-editor");
+          await page.keyboard.press("Escape");
+          await page.getByRole("heading", { name: "Add Jira connection" }).waitFor({ state: "hidden", timeout: 5_000 });
+        }
+
+        if (view("ticket-sync-job-editor")) {
+          await page.getByRole("button", { name: "Create sync job" }).first().click();
+          await page.getByRole("heading", { name: "Create sync job" }).waitFor({ timeout: 20_000 });
+          await shoot(page, device, "ticket-sync-job-editor");
+          await page.keyboard.press("Escape");
+        }
+
+        if (view("ticket-sync-run-history") || view("ticket-sync-run-detail")) {
+          await page
+            .getByRole("button", { name: "View run history for SpillersTech — Jira helpdesk" })
+            .click();
+          await page
+            .getByRole("heading", { name: "SpillersTech — Jira helpdesk — run history" })
+            .waitFor({ timeout: 20_000 });
+          if (view("ticket-sync-run-history")) {
+            await shoot(page, device, "ticket-sync-run-history");
+          }
+          if (view("ticket-sync-run-detail")) {
+            await page.getByText("Degraded", { exact: true }).first().click();
+            await page.getByLabel("Filter record activity").waitFor({ timeout: 20_000 });
+            await shoot(page, device, "ticket-sync-run-detail");
+          }
+          await page.keyboard.press("Escape");
+        }
       }
       if (view("admin-devices") || view("device-assets")) {
         await page.getByText("Devices", { exact: true }).first().click();

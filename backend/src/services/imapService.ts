@@ -24,6 +24,7 @@ import { sanitizeEmailHtml } from './mail/sanitizeHtml';
 import { ticketNumberFromSubject } from './mail/threading';
 import { clamp } from '../util/strings';
 import { findOrCreateCompanyForEmail } from './companyResolution';
+import { resolveMergeTarget } from './merge/mergeService';
 
 export interface PollResult {
   mailbox: string;
@@ -94,6 +95,11 @@ async function ingest(parsed: ParsedMail, mb: Mailbox, uid: number): Promise<'cr
       ticketId = t?.id ?? null;
     }
   }
+  // Every route above can land on a ticket that has since been merged away.
+  // Follow the merge to the survivor, or the customer's reply opens
+  // correspondence on a closed tombstone nobody is watching — the most likely
+  // real-world regression in the merge feature.
+  if (ticketId) ticketId = await resolveMergeTarget(ticketId);
 
   let outcome: 'created' | 'appended';
   if (ticketId) {

@@ -11,6 +11,10 @@ import { hasPrismaCode } from '../util/prismaErrors';
 import { CustomFieldValidationError, coerceCustomFieldFilters } from '../services/customFields';
 import { PRIORITY_LIST_TEXT, STATUS_LIST_TEXT, normalizePriority, normalizeStatus } from '../services/ticketVocab';
 import * as customFieldRepo from '../repositories/customFieldRepository';
+import { SyncAccountBusyError } from '../services/syncAccountLock';
+import { sanitizeSyncError } from '../repositories/syncRunRepository';
+import * as mergeService from '../services/merge/mergeService';
+import { MergeLedgerFormatError } from '../services/merge/mergeLedger';
 
 interface IdParam { id: string }
 interface NoteIdParam { id: string; noteId: string }
@@ -19,6 +23,46 @@ interface NoteIdParam { id: string; noteId: string }
  *  twoWaySync remoteHash + pushLocal); assigneeId is included because it
  *  re-denormalizes the synced assignee string. */
 const SYNCED_TICKET_FIELDS = ['status', 'priority', 'assignee', 'assigneeId', 'title', 'description'] as const;
+
+/**
+ * Fields accepted from the public POST /tickets contract. Sync ingestion calls
+ * ticketRepository.create directly because its broader input deliberately
+ * includes external identity/provenance. Keeping that internal contract out of
+ * this allowlist prevents a normal API caller from manufacturing a remotely
+ * writable ticket.
+ */
+const PUBLIC_TICKET_CREATE_FIELDS = [
+  'title',
+  'summary',
+  'description',
+  'status',
+  'priority',
+  'companyName',
+  'companyId',
+  'contactId',
+  'assignee',
+  'assigneeId',
+  'teamId',
+  'customFields',
+  'dueAt',
+] as const;
+const PUBLIC_TICKET_CREATE_FIELD_SET: ReadonlySet<string> = new Set(PUBLIC_TICKET_CREATE_FIELDS);
+
+/**
+ * Public note creation is for locally-authored conversation notes only.
+ * Provider ids, author identity, direction, time entries, and email threading
+ * are owned by their dedicated ingestion/mail/time paths.
+ */
+const PUBLIC_NOTE_CREATE_FIELDS = ['content', 'htmlContent', 'noteType'] as const;
+const PUBLIC_NOTE_CREATE_FIELD_SET: ReadonlySet<string> = new Set(PUBLIC_NOTE_CREATE_FIELDS);
+const PUBLIC_NOTE_UPDATE_FIELDS = ['content', 'htmlContent', 'minutes', 'timeStart', 'timeStop'] as const;
+const PUBLIC_NOTE_UPDATE_FIELD_SET: ReadonlySet<string> = new Set(PUBLIC_NOTE_UPDATE_FIELDS);
+
+interface PublicNoteCreateInput {
+  content?: string;
+  htmlContent?: string;
+  noteType?: 'note' | 'internal';
+}
 
 function positiveInteger(raw: string | undefined, fallback: number): number | null {
   if (raw === undefined) return fallback;
@@ -29,6 +73,12 @@ function positiveInteger(raw: string | undefined, fallback: number): number | nu
 export function validateTicketInput(value: unknown, creating: boolean): string | null {
   if (!isPlainRecord(value)) return 'request body must be an object';
   if (creating && (typeof value.title !== 'string' || !value.title.trim())) return 'title is required';
+  if (creating) {
+    const unsupported = Object.keys(value).filter((field) => !PUBLIC_TICKET_CREATE_FIELD_SET.has(field));
+    if (unsupported.length) {
+      return `unsupported ticket create field${unsupported.length === 1 ? '' : 's'}: ${unsupported.join(', ')}`;
+    }
+  }
   const strings = ['title', 'summary', 'description', 'status', 'priority', 'companyName', 'assignee'] as const;
   for (const field of strings) {
     if (value[field] !== undefined && typeof value[field] !== 'string') return `${field} must be a string`;
@@ -68,6 +118,89 @@ function normalizeDueAt(value: Record<string, unknown>): void {
   if (typeof value.dueAt === 'string') value.dueAt = new Date(value.dueAt);
 }
 
+function publicTicketCreateInput(value: Record<string, unknown>): ticketRepo.CreateTicketInput {
+  const input = Object.fromEntries(
+    PUBLIC_TICKET_CREATE_FIELDS
+      .filter((field) => value[field] !== undefined)
+      .map((field) => [field, value[field]])
+  ) as unknown as ticketRepo.CreateTicketInput;
+  normalizeDueAt(input as unknown as Record<string, unknown>);
+  // This value is server-owned. A caller-supplied source is rejected above.
+  input.source = 'local';
+  return input;
+}
+
+function validatePublicNoteCreateInput(value: unknown): string | null {
+  if (!isPlainRecord(value)) return 'request body must be an object';
+  const unsupported = Object.keys(value).filter((field) => !PUBLIC_NOTE_CREATE_FIELD_SET.has(field));
+  if (unsupported.length) {
+    return `unsupported note create field${unsupported.length === 1 ? '' : 's'}: ${unsupported.join(', ')}`;
+  }
+  if (value.content !== undefined && typeof value.content !== 'string') {
+    return 'content must be a string';
+  }
+  if (value.htmlContent !== undefined && typeof value.htmlContent !== 'string') {
+    return 'htmlContent must be a string';
+  }
+  if (value.noteType !== undefined && value.noteType !== 'note' && value.noteType !== 'internal') {
+    return 'noteType must be note or internal';
+  }
+  return null;
+}
+
+function publicNoteUpdateInput(value: unknown): noteRepo.UpdateNoteInput | string {
+  if (!isPlainRecord(value)) return 'request body must be an object';
+  const unsupported = Object.keys(value).filter((field) => !PUBLIC_NOTE_UPDATE_FIELD_SET.has(field));
+  if (unsupported.length) {
+    return `unsupported note update field${unsupported.length === 1 ? '' : 's'}: ${unsupported.join(', ')}`;
+  }
+  if (Object.keys(value).length === 0) return 'no note fields to update';
+  if (value.content !== undefined && typeof value.content !== 'string') {
+    return 'content must be a string';
+  }
+  if (
+    value.htmlContent !== undefined &&
+    value.htmlContent !== null &&
+    typeof value.htmlContent !== 'string'
+  ) {
+    return 'htmlContent must be a string or null';
+  }
+  if (
+    value.minutes !== undefined &&
+    value.minutes !== null &&
+    (typeof value.minutes !== 'number' ||
+      !Number.isInteger(value.minutes) ||
+      value.minutes <= 0)
+  ) {
+    return 'minutes must be a positive integer or null';
+  }
+
+  const data: noteRepo.UpdateNoteInput = {};
+  if (typeof value.content === 'string') data.content = value.content.trim();
+  if (value.htmlContent === null) {
+    data.htmlContent = null;
+  } else if (typeof value.htmlContent === 'string') {
+    data.htmlContent = sanitizeEmailHtml(value.htmlContent);
+    data.content = data.content || htmlToText(data.htmlContent);
+  }
+  if (value.minutes !== undefined) data.minutes = value.minutes as number | null;
+  for (const field of ['timeStart', 'timeStop'] as const) {
+    const raw = value[field];
+    if (raw === undefined) continue;
+    if (raw === null) {
+      data[field] = null;
+    } else if (typeof raw === 'string' && !Number.isNaN(Date.parse(raw))) {
+      data[field] = new Date(raw);
+    } else {
+      return `${field} must be an ISO 8601 datetime string or null`;
+    }
+  }
+  if (data.content !== undefined && !data.content && !data.htmlContent) {
+    return 'content cannot be blank';
+  }
+  return data;
+}
+
 /**
  * Parse `cf.<key>=value` query params into typed equality filters. Unknown
  * keys and uncoercible values are a 400 (returned as a string error) rather
@@ -105,9 +238,14 @@ export async function ticketRoutes(server: FastifyInstance) {
     const page = positiveInteger(query.page, 1);
     const labelId = query.labelId === undefined ? undefined : parseId(query.labelId);
     const teamId = query.teamId === undefined ? undefined : parseId(query.teamId);
+    const parentId = query.parentId === undefined ? undefined : parseId(query.parentId);
     if (requestedPageSize === null || page === null) return reply.status(400).send({ error: 'page and pageSize must be positive integers' });
     if (query.labelId !== undefined && labelId === null) return reply.status(400).send({ error: 'labelId must be a positive integer' });
     if (query.teamId !== undefined && teamId === null) return reply.status(400).send({ error: 'teamId must be a positive integer' });
+    if (query.parentId !== undefined && parentId === null) return reply.status(400).send({ error: 'parentId must be a positive integer' });
+    if (query.hasParent !== undefined && query.hasParent !== 'true' && query.hasParent !== 'false') {
+      return reply.status(400).send({ error: "hasParent must be 'true' or 'false'" });
+    }
     if (query.regex && query.regex.length > 500) return reply.status(400).send({ error: 'regex must be at most 500 characters' });
     const customFieldEquals = await parseCustomFieldFilters(query);
     if (typeof customFieldEquals === 'string') return reply.status(400).send({ error: customFieldEquals });
@@ -125,6 +263,11 @@ export async function ticketRoutes(server: FastifyInstance) {
       // Default working views hide closed tickets; opt in with includeClosed=true
       // (or by selecting a specific status, which always wins).
       includeClosed: query.includeClosed === 'true',
+      parentId: parentId ?? undefined,
+      hasParent: query.hasParent === undefined ? undefined : query.hasParent === 'true',
+      // Tombstones stay out of lists unless explicitly requested — they are
+      // already Closed, so this only bites once closed tickets are shown.
+      includeMerged: query.includeMerged === 'true',
       page,
       pageSize,
     });
@@ -155,8 +298,7 @@ export async function ticketRoutes(server: FastifyInstance) {
   server.post('/tickets', async (req: FastifyRequest, reply: FastifyReply) => {
     const validationError = validateTicketInput(req.body, true);
     if (validationError) return reply.status(400).send({ error: validationError });
-    normalizeDueAt(req.body as Record<string, unknown>);
-    const body = req.body as ticketRepo.CreateTicketInput;
+    const body = publicTicketCreateInput(req.body as Record<string, unknown>);
 
     try {
       const ticket = await ticketRepo.create(body, req.actorSub);
@@ -175,6 +317,35 @@ export async function ticketRoutes(server: FastifyInstance) {
     const validationError = validateTicketInput(req.body, false);
     if (validationError) return reply.status(400).send({ error: validationError });
     normalizeDueAt(req.body as Record<string, unknown>);
+
+    // parentId is split out of the normal update path: the one-level hierarchy
+    // rule spans two rows, so it needs the locked check-then-write in
+    // setParent() rather than a field assignment. Applied first, so a rejected
+    // reparent doesn't leave the other edits half-applied.
+    const body = req.body as Record<string, unknown>;
+    if ('parentId' in body) {
+      const raw = body.parentId;
+      let parentId: number | null;
+      if (raw === null) {
+        parentId = null;
+      } else {
+        parentId = parseId(raw === undefined ? undefined : String(raw));
+        if (parentId === null) {
+          return reply.status(400).send({ error: 'parentId must be a positive integer or null' });
+        }
+      }
+      try {
+        const reparented = await ticketRepo.setParent(id, parentId, req.actorSub);
+        if (!reparented) return reply.status(404).send({ error: 'Ticket not found' });
+      } catch (error) {
+        if (error instanceof ticketRepo.TicketHierarchyError) {
+          return reply.status(409).send({ error: error.message, code: error.code });
+        }
+        throw error;
+      }
+      delete body.parentId;
+    }
+
     let ticket;
     try {
       ticket = await ticketRepo.update(id, req.body as ticketRepo.UpdateTicketInput, req.actorSub);
@@ -194,10 +365,15 @@ export async function ticketRoutes(server: FastifyInstance) {
       (field) => (req.body as Record<string, unknown>)[field] !== undefined,
     );
     if (touchedSyncedField && ticket.externalId && ticket.externalProvider) {
-      await ticketRepo.markPending(id);
       void twoWaySync
         .reconcileTicket(id, { actor: req.actorSub })
-        .catch((err) => req.log.warn({ err, ticketId: id }, 'two-way reconcile after edit failed'));
+        .catch((err) => req.log.warn(
+          {
+            message: sanitizeSyncError(err instanceof Error ? err.message : 'two-way reconcile failed'),
+            ticketId: id,
+          },
+          'two-way reconcile after edit failed'
+        ));
     }
     return reply.send(ticket);
   });
@@ -206,8 +382,15 @@ export async function ticketRoutes(server: FastifyInstance) {
   server.post('/tickets/:id/sync', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
     const id = parseId(req.params.id);
     if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
-    const result = await twoWaySync.reconcileTicket(id, { actor: req.actorSub });
-    return reply.send(result);
+    try {
+      const result = await twoWaySync.reconcileTicket(id, { actor: req.actorSub });
+      return reply.send(result);
+    } catch (err) {
+      if (err instanceof SyncAccountBusyError) {
+        return reply.status(409).send({ error: err.message });
+      }
+      throw err;
+    }
   });
 
   // Resolve a held conflict by choosing the winning side.
@@ -218,8 +401,95 @@ export async function ticketRoutes(server: FastifyInstance) {
     if (resolution !== 'local' && resolution !== 'remote') {
       return reply.status(400).send({ error: "resolution must be 'local' or 'remote'" });
     }
-    const result = await twoWaySync.resolveConflict(id, resolution, req.actorSub);
-    return reply.send(result);
+    try {
+      const result = await twoWaySync.resolveConflict(id, resolution, req.actorSub);
+      return reply.send(result);
+    } catch (err) {
+      if (err instanceof SyncAccountBusyError) {
+        return reply.status(409).send({ error: err.message });
+      }
+      throw err;
+    }
+  });
+
+  // ─── Merge + hierarchy (2.6) ────────────────────────────────────────────────
+  // See docs/roadmap-relations-2.6.md. A merge is a local-record operation and
+  // never pushes; the acknowledgement contract below is how that stops being a
+  // footnote and becomes something the operator actually reads.
+
+  // Dry run: exactly what a merge would move, plus its warnings and blockers.
+  server.get(
+    '/tickets/:id/merge-preview',
+    async (req: FastifyRequest<{ Params: IdParam; Querystring: { targetId?: string } }>, reply: FastifyReply) => {
+      const id = parseId(req.params.id);
+      if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
+      const targetId = parseId(req.query.targetId);
+      if (targetId === null) return reply.status(400).send({ error: 'invalid or missing targetId' });
+      try {
+        return reply.send(await mergeService.previewMerge(id, targetId));
+      } catch (err) {
+        if (err instanceof mergeService.MergeBlockedError) {
+          return reply.status(404).send({ error: err.message, blockers: err.blockers });
+        }
+        throw err;
+      }
+    }
+  );
+
+  server.post('/tickets/:id/merge', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
+    const id = parseId(req.params.id);
+    if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
+    const body = isPlainRecord(req.body) ? req.body : {};
+    const targetId = parseId(body.targetId === undefined ? undefined : String(body.targetId));
+    if (targetId === null) return reply.status(400).send({ error: 'invalid or missing targetId' });
+
+    const rawAck = body.acknowledge;
+    if (rawAck !== undefined && (!Array.isArray(rawAck) || rawAck.some((v) => typeof v !== 'string'))) {
+      return reply.status(400).send({ error: 'acknowledge must be an array of warning codes' });
+    }
+
+    try {
+      const ticket = await mergeService.mergeTickets(id, targetId, req.actorSub, {
+        acknowledge: rawAck as string[] | undefined,
+      });
+      return reply.send(ticket);
+    } catch (err) {
+      if (err instanceof mergeService.MergeAcknowledgementRequiredError) {
+        // 400 rather than 409: the request is answerable, it is just incomplete.
+        // The client re-sends with these codes echoed back.
+        return reply
+          .status(400)
+          .send({ error: err.message, requiresAcknowledgement: err.requiresAcknowledgement });
+      }
+      if (err instanceof mergeService.MergeBlockedError) {
+        return reply.status(409).send({ error: err.message, blockers: err.blockers });
+      }
+      throw err;
+    }
+  });
+
+  server.post('/tickets/:id/unmerge', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
+    const id = parseId(req.params.id);
+    if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
+    try {
+      return reply.send(await mergeService.unmergeTicket(id, req.actorSub));
+    } catch (err) {
+      if (err instanceof mergeService.MergeBlockedError) {
+        return reply.status(409).send({ error: err.message, blockers: err.blockers });
+      }
+      if (err instanceof MergeLedgerFormatError) {
+        // The merge happened but its undo record is unreadable. Say so plainly
+        // rather than restoring an arbitrary subset of it.
+        return reply.status(422).send({ error: err.message });
+      }
+      throw err;
+    }
+  });
+
+  server.get('/tickets/:id/children', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
+    const id = parseId(req.params.id);
+    if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
+    return reply.send(await ticketRepo.listChildren(id));
   });
 
   // Soft-delete ticket
@@ -261,23 +531,40 @@ export async function ticketRoutes(server: FastifyInstance) {
   server.post('/tickets/:id/notes', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
     const id = parseId(req.params.id);
     if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
-    const body = req.body as noteRepo.CreateNoteInput;
-    const htmlContent = body?.htmlContent ? sanitizeEmailHtml(body.htmlContent) : undefined;
-    const content = body?.content?.trim() || (htmlContent ? htmlToText(htmlContent) : '');
+    const validationError = validatePublicNoteCreateInput(req.body);
+    if (validationError) return reply.status(400).send({ error: validationError });
+    const body = req.body as PublicNoteCreateInput;
+    const htmlContent = body.htmlContent ? sanitizeEmailHtml(body.htmlContent) : undefined;
+    const content = body.content?.trim() || (htmlContent ? htmlToText(htmlContent) : '');
     if (!content) return reply.status(400).send({ error: 'content is required' });
 
     const note = await noteRepo.create(
       id,
-      { ...body, content, htmlContent, author: body.author ?? req.user?.displayName ?? req.actorSub },
+      {
+        content,
+        htmlContent,
+        noteType: body.noteType ?? 'note',
+        author: req.user?.displayName ?? req.actorSub,
+        authorId: req.user?.id ?? undefined,
+        queueForTicketSync: (body.noteType ?? 'note') === 'note',
+      },
       req.actorSub
     );
 
-    // Push locally-authored notes out to the source system (best-effort). Notes
-    // pulled from the remote already carry an externalId and are skipped inside.
-    if (!body.externalId) {
+    // Only customer-visible conversation notes cross into Jira/ConnectWise.
+    // Internal notes can contain scripts, automation output, or technician-only
+    // context and must remain local.
+    if (note.noteType === 'note') {
       void twoWaySync
         .pushNoteOut(id, note.id)
-        .catch((err) => req.log.warn({ err, ticketId: id, noteId: note.id }, 'note push-out failed'));
+        .catch((err) => req.log.warn(
+          {
+            message: sanitizeSyncError(err instanceof Error ? err.message : 'note push-out failed'),
+            ticketId: id,
+            noteId: note.id,
+          },
+          'note push-out failed'
+        ));
     }
     return reply.status(201).send(note);
   });
@@ -288,17 +575,22 @@ export async function ticketRoutes(server: FastifyInstance) {
     const noteId = parseId(req.params.noteId);
     if (ticketId === null) return reply.status(400).send({ error: 'invalid ticket id' });
     if (noteId === null) return reply.status(400).send({ error: 'invalid note id' });
-    const body = req.body as noteRepo.UpdateNoteInput;
-    const data: noteRepo.UpdateNoteInput = { ...body };
-    if (typeof body.htmlContent === 'string') {
-      data.htmlContent = sanitizeEmailHtml(body.htmlContent);
-      data.content = body.content?.trim() || htmlToText(data.htmlContent);
+    const parsed = publicNoteUpdateInput(req.body);
+    if (typeof parsed === 'string') return reply.status(400).send({ error: parsed });
+    let note;
+    try {
+      note = await noteRepo.update(
+        noteId,
+        ticketId,
+        parsed,
+        req.actorSub
+      );
+    } catch (err) {
+      if (err instanceof noteRepo.ExternalNoteImmutableError) {
+        return reply.status(409).send({ error: err.message });
+      }
+      throw err;
     }
-    const note = await noteRepo.update(
-      noteId,
-      data,
-      req.actorSub
-    );
     if (!note) return reply.status(404).send({ error: 'Note not found' });
     return reply.send(note);
   });
@@ -309,7 +601,15 @@ export async function ticketRoutes(server: FastifyInstance) {
     const noteId = parseId(req.params.noteId);
     if (ticketId === null) return reply.status(400).send({ error: 'invalid ticket id' });
     if (noteId === null) return reply.status(400).send({ error: 'invalid note id' });
-    const note = await noteRepo.remove(noteId, req.actorSub);
+    let note;
+    try {
+      note = await noteRepo.remove(noteId, ticketId, req.actorSub);
+    } catch (err) {
+      if (err instanceof noteRepo.ExternalNoteImmutableError) {
+        return reply.status(409).send({ error: err.message });
+      }
+      throw err;
+    }
     if (!note) return reply.status(404).send({ error: 'Note not found' });
     return reply.status(204).send();
   });

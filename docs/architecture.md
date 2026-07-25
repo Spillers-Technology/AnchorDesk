@@ -96,10 +96,15 @@ again.
 
 ### Factory — provider instantiation
 
-The sync service instantiates providers from the `sync_providers` table using a
-factory function. The factory reads `type` from the row and returns the correct
-`TicketProvider` implementation. Provider instances are managed through the Sync
-view and `/sync/providers` routes.
+The sync service resolves a job's `Connection`, then instantiates a
+`TicketProvider` from the job's `sync_providers.type`, safe scope config, and
+account credentials. Admin → Ticket Sync and `/connections` +
+`/sync/providers` manage those records. Every attempt gets a durable `SyncRun`;
+record activity remains in `SyncLog`. `configRevision` prevents an old-scope
+attempt from advancing a newly edited job's incremental watermark. Jira account
+selection is explicit, and a short Postgres advisory lock plus the durable
+running row serializes starts for the whole external account across jobs and
+backend replicas.
 
 ### Configuration-record identity — devices across RMMs
 

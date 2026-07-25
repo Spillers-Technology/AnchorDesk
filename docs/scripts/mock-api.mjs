@@ -274,7 +274,118 @@ const ticketRows = [
     createdAt: daysFromNow(-1, 9, 12),
     labels: [{ label: labels[2] }],
   },
+  {
+    id: 107,
+    ticketNumber: "10488",
+    title: "ERP outage coordination",
+    summary: "Parent incident coordinating application recovery and customer communication.",
+    description: "<p>Coordinate the technical recovery and customer-facing work for the ERP outage.</p>",
+    status: "In Progress",
+    priority: "Critical",
+    companyName: "ACME Manufacturing",
+    companyId: 1,
+    contactId: 1,
+    assignee: "Jess Spillers",
+    assigneeId: 1,
+    teamId: 1,
+    source: "local",
+    externalProvider: null,
+    externalId: null,
+    syncState: null,
+    parentId: null,
+    mergedIntoId: null,
+    mergedAt: null,
+    responseDueAt: daysFromNow(0, 12, 30),
+    resolutionDueAt: daysFromNow(0, 18),
+    firstRespondedAt: daysFromNow(0, 10, 10),
+    createdAt: daysFromNow(0, 9, 55),
+    labels: [{ label: labels[2] }],
+  },
+  {
+    id: 108,
+    ticketNumber: "10489",
+    title: "Restore ERP database replica",
+    summary: "Database recovery work tracked under the ERP outage.",
+    description: "<p>Promote the healthy replica and validate application connectivity.</p>",
+    status: "In Progress",
+    priority: "Critical",
+    companyName: "ACME Manufacturing",
+    companyId: 1,
+    contactId: 1,
+    assignee: "Priya Shah",
+    assigneeId: 2,
+    teamId: 1,
+    source: "local",
+    externalProvider: null,
+    externalId: null,
+    syncState: null,
+    parentId: 107,
+    mergedIntoId: null,
+    mergedAt: null,
+    responseDueAt: null,
+    resolutionDueAt: daysFromNow(0, 16),
+    firstRespondedAt: daysFromNow(0, 10, 12),
+    createdAt: daysFromNow(0, 10),
+    labels: [],
+  },
+  {
+    id: 109,
+    ticketNumber: "10490",
+    title: "Notify warehouse leads after ERP recovery",
+    summary: "Customer communication work tracked under the ERP outage.",
+    description: "<p>Confirm service recovery with shipping and receiving leads.</p>",
+    status: "Resolved",
+    priority: "High",
+    companyName: "ACME Manufacturing",
+    companyId: 1,
+    contactId: 2,
+    assignee: "Sam Rivera",
+    assigneeId: 3,
+    teamId: 2,
+    source: "local",
+    externalProvider: null,
+    externalId: null,
+    syncState: null,
+    parentId: 107,
+    mergedIntoId: null,
+    mergedAt: null,
+    responseDueAt: null,
+    resolutionDueAt: daysFromNow(0, 15),
+    firstRespondedAt: daysFromNow(0, 10, 20),
+    createdAt: daysFromNow(0, 10, 5),
+    labels: [{ label: labels[0] }],
+  },
+  {
+    id: 110,
+    ticketNumber: "10491",
+    title: "Duplicate report of ACME VPN drops",
+    summary: "Closed tombstone retained after this duplicate was merged into #10482.",
+    description: "<p>This ticket remains resolvable after its conversation moved to the surviving incident.</p>",
+    status: "Closed",
+    priority: "High",
+    companyName: "ACME Manufacturing",
+    companyId: 1,
+    contactId: 2,
+    assignee: "Jess Spillers",
+    assigneeId: 1,
+    teamId: 1,
+    source: "jira",
+    externalProvider: "jira",
+    externalId: "HELP-731",
+    syncState: "synced",
+    parentId: null,
+    mergedIntoId: 101,
+    mergedAt: daysFromNow(0, 10, 25),
+    responseDueAt: null,
+    resolutionDueAt: daysFromNow(1, 15),
+    firstRespondedAt: daysFromNow(0, 10, 5),
+    closedAt: daysFromNow(0, 10, 25),
+    createdAt: daysFromNow(0, 9, 48),
+    labels: [{ label: labels[1] }],
+  },
 ];
+
+const mergeUndoStatusByTicket = new Map([[110, "New"]]);
 
 const notesByTicket = {
   101: [
@@ -546,24 +657,182 @@ const savedViews = [
   { id: 2, userId: null, name: "Unassigned work", filters: { assignee: "" }, shared: true, sortOrder: 10, createdAt: daysFromNow(-10, 9) },
 ];
 
+const connections = [
+  {
+    id: 1,
+    name: "SpillersTech Jira",
+    type: "jira",
+    enabled: true,
+    config: { baseUrl: "https://spillerstech.atlassian.net", email: "sync@spillerstech.com", hasApiToken: true },
+    lastTestAt: daysFromNow(0, 7, 30),
+    lastTestOk: true,
+    lastTestMessage: "Connected as Sync Bot. 2 project(s) visible: HELP, SCRUM.",
+    configured: true,
+  },
+  {
+    id: 2,
+    name: "Contoso Jira",
+    type: "jira",
+    enabled: true,
+    config: { baseUrl: "https://contoso.atlassian.net", email: "sync@contoso.com", hasApiToken: true },
+    lastTestAt: daysFromNow(-1, 16, 5),
+    lastTestOk: false,
+    lastTestMessage: "Authentication rejected — check the account email and API token.",
+    configured: true,
+  },
+];
+
+const syncRuns = [
+  {
+    id: 101,
+    providerId: 1,
+    configRevision: 1,
+    provider: { name: "ConnectWise Manage", type: "connectwise" },
+    trigger: "scheduled",
+    status: "success",
+    initiatedBy: "system",
+    startedAt: daysFromNow(0, 8, 49),
+    completedAt: daysFromNow(0, 8, 50),
+    durationMs: 612,
+    ticketsCreated: 0,
+    ticketsUpdated: 3,
+    notesUpserted: 2,
+    ticketsFiltered: 0,
+    ticketsSkipped: 0,
+    ticketsConflicted: 0,
+    errorCount: 0,
+    latestError: null,
+  },
+  {
+    id: 102,
+    providerId: 2,
+    configRevision: 2,
+    provider: { name: "SpillersTech — Jira helpdesk", type: "jira" },
+    trigger: "manual",
+    status: "degraded",
+    initiatedBy: "joey",
+    startedAt: daysFromNow(0, 9, 9),
+    completedAt: daysFromNow(0, 9, 10),
+    durationMs: 1048,
+    ticketsCreated: 2,
+    ticketsUpdated: 1,
+    notesUpserted: 2,
+    ticketsFiltered: 4,
+    ticketsSkipped: 0,
+    ticketsConflicted: 1,
+    errorCount: 1,
+    latestError: "OPS-712 is held for manual conflict resolution.",
+  },
+  {
+    id: 103,
+    providerId: 3,
+    configRevision: 1,
+    provider: { name: "Contoso — Jira helpdesk", type: "jira" },
+    trigger: "scheduled",
+    status: "error",
+    initiatedBy: "system",
+    startedAt: daysFromNow(-1, 16, 4),
+    completedAt: daysFromNow(-1, 16, 5),
+    durationMs: 301,
+    ticketsCreated: 0,
+    ticketsUpdated: 0,
+    notesUpserted: 0,
+    ticketsFiltered: 0,
+    ticketsSkipped: 0,
+    ticketsConflicted: 0,
+    errorCount: 1,
+    latestError: "Authentication rejected — check the account email and API token.",
+  },
+];
+
 const syncProviders = [
-  { id: 1, name: "ConnectWise Manage", type: "connectwise", enabled: true, lastSyncedAt: daysFromNow(0, 8, 50), createdAt: daysFromNow(-30, 9) },
-  { id: 2, name: "Jira Cloud", type: "jira", enabled: true, lastSyncedAt: daysFromNow(0, 9, 10), createdAt: daysFromNow(-20, 9) },
+  {
+    id: 1,
+    name: "ConnectWise Manage",
+    type: "connectwise",
+    enabled: true,
+    lastSyncedAt: daysFromNow(0, 8, 50),
+    configRevision: 1,
+    createdAt: daysFromNow(-30, 9),
+    connectionId: null,
+    config: { board: "Service Board" },
+    health: {
+      status: "healthy",
+      lastAttemptAt: syncRuns[0].startedAt,
+      lastSuccessAt: syncRuns[0].completedAt,
+      consecutiveFailures: 0,
+      latestError: null,
+      latestRun: syncRuns[0],
+    },
+  },
+  {
+    id: 2,
+    name: "SpillersTech — Jira helpdesk",
+    type: "jira",
+    enabled: true,
+    lastSyncedAt: daysFromNow(0, 9, 10),
+    configRevision: 2,
+    createdAt: daysFromNow(-20, 9),
+    connectionId: 1,
+    config: { projectKey: "HELP", filter: { status: ["To Do", "In Progress"] } },
+    health: {
+      status: "degraded",
+      lastAttemptAt: syncRuns[1].startedAt,
+      lastSuccessAt: daysFromNow(-1, 9, 10),
+      consecutiveFailures: 0,
+      latestError: syncRuns[1].latestError,
+      latestRun: syncRuns[1],
+    },
+  },
+  {
+    id: 3,
+    name: "Contoso — Jira helpdesk",
+    type: "jira",
+    enabled: false,
+    lastSyncedAt: null,
+    configRevision: 1,
+    createdAt: daysFromNow(-1, 16),
+    connectionId: 2,
+    config: {},
+    health: {
+      status: "failing",
+      lastAttemptAt: syncRuns[2].startedAt,
+      lastSuccessAt: null,
+      consecutiveFailures: 3,
+      latestError: syncRuns[2].latestError,
+      latestRun: syncRuns[2],
+    },
+  },
 ];
 
 const syncLog = [
   {
     id: "9001",
+    runId: 102,
     externalId: "OPS-712",
+    internalId: 104,
     direction: "inbound",
     status: "skipped",
     message: "Conflict flagged; waiting for keep-local or keep-remote.",
     syncedAt: daysFromNow(0, 9, 10),
-    provider: { name: "Jira Cloud", type: "jira" },
+    provider: { name: "SpillersTech — Jira helpdesk", type: "jira" },
+  },
+  {
+    id: "9003",
+    runId: 103,
+    externalId: null,
+    internalId: null,
+    direction: "inbound",
+    status: "error",
+    message: "Jira returned no issues and the credentials failed verification — Jira GET /rest/api/3/myself → 401: Unauthorized.",
+    syncedAt: daysFromNow(-1, 16, 5),
+    provider: { name: "Contoso — Jira helpdesk", type: "jira" },
   },
   {
     id: "9002",
+    runId: 101,
     externalId: "CW-88231",
+    internalId: 103,
     direction: "outbound",
     status: "success",
     message: "Local status and notes pushed.",
@@ -572,14 +841,76 @@ const syncLog = [
   },
 ];
 
+function relatedTicketSummary(ticket) {
+  return {
+    id: ticket.id,
+    ticketNumber: ticket.ticketNumber,
+    title: ticket.title,
+    status: ticket.status,
+    priority: ticket.priority,
+    companyName: ticket.companyName,
+  };
+}
+
 function ticketWithRelations(id) {
   const ticket = ticketRows.find((t) => t.id === id);
   if (!ticket) return null;
+  const parent = ticketRows.find((candidate) => candidate.id === ticket.parentId);
+  const children = ticketRows.filter((candidate) => candidate.parentId === ticket.id);
+  const mergedInto = ticketRows.find((candidate) => candidate.id === ticket.mergedIntoId);
   return {
     ...ticket,
+    parentId: ticket.parentId ?? null,
+    mergedIntoId: ticket.mergedIntoId ?? null,
+    mergedAt: ticket.mergedAt ?? null,
+    parent: parent ? relatedTicketSummary(parent) : null,
+    children: children.map(relatedTicketSummary),
+    mergedInto: mergedInto ? relatedTicketSummary(mergedInto) : null,
     company: companies.find((c) => c.id === ticket.companyId) ?? null,
     contact: companies.flatMap((c) => c.contacts ?? []).find((c) => c.id === ticket.contactId) ?? null,
     team: teams.find((team) => team.id === ticket.teamId) ?? null,
+  };
+}
+
+function mergePreviewFor(sourceId, targetId) {
+  const source = ticketRows.find((ticket) => ticket.id === sourceId);
+  const target = ticketRows.find((ticket) => ticket.id === targetId);
+  if (!source || !target) return null;
+
+  const warnings = [];
+  if (source.externalId && ["connectwise", "jira"].includes(source.externalProvider)) {
+    warnings.push({
+      code: "sync-stop",
+      message:
+        `${source.externalId} stays open in ${source.externalProvider}. AnchorDesk will stop syncing it. ` +
+        "The remote issue is not closed, commented on, or linked by this merge.",
+    });
+  }
+  if (source.companyId && target.companyId && source.companyId !== target.companyId) {
+    warnings.push({
+      code: "cross-company",
+      message:
+        `These tickets belong to different companies (${source.companyName} → ${target.companyName}). ` +
+        `The conversation will move to ${target.companyName}.`,
+    });
+  }
+
+  const targetLabelIds = new Set((target.labels ?? []).map((item) => item.label.id));
+  return {
+    source: relatedTicketSummary(source),
+    target: relatedTicketSummary(target),
+    moves: {
+      notes: (notesByTicket[source.id] ?? []).length,
+      attachments: source.id === 101 ? 1 : 0,
+      checklistItems: source.id === 101 ? 4 : 0,
+      children: ticketRows.filter((ticket) => ticket.parentId === source.id).length,
+      labels: (source.labels ?? []).filter((item) => !targetLabelIds.has(item.label.id)).length,
+      deviceLinks: source.id === 101 ? 2 : 0,
+    },
+    warnings,
+    blockers: source.id === target.id
+      ? [{ code: "same-ticket", message: "a ticket cannot be merged into itself" }]
+      : [],
   };
 }
 
@@ -824,6 +1155,23 @@ export async function handleApi(route) {
     });
   }
 
+  if (method === "GET" && apiPath === "/tickets/search") {
+    const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+    const limit = Number(url.searchParams.get("limit") || 100);
+    const rows = ticketRows
+      .filter((ticket) =>
+        [ticket.ticketNumber, ticket.title, ticket.summary, ticket.companyName]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(q))
+      )
+      .slice(0, limit)
+      .map((ticket) => ({
+        ...relatedTicketSummary(ticket),
+        mergedIntoId: ticket.mergedIntoId ?? null,
+      }));
+    return json(route, rows);
+  }
+
   if (method === "GET" && apiPath === "/checklist-templates") {
     return json(route, [
       {
@@ -931,6 +1279,76 @@ export async function handleApi(route) {
         occurredAt: daysFromNow(0, 8, 42),
       },
     ]);
+  }
+
+  match = apiPath.match(/^\/tickets\/(\d+)\/merge-preview$/);
+  if (method === "GET" && match) {
+    const sourceId = Number(match[1]);
+    const targetId = Number(url.searchParams.get("targetId"));
+    const preview = mergePreviewFor(sourceId, targetId);
+    return preview ? json(route, preview) : json(route, { error: "ticket not found" }, 404);
+  }
+
+  match = apiPath.match(/^\/tickets\/(\d+)\/merge$/);
+  if (method === "POST" && match) {
+    const sourceId = Number(match[1]);
+    const targetId = Number(body.targetId);
+    const source = ticketRows.find((ticket) => ticket.id === sourceId);
+    const target = ticketRows.find((ticket) => ticket.id === targetId);
+    const preview = mergePreviewFor(sourceId, targetId);
+    if (!source || !target || !preview) return json(route, { error: "ticket not found" }, 404);
+    if (preview.blockers.length) {
+      return json(route, { error: preview.blockers[0].message, blockers: preview.blockers }, 409);
+    }
+    const acknowledged = new Set(Array.isArray(body.acknowledge) ? body.acknowledge : []);
+    const missing = preview.warnings
+      .map((warning) => warning.code)
+      .filter((code) => !acknowledged.has(code));
+    if (missing.length) {
+      return json(route, {
+        error: "merge requires acknowledgement",
+        requiresAcknowledgement: missing,
+      }, 400);
+    }
+
+    if (!mergeUndoStatusByTicket.has(sourceId)) mergeUndoStatusByTicket.set(sourceId, source.status);
+    source.mergedIntoId = targetId;
+    source.mergedAt = new Date().toISOString();
+    source.closedAt = source.mergedAt;
+    source.status = "Closed";
+    for (const child of ticketRows.filter((ticket) => ticket.parentId === sourceId)) {
+      child.parentId = targetId;
+    }
+    return json(route, ticketWithRelations(sourceId));
+  }
+
+  match = apiPath.match(/^\/tickets\/(\d+)\/unmerge$/);
+  if (method === "POST" && match) {
+    const sourceId = Number(match[1]);
+    const source = ticketRows.find((ticket) => ticket.id === sourceId);
+    if (!source) return json(route, { error: "ticket not found" }, 404);
+    if (source.mergedIntoId == null) {
+      return json(route, { error: "ticket is not merged" }, 409);
+    }
+    source.status = mergeUndoStatusByTicket.get(sourceId) ?? "New";
+    source.mergedIntoId = null;
+    source.mergedAt = null;
+    source.closedAt = null;
+    return json(route, ticketWithRelations(sourceId));
+  }
+
+  match = apiPath.match(/^\/tickets\/(\d+)\/children$/);
+  if (method === "GET" && match) {
+    const parentId = Number(match[1]);
+    if (!ticketRows.some((ticket) => ticket.id === parentId)) {
+      return json(route, { error: "ticket not found" }, 404);
+    }
+    return json(
+      route,
+      ticketRows
+        .filter((ticket) => ticket.parentId === parentId)
+        .map(relatedTicketSummary)
+    );
   }
 
   match = apiPath.match(/^\/tickets\/(\d+)$/);
@@ -1079,6 +1497,68 @@ export async function handleApi(route) {
   if (method === "GET" && apiPath === "/me/time-entries") return json(route, myDayData(url.searchParams));
   if (method === "GET" && apiPath === "/sync/providers") return json(route, syncProviders);
   if (method === "GET" && apiPath === "/sync/log") return json(route, syncLog);
+  if (method === "GET" && apiPath === "/sync/runs") {
+    const providerName = url.searchParams.get("provider");
+    const limit = Number(url.searchParams.get("limit") || 50);
+    const rows = providerName
+      ? syncRuns.filter((run) => run.provider.name === providerName)
+      : syncRuns;
+    return json(route, rows.slice(0, limit));
+  }
+  match = apiPath.match(/^\/sync\/runs\/(\d+)$/);
+  if (method === "GET" && match) {
+    const run = syncRuns.find((item) => item.id === Number(match[1]));
+    if (!run) return json(route, { error: "sync run not found" }, 404);
+    return json(route, {
+      ...run,
+      logCount: syncLog.filter((entry) => entry.runId === run.id).length,
+      logsTruncated: false,
+      logs: syncLog.filter((entry) => entry.runId === run.id),
+    });
+  }
+  if (method === "POST" && apiPath === "/sync/run") {
+    const providerName = url.searchParams.get("provider");
+    const selected = providerName
+      ? syncProviders.filter((provider) => provider.name === providerName)
+      : syncProviders.filter((provider) => provider.enabled);
+    const results = selected.map((provider) => ({
+      runId: 200 + provider.id,
+      providerId: provider.id,
+      providerName: provider.name,
+      status: "success",
+      ticketsCreated: provider.type === "jira" ? 2 : 0,
+      ticketsUpdated: provider.type === "connectwise" ? 3 : 1,
+      notesUpserted: 2,
+      ticketsFiltered: provider.config.filter ? 4 : 0,
+      ticketsSkipped: 0,
+      ticketsConflicted: 0,
+      errorCount: 0,
+      errors: [],
+      durationMs: 428,
+    }));
+    return json(route, providerName ? results[0] ?? { error: "not found" } : results, results.length ? 200 : 404);
+  }
+  if (method === "GET" && apiPath === "/connections") {
+    const type = url.searchParams.get("type");
+    return json(route, type ? connections.filter((c) => c.type === type) : connections);
+  }
+  if (method === "POST" && apiPath === "/connections/1/test") {
+    return json(route, {
+      ok: true,
+      category: "ok",
+      identity: "Sync Bot",
+      message: "Connected as Sync Bot. 2 project(s) visible: HELP, SCRUM.",
+      testedAt: new Date().toISOString(),
+    });
+  }
+  if (method === "GET" && apiPath === "/integrations") {
+    return json(route, {
+      connectwise: { server: "na.myconnectwise.net", company: "spillerstech", publicKey: "PUBKEY123", hasPrivateKey: true, hasClientId: true },
+      jira: { baseUrl: "https://spillerstech.atlassian.net", email: "sync@spillerstech.com", hasApiToken: true },
+      smtp: { host: "smtp.spillerstech.com", port: 587, secure: false, user: "helpdesk", from: "helpdesk@spillerstech.com", hasPass: true },
+      tactical: {}, ninjaone: {}, datto: {}, storage: { backend: "local" }, tickets: { numberDigits: 5 },
+    });
+  }
 
   if (method === "GET" && apiPath === "/admin/overview") {
     return json(route, {

@@ -152,13 +152,12 @@ export const config = {
 
   // Jira Cloud (optional — two-way ticket sync). baseUrl is the site, e.g.
   // https://your-org.atlassian.net. Auth is the account email + an API token
-  // (id.atlassian.com > Security > API tokens). projectKey/jql scope which issues
-  // sync; leave jql blank to use open issues in the project.
+  // (id.atlassian.com > Security > API tokens). Used only as the legacy
+  // credential fallback for installs with no Connection row yet — project/JQL
+  // scope is a per sync-job setting now (routes/sync.ts), not a global default.
   jira: {
     baseUrl: (process.env.JIRA_BASE_URL || '').replace(/\/$/, ''),
     email: process.env.JIRA_EMAIL || '',
     apiToken: process.env.JIRA_API_TOKEN || '',
-    projectKey: process.env.JIRA_PROJECT_KEY || '',
-    jql: process.env.JIRA_JQL || '',
   },
 };

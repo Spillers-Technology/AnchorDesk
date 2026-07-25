@@ -8,22 +8,23 @@
  * view replaces them with `hasX` booleans), and an empty secret on update means
  * "keep the existing value".
  */
-import { prisma } from '../db/prisma';
-import { config } from '../config/config';
+import { prisma } from "../db/prisma";
+import { config } from "../config/config";
+import { SyncAccountBusyError, withSyncAccountLock } from "./syncAccountLock";
 
 // Keyed rows in the `settings` table. Mostly external-integration config, plus
 // 'ui' which holds interface preferences (read by every authed user, not just
 // admins — see routes/uiSettings.ts).
 export type IntegrationKey =
-  | 'smtp'
-  | 'connectwise'
-  | 'jira'
-  | 'tactical'
-  | 'ninjaone'
-  | 'datto'
-  | 'storage'
-  | 'tickets'
-  | 'ui';
+  | "smtp"
+  | "connectwise"
+  | "jira"
+  | "tactical"
+  | "ninjaone"
+  | "datto"
+  | "storage"
+  | "tickets"
+  | "ui";
 
 export interface SmtpConfig {
   host: string;
@@ -47,8 +48,6 @@ export interface JiraConfig {
   baseUrl: string;
   email: string;
   apiToken: string;
-  projectKey: string;
-  jql: string;
 }
 export interface TacticalConfig {
   apiUrl: string;
@@ -66,7 +65,7 @@ export interface DattoConfig {
   apiSecretKey: string;
 }
 export interface StorageConfig {
-  backend: 'local' | 's3';
+  backend: "local" | "s3";
   localDir: string;
   s3Endpoint: string;
   s3Region: string;
@@ -94,56 +93,75 @@ function normalizeTicketDigits(value: unknown): number {
 
 // Which fields are secret per integration (omitted from public views).
 const SECRET_FIELDS: Record<IntegrationKey, string[]> = {
-  smtp: ['pass'],
-  connectwise: ['privateKey', 'clientId'],
-  jira: ['apiToken'],
-  tactical: ['apiKey'],
-  ninjaone: ['clientSecret'],
-  datto: ['apiSecretKey'],
-  storage: ['s3SecretAccessKey'],
+  smtp: ["pass"],
+  connectwise: ["privateKey", "clientId"],
+  jira: ["apiToken"],
+  tactical: ["apiKey"],
+  ninjaone: ["clientSecret"],
+  datto: ["apiSecretKey"],
+  storage: ["s3SecretAccessKey"],
   tickets: [],
   ui: [],
 };
 
 function envDefaults(key: IntegrationKey): Record<string, unknown> {
   switch (key) {
-    case 'smtp':
+    case "smtp":
       return { ...config.smtp };
-    case 'connectwise':
+    case "connectwise":
       return { ...config.cwm };
-    case 'jira':
+    case "jira":
       return { ...config.jira };
-    case 'tactical':
+    case "tactical":
       return { apiUrl: config.trmm.apiUrl, apiKey: config.trmm.apiKey };
-    case 'ninjaone':
+    case "ninjaone":
       return { ...config.ninja };
-    case 'datto':
+    case "datto":
       return { ...config.datto };
-    case 'storage':
+    case "storage":
       return { ...config.storage };
-    case 'tickets':
+    case "tickets":
       return { numberDigits: config.ticketNumberDigits };
-    case 'ui':
+    case "ui":
       return { legacyTableView: false };
   }
 }
 
 const cache = new Map<IntegrationKey, Record<string, unknown>>();
 
+export class IntegrationSettingValidationError extends Error {}
+export class IntegrationSettingConflictError extends Error {}
+export class IntegrationSettingBusyError extends Error {}
+
 async function load(key: IntegrationKey): Promise<Record<string, unknown>> {
-  if (cache.has(key)) return cache.get(key)!;
+  // ConnectWise credentials drive remote tenant identity and may be rotated by
+  // any backend replica. Never serve them from a process-local cache: each
+  // account-locked operation must capture the current database snapshot.
+  if (key !== "connectwise" && cache.has(key)) return cache.get(key)!;
   const row = await prisma.setting.findUnique({ where: { key } });
   const value = (row?.value as Record<string, unknown>) ?? envDefaults(key);
-  cache.set(key, value);
+  if (key !== "connectwise") cache.set(key, value);
   return value;
 }
 
 /** Seed any missing integration rows from env (first boot). */
 export async function seedSettings(): Promise<void> {
-  for (const key of ['smtp', 'connectwise', 'jira', 'tactical', 'ninjaone', 'datto', 'storage', 'tickets', 'ui'] as IntegrationKey[]) {
+  for (const key of [
+    "smtp",
+    "connectwise",
+    "jira",
+    "tactical",
+    "ninjaone",
+    "datto",
+    "storage",
+    "tickets",
+    "ui",
+  ] as IntegrationKey[]) {
     const existing = await prisma.setting.findUnique({ where: { key } });
     if (!existing) {
-      await prisma.setting.create({ data: { key, value: envDefaults(key) as object } });
+      await prisma.setting.create({
+        data: { key, value: envDefaults(key) as object },
+      });
     }
   }
   await applyRuntimeConfig();
@@ -164,39 +182,40 @@ export async function applyRuntimeConfig(): Promise<void> {
     clientId: cw.clientId,
   });
   const t = await getTactical();
-  Object.assign(config.trmm, { apiUrl: t.apiUrl.replace(/\/$/, ''), apiKey: t.apiKey });
+  Object.assign(config.trmm, {
+    apiUrl: t.apiUrl.replace(/\/$/, ""),
+    apiKey: t.apiKey,
+  });
   const j = await getJira();
   Object.assign(config.jira, {
-    baseUrl: j.baseUrl.replace(/\/$/, ''),
+    baseUrl: j.baseUrl.replace(/\/$/, ""),
     email: j.email,
     apiToken: j.apiToken,
-    projectKey: j.projectKey,
-    jql: j.jql,
   });
   const n = await getNinja();
   Object.assign(config.ninja, {
-    apiUrl: n.apiUrl.replace(/\/$/, ''),
+    apiUrl: n.apiUrl.replace(/\/$/, ""),
     clientId: n.clientId,
     clientSecret: n.clientSecret,
     scope: n.scope,
   });
   const d = await getDatto();
   Object.assign(config.datto, {
-    apiUrl: d.apiUrl.replace(/\/$/, ''),
+    apiUrl: d.apiUrl.replace(/\/$/, ""),
     apiKey: d.apiKey,
     apiSecretKey: d.apiSecretKey,
   });
 }
 
 export async function getSmtp(): Promise<SmtpConfig> {
-  const v = await load('smtp');
+  const v = await load("smtp");
   return {
-    host: String(v.host ?? ''),
+    host: String(v.host ?? ""),
     port: Number(v.port ?? 587),
     secure: Boolean(v.secure ?? false),
-    user: String(v.user ?? ''),
-    pass: String(v.pass ?? ''),
-    from: String(v.from ?? 'anchordesk@localhost'),
+    user: String(v.user ?? ""),
+    pass: String(v.pass ?? ""),
+    from: String(v.from ?? "anchordesk@localhost"),
     // Default true (validate). Only an explicit false disables validation, so an
     // older settings row missing the field stays secure.
     tlsRejectUnauthorized: v.tlsRejectUnauthorized !== false,
@@ -204,88 +223,94 @@ export async function getSmtp(): Promise<SmtpConfig> {
 }
 
 export async function getConnectwise(): Promise<ConnectwiseConfig> {
-  const v = await load('connectwise');
+  const v = await load("connectwise");
   return {
-    server: String(v.server ?? ''),
-    company: String(v.company ?? ''),
-    publicKey: String(v.publicKey ?? ''),
-    privateKey: String(v.privateKey ?? ''),
-    clientId: String(v.clientId ?? ''),
+    server: String(v.server ?? ""),
+    company: String(v.company ?? ""),
+    publicKey: String(v.publicKey ?? ""),
+    privateKey: String(v.privateKey ?? ""),
+    clientId: String(v.clientId ?? ""),
   };
 }
 
 export async function getJira(): Promise<JiraConfig> {
-  const v = await load('jira');
+  const v = await load("jira");
   return {
-    baseUrl: String(v.baseUrl ?? ''),
-    email: String(v.email ?? ''),
-    apiToken: String(v.apiToken ?? ''),
-    projectKey: String(v.projectKey ?? ''),
-    jql: String(v.jql ?? ''),
+    baseUrl: String(v.baseUrl ?? ""),
+    email: String(v.email ?? ""),
+    apiToken: String(v.apiToken ?? ""),
   };
 }
 
 export async function getTactical(): Promise<TacticalConfig> {
-  const v = await load('tactical');
-  return { apiUrl: String(v.apiUrl ?? ''), apiKey: String(v.apiKey ?? '') };
+  const v = await load("tactical");
+  return { apiUrl: String(v.apiUrl ?? ""), apiKey: String(v.apiKey ?? "") };
 }
 
 export async function getNinja(): Promise<NinjaConfig> {
-  const v = await load('ninjaone');
+  const v = await load("ninjaone");
   return {
-    apiUrl: String(v.apiUrl ?? ''),
-    clientId: String(v.clientId ?? ''),
-    clientSecret: String(v.clientSecret ?? ''),
-    scope: String(v.scope ?? 'monitoring management'),
+    apiUrl: String(v.apiUrl ?? ""),
+    clientId: String(v.clientId ?? ""),
+    clientSecret: String(v.clientSecret ?? ""),
+    scope: String(v.scope ?? "monitoring management"),
   };
 }
 
 export async function getDatto(): Promise<DattoConfig> {
-  const v = await load('datto');
+  const v = await load("datto");
   return {
-    apiUrl: String(v.apiUrl ?? ''),
-    apiKey: String(v.apiKey ?? ''),
-    apiSecretKey: String(v.apiSecretKey ?? ''),
+    apiUrl: String(v.apiUrl ?? ""),
+    apiKey: String(v.apiKey ?? ""),
+    apiSecretKey: String(v.apiSecretKey ?? ""),
   };
 }
 
 export async function getStorage(): Promise<StorageConfig> {
-  const v = await load('storage');
-  const backend = v.backend === 's3' ? 's3' : 'local';
+  const v = await load("storage");
+  const backend = v.backend === "s3" ? "s3" : "local";
   return {
     backend,
-    localDir: String(v.localDir ?? './data/attachments'),
-    s3Endpoint: String(v.s3Endpoint ?? ''),
-    s3Region: String(v.s3Region ?? 'us-east-1'),
-    s3Bucket: String(v.s3Bucket ?? ''),
-    s3AccessKeyId: String(v.s3AccessKeyId ?? ''),
-    s3SecretAccessKey: String(v.s3SecretAccessKey ?? ''),
+    localDir: String(v.localDir ?? "./data/attachments"),
+    s3Endpoint: String(v.s3Endpoint ?? ""),
+    s3Region: String(v.s3Region ?? "us-east-1"),
+    s3Bucket: String(v.s3Bucket ?? ""),
+    s3AccessKeyId: String(v.s3AccessKeyId ?? ""),
+    s3SecretAccessKey: String(v.s3SecretAccessKey ?? ""),
     s3ForcePathStyle: Boolean(v.s3ForcePathStyle ?? false),
   };
 }
 
 export async function getTickets(): Promise<TicketsConfig> {
-  const v = await load('tickets');
+  const v = await load("tickets");
   // Clamp to the supported 4–6 range so an out-of-range DB/env value can't
   // produce nonsensical padding.
-  return { numberDigits: normalizeTicketDigits(v.numberDigits ?? config.ticketNumberDigits) };
+  return {
+    numberDigits: normalizeTicketDigits(
+      v.numberDigits ?? config.ticketNumberDigits,
+    ),
+  };
 }
 
 export async function getUi(): Promise<UiConfig> {
-  const v = await load('ui');
+  const v = await load("ui");
   return { legacyTableView: Boolean(v.legacyTableView ?? false) };
 }
 
 /** Merge a partial update; blank secret fields are dropped (keep existing). */
 export async function updateSetting(
   key: IntegrationKey,
-  patch: Record<string, unknown>
+  patch: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  if (key === "connectwise") return updateConnectwiseSetting(patch);
   const current = await load(key);
   const next = { ...current };
   for (const [k, val] of Object.entries(patch)) {
-    if (SECRET_FIELDS[key].includes(k) && (val === '' || val == null)) continue; // keep existing secret
-    next[k] = key === 'tickets' && k === 'numberDigits' ? normalizeTicketDigits(val) : val;
+    if (SECRET_FIELDS[key].includes(k) && (val === "" || val == null)) continue; // keep existing secret
+    next[k] =
+      key === "tickets" && k === "numberDigits"
+        ? normalizeTicketDigits(val)
+        : val;
   }
   await prisma.setting.upsert({
     where: { key },
@@ -293,17 +318,138 @@ export async function updateSetting(
     create: { key, value: next as object },
   });
   cache.set(key, next);
-  // CW/Jira/RMM services read the in-memory config; refresh it on edit.
+  // Jira/RMM services still read the in-memory config; refresh it on edit.
   if (
-    key === 'connectwise' ||
-    key === 'jira' ||
-    key === 'tactical' ||
-    key === 'ninjaone' ||
-    key === 'datto'
+    key === "jira" ||
+    key === "tactical" ||
+    key === "ninjaone" ||
+    key === "datto"
   ) {
     await applyRuntimeConfig();
   }
   return next;
+}
+
+const CONNECTWISE_FIELDS = [
+  "server",
+  "company",
+  "publicKey",
+  "privateKey",
+  "clientId",
+] as const;
+
+async function updateConnectwiseSetting(
+  patch: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const unknown = Object.keys(patch).filter(
+    (field) =>
+      !CONNECTWISE_FIELDS.includes(
+        field as (typeof CONNECTWISE_FIELDS)[number],
+      ),
+  );
+  if (unknown.length > 0) {
+    throw new IntegrationSettingValidationError(
+      `unknown ConnectWise field${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}`,
+    );
+  }
+
+  try {
+    const next = await withSyncAccountLock("connectwise:legacy-global", () =>
+      prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`
+          SELECT key FROM settings WHERE key = 'connectwise' FOR UPDATE
+        `;
+        const row = await tx.setting.findUnique({
+          where: { key: "connectwise" },
+        });
+        const current = (row?.value ?? envDefaults("connectwise")) as Record<
+          string,
+          unknown
+        >;
+        const merged: Record<string, unknown> = {};
+        for (const field of CONNECTWISE_FIELDS) {
+          merged[field] = String(current[field] ?? "").trim();
+        }
+        for (const [field, value] of Object.entries(patch)) {
+          if (
+            SECRET_FIELDS.connectwise.includes(field) &&
+            (value === "" || value == null)
+          ) {
+            continue;
+          }
+          if (typeof value !== "string") {
+            throw new IntegrationSettingValidationError(
+              `connectwise.${field} must be a string`,
+            );
+          }
+          merged[field] = value.trim();
+        }
+        merged.server = String(merged.server ?? "").replace(/\/+$/, "");
+
+        const identityChanged =
+          String(current.server ?? "").replace(/\/+$/, "") !== merged.server ||
+          String(current.company ?? "").trim() !== merged.company;
+        if (identityChanged) {
+          const [jobs, tickets] = await Promise.all([
+            tx.syncProvider.count({ where: { type: "connectwise" } }),
+            tx.ticket.count({ where: { externalProvider: "connectwise" } }),
+          ]);
+          if (jobs > 0 || tickets > 0) {
+            throw new IntegrationSettingConflictError(
+              "ConnectWise server/company identify the legacy tenant and cannot be changed while ConnectWise jobs or tickets exist; de-singleton ConnectWise or remove that synced state first",
+            );
+          }
+        }
+
+        const credentialsChanged = CONNECTWISE_FIELDS.some(
+          (field) =>
+            String(current[field] ?? "").trim() !== String(merged[field] ?? ""),
+        );
+        if (credentialsChanged) {
+          // Defense for rolling upgrades: older builds do not hold the new
+          // account advisory lock, but their durable running row still blocks a
+          // credential swap.
+          const running = await tx.syncRun.count({
+            where: {
+              status: "running",
+              provider: { type: "connectwise" },
+            },
+          });
+          if (running > 0) {
+            throw new IntegrationSettingBusyError(
+              "wait for the active ConnectWise sync run to finish before changing credentials",
+            );
+          }
+        }
+
+        await tx.setting.upsert({
+          where: { key: "connectwise" },
+          update: { value: merged as object },
+          create: { key: "connectwise", value: merged as object },
+        });
+        if (credentialsChanged) {
+          await tx.syncProvider.updateMany({
+            where: { type: "connectwise" },
+            data: {
+              lastSyncedAt: null,
+              configRevision: { increment: 1 },
+            },
+          });
+        }
+        return merged;
+      }),
+    );
+
+    Object.assign(config.cwm, next);
+    return next;
+  } catch (err) {
+    if (err instanceof SyncAccountBusyError) {
+      throw new IntegrationSettingBusyError(
+        "wait for the active ConnectWise operation to finish before changing credentials",
+      );
+    }
+    throw err;
+  }
 }
 
 /** Non-secret view for the Admin UI. Secrets become `hasX: boolean`. */

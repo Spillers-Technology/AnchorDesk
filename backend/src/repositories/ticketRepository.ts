@@ -1,4 +1,4 @@
-import { Prisma, TicketSource, SyncState } from '@prisma/client';
+import { Prisma, Ticket, TicketSource, SyncState } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
 import { publish } from '../services/realtime/eventBus';
@@ -32,6 +32,13 @@ export interface TicketListOptions {
   /** Equality filters on Ticket.customFields, keyed by field key. Values must
    *  already be coerced to the definition's type (route layer's job). */
   customFieldEquals?: Record<string, string | number | boolean>;
+  /** Children of one ticket. */
+  parentId?: number | null;
+  /** Split top-level tickets from subtasks without naming a specific parent. */
+  hasParent?: boolean;
+  /** Include merged-away tombstones. When explicitly false they are hidden even
+   *  in closed-inclusive views. */
+  includeMerged?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -66,6 +73,17 @@ export function buildWhere(filters: Omit<TicketListOptions, 'page' | 'pageSize'>
     if (filters.includeClosed === false) hidden.push('Closed');
     if (hidden.length) where.status = { notIn: hidden };
   }
+
+  // Hierarchy filters (2.6). `parentId` lists one ticket's children; `hasParent`
+  // separates top-level work from subtasks without naming a parent.
+  if (filters.parentId !== undefined) where.parentId = filters.parentId;
+  if (filters.hasParent !== undefined) {
+    where.parentId = filters.hasParent ? { not: null } : null;
+  }
+  // Merged tickets are tombstones — their conversation lives on the survivor, so
+  // they stay out of working lists unless asked for explicitly. They are already
+  // `Closed`, so this only matters once closed tickets are being shown.
+  if (filters.includeMerged === false) where.mergedIntoId = null;
 
   if (filters.q && filters.q.trim()) {
     const q = filters.q.trim();
@@ -131,6 +149,10 @@ export interface CreateTicketInput {
   ticketNumber?: string;
   externalId?: string;
   externalProvider?: string;
+  /** Which Connection this ticket was ingested from, so two-way reconcile later
+   *  authenticates against the same tenant. Null for legacy single-account
+   *  installs and for locally created tickets. */
+  syncConnectionId?: number | null;
 }
 
 export interface UpdateTicketInput {
@@ -151,6 +173,37 @@ export interface UpdateTicketInput {
   dueAt?: Date | null;
   closedAt?: Date | null;
 }
+
+export interface UpdateTicketOptions {
+  /** Local is the safe default for web, MCP, and automation. Only provider
+   * reconciliation may opt into remote mode. */
+  origin?: 'local' | 'remote';
+  /** Remote writes are compare-and-set against the revision read before HTTP. */
+  expectedSyncRevision?: number;
+  /** Bookkeeping committed atomically with a successful remote-field apply. */
+  syncResult?: {
+    state: SyncState;
+    remoteHash?: string;
+    remoteUpdatedAt?: Date | null;
+    syncedAt?: Date;
+  };
+}
+
+export class TicketSyncRevisionConflictError extends Error {
+  constructor(readonly ticketId: number) {
+    super('ticket changed locally while reconciliation was in progress');
+    this.name = 'TicketSyncRevisionConflictError';
+  }
+}
+
+const SYNC_RELEVANT_UPDATE_FIELDS: ReadonlyArray<keyof UpdateTicketInput> = [
+  'status',
+  'priority',
+  'assignee',
+  'assigneeId',
+  'title',
+  'description',
+];
 
 const HTML_TAG_RE = /<\/?[a-z][\s\S]*>/i;
 
@@ -210,6 +263,12 @@ export async function getById(id: number) {
       attachments: { orderBy: { createdAt: 'asc' } },
       slaPolicy: true,
       labels: { include: { label: true } },
+      parent: { select: { id: true, ticketNumber: true, title: true, status: true } },
+      children: {
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, ticketNumber: true, title: true, status: true, priority: true },
+      },
+      mergedInto: { select: { id: true, ticketNumber: true, title: true, status: true } },
     },
   });
 }
@@ -333,6 +392,7 @@ export async function create(input: CreateTicketInput, actorSub: string) {
       ticketNumber: clamp(ticketNumber, 50),
       externalId: clamp(input.externalId, 255),
       externalProvider: clamp(input.externalProvider, 50),
+      syncConnectionId: input.syncConnectionId ?? null,
       slaPolicyId: sla.slaPolicyId ?? undefined,
       responseDueAt: sla.responseDueAt,
       resolutionDueAt: sla.resolutionDueAt,
@@ -352,7 +412,12 @@ export async function create(input: CreateTicketInput, actorSub: string) {
   return ticket;
 }
 
-export async function update(id: number, input: UpdateTicketInput, actorSub: string) {
+export async function update(
+  id: number,
+  input: UpdateTicketInput,
+  actorSub: string,
+  options: UpdateTicketOptions = {}
+) {
   const before = await prisma.ticket.findUnique({ where: { id } });
   if (!before) return null;
 
@@ -402,15 +467,47 @@ export async function update(id: number, input: UpdateTicketInput, actorSub: str
     data.resolutionDueAt = sla.resolutionDueAt;
   }
 
-  const ticket = await prisma.ticket.update({ where: { id }, data });
+  const localSyncMutation =
+    (options.origin ?? 'local') === 'local' &&
+    before.externalId != null &&
+    before.externalProvider != null &&
+    SYNC_RELEVANT_UPDATE_FIELDS.some((field) => input[field] !== undefined);
+  if (localSyncMutation) {
+    data.syncRevision = { increment: 1 };
+    // Held conflicts stay held until explicit resolution; the revision still
+    // advances so an in-flight resolution cannot overwrite this newer edit.
+    if (before.syncState !== 'conflict') data.syncState = 'pending';
+  }
 
-  await audit.record({
-    entityType: 'ticket',
-    entityId: id,
-    action: 'update',
-    changedBy: actorSub,
-    oldValue: before as unknown as Record<string, unknown>,
-    newValue: ticket as unknown as Record<string, unknown>,
+  if (options.syncResult) {
+    data.syncState = options.syncResult.state;
+    if (options.syncResult.remoteHash !== undefined) data.remoteHash = options.syncResult.remoteHash;
+    if (options.syncResult.remoteUpdatedAt !== undefined) {
+      data.remoteUpdatedAt = options.syncResult.remoteUpdatedAt;
+    }
+    if (options.syncResult.syncedAt !== undefined) data.syncedAt = options.syncResult.syncedAt;
+  }
+
+  const ticket = await prisma.$transaction(async (tx) => {
+    if (options.expectedSyncRevision !== undefined) {
+      const changed = await tx.ticket.updateMany({
+        where: { id, syncRevision: options.expectedSyncRevision },
+        data,
+      });
+      if (changed.count !== 1) throw new TicketSyncRevisionConflictError(id);
+    } else {
+      await tx.ticket.update({ where: { id }, data });
+    }
+    const row = await tx.ticket.findUniqueOrThrow({ where: { id } });
+    await audit.record({
+      entityType: 'ticket',
+      entityId: id,
+      action: 'update',
+      changedBy: actorSub,
+      oldValue: before as unknown as Record<string, unknown>,
+      newValue: row as unknown as Record<string, unknown>,
+    }, tx);
+    return row;
   });
 
   // Surface assignment changes so the notification service can alert the new
@@ -427,6 +524,111 @@ export async function update(id: number, input: UpdateTicketInput, actorSub: str
   });
 
   return ticket;
+}
+
+// ─── Hierarchy (2.6) ──────────────────────────────────────────────────────────
+
+export class TicketHierarchyError extends Error {
+  constructor(
+    readonly code:
+      | 'self-parent'
+      | 'parent-missing'
+      | 'parent-is-child'
+      | 'child-has-children'
+      | 'parent-merged'
+      | 'child-merged',
+    message: string
+  ) {
+    super(message);
+    this.name = 'TicketHierarchyError';
+  }
+}
+
+/**
+ * Attach a ticket to a parent, or detach it with `parentId: null`.
+ *
+ * The 2.6 invariant is **exactly one level**: a ticket that has a parent may not
+ * itself be a parent. That removes cycle detection entirely — every violation is
+ * visible in the two rows involved — and matches what JSM subtasks allow.
+ * Arbitrary depth with a real cycle check is a 3.0 item.
+ *
+ * Both rows are locked for the check-then-write, because the check is only
+ * meaningful if nobody can reparent either of them in between: two concurrent
+ * calls could otherwise each see a legal state and together produce a
+ * grandparent. A trigger in db/pgExtras.ts enforces the same rule underneath, so
+ * a direct psql edit cannot bypass it either.
+ */
+export async function setParent(
+  id: number,
+  parentId: number | null,
+  actorSub: string
+): Promise<Ticket | null> {
+  return prisma.$transaction(async (tx) => {
+    const ids = parentId === null ? [id] : [id, parentId];
+    await tx.$queryRaw(
+      Prisma.sql`SELECT id FROM tickets WHERE id IN (${Prisma.join(ids)}) ORDER BY id FOR UPDATE`
+    );
+
+    const before = await tx.ticket.findUnique({ where: { id } });
+    if (!before) return null;
+
+    if (parentId !== null) {
+      if (parentId === id) {
+        throw new TicketHierarchyError('self-parent', 'a ticket cannot be its own parent');
+      }
+      const parent = await tx.ticket.findUnique({ where: { id: parentId } });
+      if (!parent) {
+        throw new TicketHierarchyError('parent-missing', `ticket ${parentId} does not exist`);
+      }
+      if (parent.mergedIntoId) {
+        throw new TicketHierarchyError(
+          'parent-merged',
+          `ticket #${parentId} was merged away; use the ticket it was merged into`
+        );
+      }
+      if (before.mergedIntoId) {
+        throw new TicketHierarchyError('child-merged', 'a merged ticket cannot be given a parent');
+      }
+      if (parent.parentId !== null) {
+        throw new TicketHierarchyError(
+          'parent-is-child',
+          `ticket #${parentId} is already a child of #${parent.parentId}; ` +
+            'AnchorDesk supports one level of hierarchy'
+        );
+      }
+      const childCount = await tx.ticket.count({ where: { parentId: id } });
+      if (childCount > 0) {
+        throw new TicketHierarchyError(
+          'child-has-children',
+          `ticket #${id} has ${childCount} child ticket(s), so it cannot also become a child`
+        );
+      }
+    }
+
+    await tx.ticket.update({ where: { id }, data: { parentId } });
+    const row = await tx.ticket.findUniqueOrThrow({ where: { id } });
+    await audit.record(
+      {
+        entityType: 'ticket',
+        entityId: id,
+        action: 'update',
+        changedBy: actorSub,
+        oldValue: before as unknown as Record<string, unknown>,
+        newValue: row as unknown as Record<string, unknown>,
+      },
+      tx
+    );
+    return row;
+  });
+}
+
+/** Children of a ticket, in creation order. */
+export function listChildren(parentId: number) {
+  return prisma.ticket.findMany({
+    where: { parentId },
+    orderBy: { createdAt: 'asc' },
+    include: { assigneeUser: true, labels: { include: { label: true } } },
+  });
 }
 
 /** Soft-delete: sets status to 'Deleted' rather than hard-removing the row. */
@@ -453,23 +655,16 @@ export async function remove(id: number, actorSub: string) {
 
 // ─── Two-way sync bookkeeping ──────────────────────────────────────────────────
 
-/** Mark an external ticket dirty (local change awaiting outbound push). No-op for
- *  local tickets or ones already flagged as conflicted (a conflict must be
- *  resolved before it can go back to pending). */
-export async function markPending(id: number): Promise<void> {
-  const t = await prisma.ticket.findUnique({ where: { id }, select: { externalId: true, syncState: true } });
-  if (!t?.externalId || t.syncState === 'conflict') return;
-  await prisma.ticket.update({ where: { id }, data: { syncState: 'pending' } });
-}
-
-/** Set the sync state and (optionally) the reconcile bookkeeping fields. */
-export async function setSyncState(
+/** Compare-and-set sync bookkeeping after remote I/O. A newer local mutation
+ * wins and remains pending instead of being cleared by a stale reconcile. */
+export async function setSyncStateIfRevision(
   id: number,
+  expectedSyncRevision: number,
   state: SyncState,
   extra?: { remoteHash?: string; remoteUpdatedAt?: Date | null; syncedAt?: Date }
-): Promise<void> {
-  await prisma.ticket.update({
-    where: { id },
+): Promise<boolean> {
+  const updated = await prisma.ticket.updateMany({
+    where: { id, syncRevision: expectedSyncRevision },
     data: {
       syncState: state,
       ...(extra?.remoteHash !== undefined ? { remoteHash: extra.remoteHash } : {}),
@@ -477,6 +672,47 @@ export async function setSyncState(
       ...(extra?.syncedAt !== undefined ? { syncedAt: extra.syncedAt } : {}),
     },
   });
+  return updated.count === 1;
+}
+
+/** A stale outbound push may already have landed remotely. Record that verified
+ * remote baseline without clearing the newer local pending mutation, so the
+ * retry pushes the latest values instead of manufacturing a false conflict. */
+export async function advanceRemoteBaselineWhilePending(
+  id: number,
+  previousSyncRevision: number,
+  extra: { remoteHash: string; remoteUpdatedAt?: Date | null; syncedAt?: Date }
+): Promise<boolean> {
+  const updated = await prisma.ticket.updateMany({
+    where: {
+      id,
+      syncRevision: { gt: previousSyncRevision },
+      syncState: { in: ['pending', 'error', 'conflict'] },
+    },
+    data: {
+      remoteHash: extra.remoteHash,
+      ...(extra.remoteUpdatedAt !== undefined ? { remoteUpdatedAt: extra.remoteUpdatedAt } : {}),
+      ...(extra.syncedAt !== undefined ? { syncedAt: extra.syncedAt } : {}),
+    },
+  });
+  return updated.count === 1;
+}
+
+/** Preserve newer local fields while surfacing a genuine simultaneous remote
+ * change as a held conflict. */
+export async function markConflictAfterConcurrentLocalEdit(
+  id: number,
+  previousSyncRevision: number,
+  remoteUpdatedAt?: Date | null
+): Promise<boolean> {
+  const updated = await prisma.ticket.updateMany({
+    where: { id, syncRevision: { gt: previousSyncRevision } },
+    data: {
+      syncState: 'conflict',
+      ...(remoteUpdatedAt !== undefined ? { remoteUpdatedAt } : {}),
+    },
+  });
+  return updated.count === 1;
 }
 
 /** Upsert a ticket from an external sync source. Returns {ticket, created}. */
@@ -486,15 +722,23 @@ export async function upsertExternal(
   input: CreateTicketInput,
   actorSub: string
 ) {
-  const existing = await prisma.ticket.findUnique({
-    where: { externalId_externalProvider: { externalId, externalProvider } },
+  // Scoped by connection: external ids are only unique within one account, so a
+  // second tenant's "HELP-1" must not update the first tenant's ticket.
+  const existing = await prisma.ticket.findFirst({
+    where: { externalId, externalProvider, syncConnectionId: input.syncConnectionId ?? null },
   });
 
   if (existing) {
+    // A merged ticket is a tombstone whose conversation now lives on the
+    // survivor. Blindly applying the remote's fields here would reopen it and
+    // rewrite the status the merge set, so the read-only ingest path leaves it
+    // alone for exactly the same reason reconcile does. Reported as not-created
+    // and unchanged; `merged` lets the caller count it without degrading health.
+    if (existing.mergedIntoId) return { ticket: existing, created: false, merged: true };
     const ticket = await update(existing.id, input as UpdateTicketInput, actorSub);
-    return { ticket, created: false };
+    return { ticket, created: false, merged: false };
   }
 
   const ticket = await create({ ...input, externalId, externalProvider }, actorSub);
-  return { ticket, created: true };
+  return { ticket, created: true, merged: false };
 }

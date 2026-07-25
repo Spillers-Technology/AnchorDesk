@@ -13,6 +13,9 @@ import CreateTicketDialog from "./CreateTicketDialog";
 import RunScriptDialog from "./RunScriptDialog";
 import FilterDialog from "./FilterDialog";
 import TicketDialog from "./TicketDialog";
+import MergeTicketDialog from "./MergeTicketDialog";
+import { ConnectionEditorDialog, JobEditorDialog } from "./admin/TicketSyncPanel";
+import SyncRunHistoryDialog from "./admin/SyncRunHistoryDialog";
 import type { Ticket } from "../interfaces";
 
 vi.mock("../api/client", () => ({
@@ -27,6 +30,13 @@ vi.mock("../api/client", () => ({
   listScripts: () => Promise.resolve([]),
   runScript: () => Promise.resolve({}),
   getScriptJob: () => Promise.resolve({}),
+  listSyncRuns: () => Promise.resolve([]),
+  getSyncRun: () => Promise.resolve({}),
+  searchTickets: () => Promise.resolve([]),
+  mergePreview: () => Promise.resolve({}),
+  mergeTicket: () => Promise.resolve({}),
+  unmergeTicket: () => Promise.resolve({}),
+  setTicketParent: () => Promise.resolve({}),
 }));
 
 // MUI's useMediaQuery reads window.matchMedia. breakpoints.down("sm") compiles
@@ -94,6 +104,59 @@ describe("dialogs at phone width", () => {
         notes={[]}
         currentUser={{ canWrite: false }}
         onClose={noop}
+      />
+    );
+    expect(document.querySelector(".MuiDialog-paperFullScreen")).not.toBeNull();
+  });
+
+  it("MergeTicketDialog renders full-screen", () => {
+    renderInTheme(
+      <MergeTicketDialog
+        open
+        source={{ id: 1, ticketNumber: "10482", title: "Mobile ticket cockpit" }}
+        onClose={noop}
+        onMerged={noop}
+      />
+    );
+    expect(document.querySelector(".MuiDialog-paperFullScreen")).not.toBeNull();
+  });
+
+  // Admin → Ticket sync (docs/sow-sync-ux.md) — the connection and sync-job
+  // editors are the two dialogs a fresh admin must complete to reach a working
+  // sync, so they carry the same full-screen guarantee as the ticket dialogs.
+  it("TicketSyncPanel's ConnectionEditorDialog renders full-screen", () => {
+    renderInTheme(<ConnectionEditorDialog connection={null} onClose={noop} onSaved={noop} />);
+    expect(document.querySelector(".MuiDialog-paperFullScreen")).not.toBeNull();
+  });
+
+  it("TicketSyncPanel's JobEditorDialog renders full-screen", () => {
+    renderInTheme(<JobEditorDialog job={null} connections={[]} onClose={noop} onSaved={noop} />);
+    expect(document.querySelector(".MuiDialog-paperFullScreen")).not.toBeNull();
+  });
+
+  it("Ticket sync run history renders full-screen", () => {
+    renderInTheme(
+      <SyncRunHistoryDialog
+        open
+        onClose={noop}
+        job={{
+          id: 1,
+          name: "Contoso Jira",
+          type: "jira",
+          enabled: true,
+          lastSyncedAt: null,
+          configRevision: 1,
+          connectionId: 1,
+          config: {},
+          health: {
+            status: "never_run",
+            lastAttemptAt: null,
+            lastSuccessAt: null,
+            consecutiveFailures: 0,
+            latestError: null,
+            latestRun: null,
+          },
+        }}
       />
     );
     expect(document.querySelector(".MuiDialog-paperFullScreen")).not.toBeNull();

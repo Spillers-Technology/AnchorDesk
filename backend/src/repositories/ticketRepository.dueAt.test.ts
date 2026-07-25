@@ -6,9 +6,12 @@
  */
 jest.mock('../db/prisma', () => ({
   prisma: {
+    $transaction: jest.fn(),
     ticket: {
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
     },
   },
 }));
@@ -30,8 +33,10 @@ import { prisma } from '../db/prisma';
 import { computeSlaFields } from '../services/sla';
 import { update } from './ticketRepository';
 
+const transaction = prisma.$transaction as jest.Mock;
 const ticketFindUnique = prisma.ticket.findUnique as jest.Mock;
 const ticketUpdate = prisma.ticket.update as jest.Mock;
+const ticketFindUniqueOrThrow = prisma.ticket.findUniqueOrThrow as jest.Mock;
 const computeSla = computeSlaFields as jest.Mock;
 
 const MANUAL_DUE = new Date('2026-07-18T09:00:00Z');
@@ -57,6 +62,13 @@ function existingTicket(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   jest.clearAllMocks();
   ticketUpdate.mockImplementation(({ data }) => Promise.resolve({ ...existingTicket(), ...data }));
+  ticketFindUniqueOrThrow.mockImplementation(() => {
+    const lastUpdate = ticketUpdate.mock.calls.at(-1)?.[0];
+    return Promise.resolve({ ...existingTicket(), ...(lastUpdate?.data ?? {}) });
+  });
+  transaction.mockImplementation(
+    async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma)
+  );
 });
 
 describe('ticketRepository.update dueAt handling', () => {

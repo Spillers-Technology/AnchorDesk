@@ -432,7 +432,7 @@ export interface StorageView {
 export interface IntegrationsView {
   smtp: { host?: string; port?: number; secure?: boolean; user?: string; from?: string; hasPass?: boolean };
   connectwise: { server?: string; company?: string; publicKey?: string; hasPrivateKey?: boolean; hasClientId?: boolean };
-  jira: { baseUrl?: string; email?: string; projectKey?: string; jql?: string; hasApiToken?: boolean };
+  jira: { baseUrl?: string; email?: string; hasApiToken?: boolean };
   tactical: { apiUrl?: string; hasApiKey?: boolean };
   ninjaone: { apiUrl?: string; clientId?: string; scope?: string; hasClientSecret?: boolean };
   datto: { apiUrl?: string; apiKey?: string; hasApiSecretKey?: boolean };
@@ -523,6 +523,10 @@ export interface TicketFilters {
   customFields?: Record<string, string | number | boolean>;
   /** Include closed tickets (default false hides them from working views). */
   includeClosed?: boolean;
+  /** Restrict results to the direct children of one ticket. */
+  parentId?: number;
+  /** Restrict results to tickets with or without a parent. */
+  hasParent?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -553,6 +557,64 @@ export function getTicket(id: number) {
 /** Postgres full-text search across ticket title/summary/description/company. */
 export function searchTickets(q: string, limit = 100) {
   return request<unknown[]>(`/tickets/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+}
+
+export interface MergeTicketSummary {
+  id: number;
+  ticketNumber: string;
+  title: string;
+}
+
+export interface MergePreviewMoveCounts {
+  notes: number;
+  attachments: number;
+  checklistItems: number;
+  children: number;
+  labels: number;
+  deviceLinks: number;
+}
+
+export interface MergePreviewNotice {
+  code: string;
+  message: string;
+}
+
+export interface MergePreview {
+  source: MergeTicketSummary;
+  target: MergeTicketSummary;
+  moves: MergePreviewMoveCounts;
+  warnings: MergePreviewNotice[];
+  blockers: MergePreviewNotice[];
+}
+
+export interface TicketRelationFields {
+  parentId: number | null;
+  mergedIntoId: number | null;
+  mergedAt: string | null;
+}
+
+export type RelatedTicketRecord = Record<string, unknown> & TicketRelationFields;
+
+export function mergePreview(sourceId: number, targetId: number) {
+  return request<MergePreview>(`/tickets/${sourceId}/merge-preview?targetId=${targetId}`);
+}
+
+export function mergeTicket(sourceId: number, targetId: number, acknowledge?: string[]) {
+  return request<RelatedTicketRecord>(`/tickets/${sourceId}/merge`, {
+    method: "POST",
+    body: JSON.stringify({ targetId, ...(acknowledge?.length ? { acknowledge } : {}) }),
+  });
+}
+
+export function unmergeTicket(sourceId: number) {
+  return request<RelatedTicketRecord>(`/tickets/${sourceId}/unmerge`, { method: "POST" });
+}
+
+export function setTicketParent(ticketId: number, parentId: number | null) {
+  return request<RelatedTicketRecord>(`/tickets/${ticketId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ parentId }),
+  });
 }
 
 // ─── Companies & contacts (CRM) ────────────────────────────────────────────────
@@ -661,7 +723,15 @@ export function listNotes(ticketId: number) {
   return request<unknown[]>(`/tickets/${ticketId}/notes`);
 }
 
-export function createNote(ticketId: number, data: Record<string, unknown>) {
+type CreateLocalNoteInput = {
+  /** Only locally-authored conversation note types are accepted here. */
+  noteType?: "note" | "internal";
+} & (
+  | { content: string; htmlContent?: string }
+  | { content?: string; htmlContent: string }
+);
+
+export function createNote(ticketId: number, data: CreateLocalNoteInput) {
   return request<unknown>(`/tickets/${ticketId}/notes`, { method: 'POST', body: JSON.stringify(data) });
 }
 
@@ -673,29 +743,176 @@ export function deleteNote(ticketId: number, noteId: number) {
   return request<void>(`/tickets/${ticketId}/notes/${noteId}`, { method: 'DELETE' });
 }
 
-// ─── Sync ────────────────────────────────────────────────────────────────────
+// ─── Connections (shared external account credentials) ────────────────────────
+//
+// A Connection is one Jira site or ConnectWise instance. Secrets never come
+// back over the API — `config` collapses them to `hasX` booleans, mirroring
+// how /integrations handles secret fields.
+
+export type ConnectionType = "jira";
+
+export interface Connection {
+  id: number;
+  name: string;
+  type: ConnectionType;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  lastTestAt: string | null;
+  lastTestOk: boolean | null;
+  lastTestMessage: string | null;
+  /** Every required credential field is present (secrets included) — not just
+   *  the visible ones. A connection can be "configured" and still fail Test. */
+  configured: boolean;
+}
+
+export interface ConnectionTestResult {
+  ok: boolean;
+  category: string;
+  message: string;
+  identity?: string;
+  testedAt: string;
+}
+
+export function listConnections(type?: ConnectionType) {
+  const params = type ? `?type=${encodeURIComponent(type)}` : "";
+  return request<Connection[]>(`/connections${params}`);
+}
+
+export function createConnection(data: { name: string; type: ConnectionType; config?: Record<string, unknown>; enabled?: boolean }) {
+  return request<Connection>("/connections", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function updateConnection(id: number, data: { name?: string; config?: Record<string, unknown>; enabled?: boolean }) {
+  return request<Connection>(`/connections/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+}
+
+export function deleteConnection(id: number) {
+  return request<void>(`/connections/${id}`, { method: "DELETE" });
+}
+
+/** Non-mutating credential test against the stored config. Persists on the
+ *  connection so the result survives a page reload. */
+export function testConnection(id: number) {
+  return request<ConnectionTestResult>(`/connections/${id}/test`, { method: "POST" });
+}
+
+// ─── Sync jobs ──────────────────────────────────────────────────────────────
+//
+// A sync job (`SyncProvider` row) pairs a provider type with a small
+// type-specific scope. Jira jobs require one explicit Connection; ConnectWise
+// remains on one legacy-global account record and therefore carries null, but
+// every job must name its exact board.
+// `config` here is already the safe DTO the backend returns — only the fields
+// this job's type recognizes.
 
 export interface SyncProvider {
   id: number;
   name: string;
-  type: string;
+  type: "connectwise" | "jira";
   enabled: boolean;
   lastSyncedAt: string | null;
+  configRevision: number;
   createdAt?: string;
+  connectionId: number | null;
+  health: SyncHealthSummary;
+  config: {
+    projectKey?: string;
+    jql?: string;
+    board?: string;
+    filter?: SyncFilterInput;
+  };
+}
+
+export type SyncRunStatus = "running" | "success" | "degraded" | "error";
+export type SyncHealthStatus = "never_run" | "running" | "healthy" | "degraded" | "failing";
+
+export interface SyncRunSummary {
+  id: number;
+  providerId: number;
+  configRevision: number;
+  provider?: { name: string; type: string };
+  trigger: "manual" | "scheduled";
+  status: SyncRunStatus;
+  initiatedBy: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  durationMs: number | null;
+  ticketsCreated: number;
+  ticketsUpdated: number;
+  notesUpserted: number;
+  ticketsFiltered: number;
+  ticketsSkipped: number;
+  ticketsConflicted: number;
+  errorCount: number;
+  latestError: string | null;
+}
+
+export interface SyncHealthSummary {
+  status: SyncHealthStatus;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  consecutiveFailures: number;
+  latestError: string | null;
+  latestRun: SyncRunSummary | null;
+}
+
+/** Provider-neutral filter vocabulary — mirrors backend/src/services/syncFilter.ts.
+ *  Values within a field are OR'd, fields are AND'd, exclude wins. */
+export interface SyncFilterInput {
+  assignee?: string[];
+  status?: string[];
+  priority?: string[];
+  companyName?: string[];
+  exclude?: {
+    assignee?: string[];
+    status?: string[];
+    priority?: string[];
+    companyName?: string[];
+  };
 }
 
 export function listSyncProviders() {
   return request<SyncProvider[]>('/sync/providers');
 }
 
-export function createSyncProvider(data: {
+interface SyncProviderCreateBase {
   name: string;
-  type: "connectwise" | "jira";
   enabled?: boolean;
-  config?: Record<string, unknown>;
-}) {
+}
+
+export type CreateSyncProviderInput =
+  | (SyncProviderCreateBase & {
+      type: "jira";
+      /** Required tenant binding; generic job creation must make the admin choose it. */
+      connectionId: number;
+      config?: { projectKey?: string; jql?: string; filter?: SyncFilterInput | null };
+    })
+  | (SyncProviderCreateBase & {
+      type: "connectwise";
+      /** ConnectWise is still one global account, but its job scope is explicit. */
+      connectionId?: null;
+      config: { board: string; filter?: SyncFilterInput | null };
+    });
+
+export function createSyncProvider(data: CreateSyncProviderInput) {
   return request<SyncProvider>('/sync/providers', {
     method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateSyncProvider(
+  providerId: number,
+  data: {
+    name?: string;
+    enabled?: boolean;
+    /** Jira may change to another explicit id; null is only valid for ConnectWise. */
+    connectionId?: number | null;
+    config?: { projectKey?: string; jql?: string; board?: string; filter?: SyncFilterInput | null };
+  }
+) {
+  return request<SyncProvider>(`/sync/providers/${providerId}`, {
+    method: 'PATCH',
     body: JSON.stringify(data),
   });
 }
@@ -721,23 +938,64 @@ export function resolveTicketConflict(id: number, resolution: "local" | "remote"
   });
 }
 
+export interface SyncRunResult {
+  runId: number | null;
+  providerId: number;
+  providerName: string;
+  status: Exclude<SyncRunStatus, "running">;
+  ticketsCreated: number;
+  ticketsUpdated: number;
+  notesUpserted: number;
+  ticketsFiltered: number;
+  ticketsSkipped: number;
+  ticketsConflicted: number;
+  errorCount: number;
+  errors: string[];
+  durationMs: number;
+}
+
+/** Runs one job (`provider` = job name) or every enabled job. The backend
+ *  returns a single result for one job, an array for "all". */
 export function runSync(provider?: string) {
   const params = provider ? `?provider=${encodeURIComponent(provider)}` : '';
-  return request<unknown>(`/sync/run${params}`, { method: 'POST' });
+  return request<SyncRunResult | SyncRunResult[]>(`/sync/run${params}`, { method: 'POST' });
+}
+
+export interface SyncLogEntry {
+  id: number;
+  runId: number | null;
+  externalId: string | null;
+  internalId: number | null;
+  direction: "inbound" | "outbound";
+  status: "success" | "error" | "skipped";
+  message: string | null;
+  syncedAt: string;
+  provider: { name: string; type: string };
 }
 
 export function getSyncLog(opts: { provider?: string; limit?: number } = {}) {
   const params = new URLSearchParams();
   if (opts.provider) params.set('provider', opts.provider);
   if (opts.limit) params.set('limit', String(opts.limit));
-  return request<unknown[]>(`/sync/log?${params}`);
+  return request<SyncLogEntry[]>(`/sync/log?${params}`);
 }
 
-export function toggleSyncProvider(providerId: number, enabled: boolean) {
-  return request<SyncProvider>(`/sync/providers/${providerId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ enabled }),
-  });
+export function listSyncRuns(opts: { provider?: string; limit?: number } = {}) {
+  const params = new URLSearchParams();
+  if (opts.provider) params.set("provider", opts.provider);
+  if (opts.limit) params.set("limit", String(opts.limit));
+  return request<SyncRunSummary[]>(`/sync/runs?${params}`);
+}
+
+export interface SyncRunDetail extends SyncRunSummary {
+  provider: { name: string; type: string };
+  logCount: number;
+  logsTruncated: boolean;
+  logs: SyncLogEntry[];
+}
+
+export function getSyncRun(runId: number) {
+  return request<SyncRunDetail>(`/sync/runs/${runId}`);
 }
 
 export function deleteSyncProvider(providerId: number) {

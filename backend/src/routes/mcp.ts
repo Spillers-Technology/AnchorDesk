@@ -18,6 +18,8 @@ import { CustomFieldValidationError, coerceCustomFieldFilters } from '../service
 import { PRIORITY_LIST_TEXT, STATUS_LIST_TEXT, normalizePriority, normalizeStatus } from '../services/ticketVocab';
 import { hasPrismaCode } from '../util/prismaErrors';
 import * as ticketMail from '../services/mail/ticketMail';
+import * as mergeService from '../services/merge/mergeService';
+import { MergeLedgerFormatError } from '../services/merge/mergeLedger';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
 import { actorFor } from '../middleware/auth';
 import { buildMcpProtectedResourceMetadata } from '../services/auth/mcpOAuth';
@@ -92,6 +94,14 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
         .describe('Exact-match custom field filters keyed by field key (see list_custom_fields); combine with other filters or replay a saved view'),
       includeClosed: z.boolean().optional().default(false).describe('Include Closed tickets when no explicit status is selected'),
       includeDeleted: z.boolean().optional().default(false).describe('Include soft-deleted tickets'),
+      parentId: z.number().int().optional().describe('List only the child tickets of this parent'),
+      hasParent: z.boolean().optional().describe('true = only subtasks, false = only top-level tickets'),
+      // Defaulted false to match GET /tickets. Tombstones are noise in an
+      // agent's working list, and a merged ticket's conversation now lives on
+      // the survivor — an agent reading the tombstone would answer from a
+      // conversation that has moved.
+      includeMerged: z.boolean().optional().default(false)
+        .describe('Include tickets that were merged into another ticket (tombstones)'),
       page: z.number().int().min(1).optional().default(1),
       pageSize: z.number().int().min(1).max(100).optional().default(20),
     },
@@ -115,7 +125,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
 
   server.tool(
     'get_ticket',
-    'Get full details of a single ticket including its notes and checklist.',
+    'Get full details of a single ticket including its notes, checklist, parent/children, and — if it was merged away — the ticket it was merged into.',
     { id: z.number().int().describe('Local database ticket ID') },
     async ({ id }) => {
       const ticket = await tickets.getById(id);
@@ -214,13 +224,122 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     {
       ticketId: z.number().int(),
       content: z.string().describe('Note text'),
-      author: z.string().optional().default('MCP Agent'),
     },
-    async ({ ticketId, content, author }) => {
+    async ({ ticketId, content }) => {
       const changedBy = actor;
-      const note = await notes.create(ticketId, { content, author, noteType: 'note' }, changedBy);
+      const note = await notes.create(
+        ticketId,
+        { content, author: actor, noteType: 'note', queueForTicketSync: true },
+        changedBy
+      );
       return { content: [{ type: 'text', text: JSON.stringify(note, null, 2) }] };
     },
+  );
+
+  // ─── Merge + hierarchy (2.6) ────────────────────────────────────────────────
+  // MCP parity is a release invariant, so these ship with the REST routes rather
+  // than after them. The acknowledgement contract is preserved verbatim for
+  // agents: an agent must not be able to merge past a warning a human would have
+  // had to read and tick.
+
+  server.tool(
+    'preview_ticket_merge',
+    'Dry-run a ticket merge: what would move, which warnings must be acknowledged, and what blocks it outright. Always call this before merge_tickets.',
+    {
+      sourceId: z.number().int().describe('Ticket to merge away (becomes a tombstone)'),
+      targetId: z.number().int().describe('Ticket to keep'),
+    },
+    { title: 'Preview ticket merge', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async ({ sourceId, targetId }) => {
+      try {
+        return jsonResult(await mergeService.previewMerge(sourceId, targetId));
+      } catch (err) {
+        if (err instanceof mergeService.MergeBlockedError) {
+          return { content: [{ type: 'text', text: err.message }], isError: true };
+        }
+        throw err;
+      }
+    },
+  );
+
+  server.tool(
+    'merge_tickets',
+    'Merge a duplicate ticket into the one being kept. Notes, attachments, checklist items, children, and labels move to the target; the source becomes a closed tombstone that still resolves. This is a LOCAL record operation — it makes no change in Jira/ConnectWise, and a merged ticket stops syncing. Warnings from preview_ticket_merge must be echoed in `acknowledge` or the call is refused.',
+    {
+      sourceId: z.number().int().describe('Ticket to merge away'),
+      targetId: z.number().int().describe('Ticket to keep'),
+      acknowledge: z.array(z.string()).optional()
+        .describe('Warning codes from preview_ticket_merge that you are explicitly accepting (e.g. "sync-stop", "cross-company")'),
+    },
+    { title: 'Merge tickets', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    async ({ sourceId, targetId, acknowledge }) => {
+      try {
+        return jsonResult(await mergeService.mergeTickets(sourceId, targetId, actor, { acknowledge }));
+      } catch (err) {
+        if (err instanceof mergeService.MergeAcknowledgementRequiredError) {
+          return {
+            content: [{
+              type: 'text',
+              text:
+                `${err.message}\n\nCall preview_ticket_merge to read each warning, then repeat ` +
+                `merge_tickets with acknowledge: ${JSON.stringify(err.requiresAcknowledgement)}.`,
+            }],
+            isError: true,
+          };
+        }
+        if (err instanceof mergeService.MergeBlockedError) {
+          return { content: [{ type: 'text', text: err.message }], isError: true };
+        }
+        throw err;
+      }
+    },
+  );
+
+  server.tool(
+    'unmerge_ticket',
+    'Reverse a merge, restoring exactly the notes, attachments, checklist items, children, and labels that the merge moved. Anything added to the surviving ticket afterwards stays there.',
+    { sourceId: z.number().int().describe('The merged-away ticket to restore') },
+    { title: 'Unmerge ticket', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    async ({ sourceId }) => {
+      try {
+        return jsonResult(await mergeService.unmergeTicket(sourceId, actor));
+      } catch (err) {
+        if (err instanceof mergeService.MergeBlockedError || err instanceof MergeLedgerFormatError) {
+          return { content: [{ type: 'text', text: err.message }], isError: true };
+        }
+        throw err;
+      }
+    },
+  );
+
+  server.tool(
+    'set_ticket_parent',
+    'Attach a ticket to a parent ticket, or pass parentId null to detach it. AnchorDesk supports exactly one level of hierarchy: a ticket that has a parent cannot itself be a parent. Hierarchy is local only — it is never pushed to or pulled from Jira/ConnectWise.',
+    {
+      id: z.number().int().describe('Ticket that becomes the child'),
+      parentId: z.number().int().nullable().describe('Parent ticket id, or null to detach'),
+    },
+    { title: 'Set ticket parent', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async ({ id, parentId }) => {
+      try {
+        const ticket = await tickets.setParent(id, parentId, actor);
+        if (!ticket) return { content: [{ type: 'text', text: `Ticket ${id} not found` }], isError: true };
+        return jsonResult(ticket);
+      } catch (err) {
+        if (err instanceof tickets.TicketHierarchyError) {
+          return { content: [{ type: 'text', text: err.message }], isError: true };
+        }
+        throw err;
+      }
+    },
+  );
+
+  server.tool(
+    'list_ticket_children',
+    'List the child tickets of a parent ticket.',
+    { id: z.number().int().describe('Parent ticket id') },
+    { title: 'List ticket children', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async ({ id }) => jsonResult(await tickets.listChildren(id)),
   );
 
   server.tool(
