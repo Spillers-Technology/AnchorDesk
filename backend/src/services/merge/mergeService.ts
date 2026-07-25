@@ -41,6 +41,7 @@ export interface MergeBlocker {
     | 'target-missing'
     | 'already-merged'
     | 'target-descendant'
+    | 'target-would-nest'
     | 'sync-conflict'
     | 'source-deleted'
     | 'target-deleted';
@@ -87,7 +88,15 @@ export class MergeAcknowledgementRequiredError extends Error {
  *  into self are both rejected, so a cycle should be unreachable — but this
  *  resolves on the inbound-mail hot path, where an infinite loop would wedge the
  *  poller on a poison message. Fail closed instead. */
-const MERGE_CHAIN_MAX_DEPTH = 16;
+/**
+ * Depth cap when walking a merge chain. The `seen` set already guarantees
+ * termination on its own, so this is a second backstop rather than the real
+ * limit — which is why it is set well above any plausible chain (16 was low
+ * enough that a legitimate sequence of merges could reach it, and hitting it
+ * silently returns a tombstone). Kept because this runs on the inbound-mail hot
+ * path, where an unbounded walk would wedge the poller on one poison message.
+ */
+const MERGE_CHAIN_MAX_DEPTH = 128;
 
 function ref(t: Pick<Ticket, 'id' | 'ticketNumber' | 'title' | 'status'>): TicketRef {
   return { id: t.id, ticketNumber: t.ticketNumber, title: t.title, status: t.status };
@@ -117,10 +126,24 @@ export async function resolveMergeTarget(ticketId: number): Promise<number> {
     if (!next) return current;
     // A cycle is not supposed to be constructible; if one exists anyway, stop on
     // the last sane ticket rather than looping or throwing on the mail path.
-    if (seen.has(next)) return current;
+    if (seen.has(next)) {
+      console.error(
+        `[merge] ticket ${ticketId}: merge chain cycles at #${next}; ` +
+          `resolving to #${current}, which is still a tombstone. Correspondence will ` +
+          `land on a closed ticket until this is repaired.`
+      );
+      return current;
+    }
     seen.add(next);
     current = next;
   }
+  // Only reachable on a chain longer than the cap. Say so loudly: the answer we
+  // are about to return is a tombstone, which is exactly the outcome this
+  // function exists to prevent.
+  console.error(
+    `[merge] ticket ${ticketId}: merge chain exceeded ${MERGE_CHAIN_MAX_DEPTH} hops; ` +
+      `resolving to #${current}, which may still be a tombstone.`
+  );
   return current;
 }
 
@@ -233,6 +256,20 @@ export async function previewMerge(sourceId: number, targetId: number): Promise<
       prisma.deviceLink.findMany({ where: { ticketId: target.id }, select: { deviceId: true } }),
     ]);
 
+  // Merging a parent into a ticket that is itself a child would push the source's
+  // children to depth 2, which the pgExtras trigger refuses. Caught here so the
+  // operator gets an explanation in the preview instead of a raw constraint
+  // violation from inside the merge transaction.
+  if (children > 0 && target.parentId !== null) {
+    blockers.push({
+      code: 'target-would-nest',
+      message:
+        `#${source.ticketNumber ?? source.id} has ${children} child ticket(s) and ` +
+        `#${target.ticketNumber ?? target.id} is itself a child ticket. ` +
+        `AnchorDesk supports one level of hierarchy — detach one of them first.`,
+    });
+  }
+
   const targetLabelIds = new Set(targetLabels.map((l) => l.labelId));
   const targetDeviceIds = new Set(targetDevices.map((d) => d.deviceId));
 
@@ -295,6 +332,21 @@ export async function mergeTickets(
         { code: 'already-merged', message: `ticket is already merged into #${source.mergedIntoId}` },
       ]);
     }
+    // The chain was resolved before the transaction, so the survivor we picked
+    // may itself have been merged away in the meantime. Refuse rather than
+    // resolve again here: two reciprocal merges (A→B and B→A) previewing at the
+    // same time would otherwise both commit and build a merge cycle, and
+    // re-resolving would silently retarget a merge the operator never approved.
+    if (target.mergedIntoId) {
+      throw new MergeBlockedError([
+        {
+          code: 'already-merged',
+          message:
+            `#${target.ticketNumber ?? target.id} was merged into #${target.mergedIntoId} ` +
+            `while this merge was being prepared; re-run the preview`,
+        },
+      ]);
+    }
     // Re-checked under the lock, not just in preview: someone could have made
     // the target a child of the source in between. Because hierarchy is exactly
     // one level, "target is a descendant of source" reduces to this one
@@ -321,6 +373,20 @@ export async function mergeTickets(
       where: { parentId: sourceId },
       select: { id: true },
     });
+    // Re-checked under the lock for the same reason as the descendant test: the
+    // target could have been given a parent, or the source a child, since
+    // preview ran. Without this the reparent below trips the one-level trigger
+    // and the operator sees a raw constraint violation.
+    if (childRows.length && target.parentId !== null) {
+      throw new MergeBlockedError([
+        {
+          code: 'target-would-nest',
+          message:
+            'cannot merge a ticket with children into a ticket that is itself a child; ' +
+            'AnchorDesk supports one level of hierarchy',
+        },
+      ]);
+    }
     const sourceLabels = await tx.ticketLabel.findMany({
       where: { ticketId: sourceId },
       select: { labelId: true },
@@ -362,40 +428,45 @@ export async function mergeTickets(
     });
     const sortBase = (maxSort._max.sortOrder ?? 0) + 1;
 
+    // Every move below is scoped by its ORIGINAL owner as well as by id. Only the
+    // two ticket rows are locked, so a concurrent edit can move one of these rows
+    // off the source between the read above and the write here; the extra
+    // predicate makes such a row a no-op instead of yanking it away from
+    // wherever it now lives.
     if (noteIds.length) {
       await tx.note.updateMany({
-        where: { id: { in: noteIds } },
+        where: { id: { in: noteIds }, ticketId: sourceId },
         // originTicketId only when it is not already set: a note that has moved
         // twice should still name where it was authored, not the intermediate
         // stop.
         data: { ticketId: resolvedTargetId },
       });
       await tx.note.updateMany({
-        where: { id: { in: noteIds }, originTicketId: null },
+        where: { id: { in: noteIds }, ticketId: resolvedTargetId, originTicketId: null },
         data: { originTicketId: sourceId },
       });
     }
     if (clearedSyncPendingNoteIds.length) {
       await tx.note.updateMany({
-        where: { id: { in: clearedSyncPendingNoteIds } },
+        where: { id: { in: clearedSyncPendingNoteIds }, ticketId: resolvedTargetId },
         data: { syncPending: false },
       });
     }
     if (attachmentIds.length) {
       await tx.attachment.updateMany({
-        where: { id: { in: attachmentIds } },
+        where: { id: { in: attachmentIds }, ticketId: sourceId },
         data: { ticketId: resolvedTargetId },
       });
     }
     for (const item of checklistRows) {
-      await tx.checklistItem.update({
-        where: { id: item.id },
+      await tx.checklistItem.updateMany({
+        where: { id: item.id, ticketId: sourceId },
         data: { ticketId: resolvedTargetId, sortOrder: sortBase + item.sortOrder },
       });
     }
     if (childIds.length) {
       await tx.ticket.updateMany({
-        where: { id: { in: childIds } },
+        where: { id: { in: childIds }, parentId: sourceId },
         data: { parentId: resolvedTargetId },
       });
     }
@@ -422,6 +493,11 @@ export async function mergeTickets(
       childIds,
       addedLabelIds,
       addedDeviceIds,
+      // The full source sets, not just the added ones: the deletes below strip
+      // every source association, so restoring only `added*` would permanently
+      // lose any label/device the source and target both had.
+      sourceLabelIds: sourceLabels.map((l) => l.labelId),
+      sourceDeviceIds: sourceDevices.map((d) => d.deviceId),
       clearedSyncPendingNoteIds,
       source: {
         status: source.status,
@@ -443,6 +519,14 @@ export async function mergeTickets(
         status: 'Closed',
         closedAt: source.closedAt ?? now,
         parentId: null,
+        // The tombstone guard in twoWaySync is checked once, before the provider
+        // round-trip. A reconcile already past that point would otherwise write
+        // its result back over the ticket we just merged — its compare-and-set
+        // matches on (id, syncRevision) alone. Bumping the revision here makes
+        // any in-flight reconcile's write match zero rows and raise
+        // TicketSyncRevisionConflictError instead of resurrecting the tombstone
+        // or stamping it synced.
+        syncRevision: { increment: 1 },
       },
     });
 
@@ -513,7 +597,15 @@ export async function mergeTickets(
  * the ledger can honestly promise.
  */
 export async function unmergeTicket(sourceId: number, actorSub: string): Promise<Ticket> {
-  return prisma.$transaction(async (tx) => {
+  const restored = await prisma.$transaction(async (tx) => {
+    // Lock the tombstone first, for the same reason merge locks both rows: two
+    // concurrent unmerges would otherwise both read a merged source, and the
+    // slower one would clear a `mergedIntoId` written by a merge it knows
+    // nothing about.
+    await tx.$queryRaw<Array<{ id: number }>>(
+      Prisma.sql`SELECT id FROM tickets WHERE id = ${sourceId} FOR UPDATE`
+    );
+
     const source = await tx.ticket.findUnique({ where: { id: sourceId } });
     if (!source) {
       throw new MergeBlockedError([
@@ -530,6 +622,19 @@ export async function unmergeTicket(sourceId: number, actorSub: string): Promise
       where: { sourceId, unmergedAt: null },
       orderBy: { mergedAt: 'desc' },
     });
+    // The ledger must describe the merge this ticket is actually in. If they
+    // disagree, the rows moved somewhere other than where we are about to pull
+    // them back from, and replaying it would scatter data rather than restore it.
+    if (record && record.targetId !== source.mergedIntoId) {
+      throw new MergeBlockedError([
+        {
+          code: 'already-merged',
+          message:
+            `this ticket is merged into #${source.mergedIntoId} but its undo record ` +
+            `describes a merge into #${record.targetId}; restore it by hand`,
+        },
+      ]);
+    }
     if (!record) {
       throw new MergeBlockedError([
         {
@@ -543,9 +648,13 @@ export async function unmergeTicket(sourceId: number, actorSub: string): Promise
     // Throws (MergeLedgerFormatError) rather than restoring part of a merge.
     const ledger = parseMergeLedger(record.undoPlan);
 
+    // Every restore is scoped to the target the merge moved these rows to. A
+    // ledger id that names a row living anywhere else — because a later merge
+    // moved it on, or because the JSON was edited by hand — is skipped rather
+    // than stolen from its current owner.
     if (ledger.noteIds.length) {
       await tx.note.updateMany({
-        where: { id: { in: ledger.noteIds } },
+        where: { id: { in: ledger.noteIds }, ticketId: record.targetId },
         data: { ticketId: sourceId },
       });
       // Clear provenance only where THIS merge set it. A note that reached the
@@ -565,28 +674,34 @@ export async function unmergeTicket(sourceId: number, actorSub: string): Promise
     }
     if (ledger.attachmentIds.length) {
       await tx.attachment.updateMany({
-        where: { id: { in: ledger.attachmentIds } },
+        where: { id: { in: ledger.attachmentIds }, ticketId: record.targetId },
         data: { ticketId: sourceId },
       });
     }
     for (const item of ledger.checklistItems) {
       await tx.checklistItem.updateMany({
-        where: { id: item.id },
+        where: { id: item.id, ticketId: record.targetId },
         data: { ticketId: sourceId, sortOrder: item.sortOrder },
       });
     }
     if (ledger.childIds.length) {
       await tx.ticket.updateMany({
-        where: { id: { in: ledger.childIds } },
+        where: { id: { in: ledger.childIds }, parentId: record.targetId },
         data: { parentId: sourceId },
       });
     }
+    // Two different sets, deliberately: strip from the target only what this
+    // merge added to it, but give the source back everything it had. They differ
+    // on the labels both tickets carried — which the merge deleted from the
+    // source and which `addedLabelIds` alone would never restore.
     if (ledger.addedLabelIds.length) {
       await tx.ticketLabel.deleteMany({
         where: { ticketId: record.targetId, labelId: { in: ledger.addedLabelIds } },
       });
+    }
+    if (ledger.sourceLabelIds.length) {
       await tx.ticketLabel.createMany({
-        data: ledger.addedLabelIds.map((labelId) => ({ ticketId: sourceId, labelId })),
+        data: ledger.sourceLabelIds.map((labelId) => ({ ticketId: sourceId, labelId })),
         skipDuplicates: true,
       });
     }
@@ -594,8 +709,10 @@ export async function unmergeTicket(sourceId: number, actorSub: string): Promise
       await tx.deviceLink.deleteMany({
         where: { ticketId: record.targetId, deviceId: { in: ledger.addedDeviceIds } },
       });
+    }
+    if (ledger.sourceDeviceIds.length) {
       await tx.deviceLink.createMany({
-        data: ledger.addedDeviceIds.map((deviceId) => ({ ticketId: sourceId, deviceId })),
+        data: ledger.sourceDeviceIds.map((deviceId) => ({ ticketId: sourceId, deviceId })),
         skipDuplicates: true,
       });
     }
@@ -633,7 +750,18 @@ export async function unmergeTicket(sourceId: number, actorSub: string): Promise
       tx
     );
 
-    publish({ type: 'ticket.updated', ticketId: sourceId, ticket: restored, actor: actorSub, changes: { mergedIntoId: null } });
     return restored;
   });
+
+  // Published after commit, not inside the transaction: subscribers (and the
+  // automation service, which re-reads the ticket) must never see a restore that
+  // then rolls back, or query the row while it is still a tombstone.
+  publish({
+    type: 'ticket.updated',
+    ticketId: sourceId,
+    ticket: restored,
+    actor: actorSub,
+    changes: { mergedIntoId: null },
+  });
+  return restored;
 }

@@ -11,7 +11,8 @@ mocked `/api/*` responses (no backend or database needed):
 - **`capture-mobile-media.mjs`** — the **mobile verification matrix**
   ([docs/mobile.md](../mobile.md)): **login**, **board**, **saved views**,
   **Kanban columns**, **advanced filters**, **ticket**, **ticket history**,
-  **composer**, **cards**, **My Day**,
+  **composer**, **merge dialog**, **merge acknowledgements**,
+  **ticket hierarchy**, **cards**, **My Day**,
   **Companies**, **Network**, **Sync**, and the **Admin** dashboard, teams,
   custom fields, checklist templates, checklist-template editor, automations,
   devices, and device-asset editor across five touch device profiles (Galaxy

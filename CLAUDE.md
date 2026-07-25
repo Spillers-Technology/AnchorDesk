@@ -69,7 +69,8 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 >
 > **As of 2.4.1:** checklist MCP parity is complete. In addition to the 2.4.0 apply/add/toggle tools and checklist data in `get_ticket`, agents can explicitly list, fully update, and delete working items; admins can create/update/delete templates through role-gated MCP tools. The server initialize version follows `backend/package.json`, and an SDK client/in-memory transport test guards the advertised tool contract. ChatGPT freezes approved MCP actions: refresh them under Workspace Settings → Apps → Action control on Enterprise/Edu, or recreate and republish the app on Business.
 
-> **As of 2.5.0-dev ("Sync you can actually trust") — IN PROGRESS:** a sync
+> **As of 2.5.0 ("Sync you can actually trust") — shipped inside the 2.6.0 tag,
+> never released on its own:** a sync
 > correctness and multi-account pass. Plan + issue tracking:
 > [docs/roadmap-sync-2.5.md](docs/roadmap-sync-2.5.md); UX statement of work:
 > [docs/sow-sync-ux.md](docs/sow-sync-ux.md).
@@ -119,7 +120,7 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 >   API responses, or logs — a wrong `baseUrl` receives the Basic auth header
 >   and can echo it back.
 
-> **As of 2.6.0-dev ("Relations") — IN PROGRESS:** ticket **merge** and
+> **As of 2.6.0 ("Relations"):** ticket **merge** and
 > **parent/child hierarchy**. Design + rationale:
 > [docs/roadmap-relations-2.6.md](docs/roadmap-relations-2.6.md).
 > - **The governing decision:** merge and hierarchy are **local-record
@@ -391,7 +392,7 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | GET/POST/PATCH/DELETE | `/views/*` | Own plus shared saved filters; only admins may publish/edit shared views |
 | GET/POST/DELETE | `/devices/:id/external-refs/*` | Provider identities attached to one physical device |
 
-### External ticket sync (2.5.0-dev)
+### External ticket sync (2.5.0)
 
 | Method | Path | Description |
 |---|---|---|

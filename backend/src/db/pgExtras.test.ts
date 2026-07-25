@@ -14,8 +14,10 @@ import { prisma } from './prisma';
 import {
   CriticalPgInvariantError,
   ensureLegacyExternalIdentityInvariant,
+  ensureLiveMergeLedgerInvariant,
   ensurePgExtras,
   ensureRuntimeDependencies,
+  ensureTicketHierarchyInvariant,
   LEGACY_EXTERNAL_IDENTITY_INDEX_NAME,
   LEGACY_EXTERNAL_IDENTITY_INDEX_SQL,
   PG_TRGM_EXTENSION_SQL,
@@ -150,17 +152,94 @@ describe('critical runtime dependencies', () => {
   });
 });
 
+describe('critical ticket hierarchy trigger', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    db.$executeRawUnsafe.mockResolvedValue(0);
+  });
+
+  it('locks the prospective parent so concurrent writers cannot build a cycle', async () => {
+    db.$queryRawUnsafe.mockResolvedValue([{ enabled: 'O' }]);
+    await expect(ensureTicketHierarchyInvariant()).resolves.toBeUndefined();
+
+    // Without the row lock, two transactions each setting the other ticket as
+    // its parent both read a stale snapshot and both commit.
+    const fn = db.$executeRawUnsafe.mock.calls[0][0] as string;
+    expect(fn).toContain('FOR UPDATE');
+  });
+
+  // 'O' = origin, 'A' = always. Anything else (notably 'R', replica-only) is
+  // present in the catalog but does not fire for ordinary writes.
+  it.each([['O'], ['A']])('accepts tgenabled=%s', async (enabled) => {
+    db.$queryRawUnsafe.mockResolvedValue([{ enabled }]);
+    await expect(ensureTicketHierarchyInvariant()).resolves.toBeUndefined();
+  });
+
+  it.each([['D'], ['R'], ['x']])('fails closed on tgenabled=%s', async (enabled) => {
+    db.$queryRawUnsafe.mockResolvedValue([{ enabled }]);
+    await expect(ensureTicketHierarchyInvariant()).rejects.toBeInstanceOf(
+      CriticalPgInvariantError
+    );
+  });
+
+  it('fails closed when the trigger is absent', async () => {
+    db.$queryRawUnsafe.mockResolvedValue([]);
+    await expect(ensureTicketHierarchyInvariant()).rejects.toBeInstanceOf(
+      CriticalPgInvariantError
+    );
+  });
+});
+
+describe('critical live merge ledger invariant', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    db.$executeRawUnsafe.mockResolvedValue(0);
+  });
+
+  it('creates a partial unique index and verifies its catalog definition', async () => {
+    db.$queryRawUnsafe.mockResolvedValue([
+      { is_unique: true, is_valid: true, predicate: '(unmerged_at IS NULL)' },
+    ]);
+    await expect(ensureLiveMergeLedgerInvariant()).resolves.toBeUndefined();
+    expect(db.$executeRawUnsafe.mock.calls[0][0]).toContain('unmerged_at IS NULL');
+  });
+
+  // A non-unique index of the same name would let a source accumulate several
+  // live ledgers, and unmerge would silently replay only the newest.
+  it.each([
+    ['not unique', { is_unique: false }],
+    ['invalid', { is_valid: false }],
+    ['differently scoped', { predicate: '(merged_at IS NULL)' }],
+  ])('fails closed when the index is %s', async (_case, overrides) => {
+    db.$queryRawUnsafe.mockResolvedValue([
+      { is_unique: true, is_valid: true, predicate: '(unmerged_at IS NULL)', ...overrides },
+    ]);
+    await expect(ensureLiveMergeLedgerInvariant()).rejects.toBeInstanceOf(
+      CriticalPgInvariantError
+    );
+  });
+});
+
 describe('optional Postgres extras', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     db.$queryRawUnsafe
       .mockResolvedValueOnce([validRuntime()])
       .mockResolvedValueOnce([validIndex()])
-      .mockResolvedValueOnce([{ enabled: 'O' }]);
+      .mockResolvedValueOnce([{ enabled: 'O' }])
+      // The live-merge-ledger partial unique index, verified after the trigger.
+      .mockResolvedValueOnce([
+        { is_unique: true, is_valid: true, predicate: '(unmerged_at IS NULL)' },
+      ]);
   });
 
   it('logs an optional failure and continues through the remaining statements', async () => {
+    // Seven required statements run before the optional ones: sequence, pg_trgm,
+    // legacy identity index, the hierarchy function/drop/create, and the live
+    // merge ledger index. The rejection below is therefore the FIRST optional
+    // statement — a required one failing must abort startup, not warn.
     db.$executeRawUnsafe
+      .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(0)

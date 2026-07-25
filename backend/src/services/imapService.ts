@@ -138,7 +138,10 @@ async function ingest(parsed: ParsedMail, mb: Mailbox, uid: number): Promise<'cr
         select: { id: true },
       });
       if (!existing) throw err;
-      ticketId = existing.id;
+      // Resolved again on this path too: the root ticket found here never went
+      // through the lookup above, and it can have been merged away since it was
+      // created. Without this the reply lands on a closed tombstone.
+      ticketId = await resolveMergeTarget(existing.id);
       outcome = 'appended';
     }
   }

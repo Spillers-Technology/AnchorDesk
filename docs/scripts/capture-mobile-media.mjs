@@ -268,6 +268,7 @@ async function captureDevice(browser, device) {
           await page.getByRole("heading", { name: "Create sync job" }).waitFor({ timeout: 20_000 });
           await shoot(page, device, "ticket-sync-job-editor");
           await page.keyboard.press("Escape");
+          await page.getByRole("heading", { name: "Create sync job" }).waitFor({ state: "hidden", timeout: 5_000 });
         }
 
         if (view("ticket-sync-run-history") || view("ticket-sync-run-detail")) {
@@ -281,7 +282,11 @@ async function captureDevice(browser, device) {
             await shoot(page, device, "ticket-sync-run-history");
           }
           if (view("ticket-sync-run-detail")) {
-            await page.getByText("Degraded", { exact: true }).first().click();
+            // Scoped to the dialog on purpose: the job card behind it carries its
+            // own "Degraded" health chip, and an unscoped .first() resolves to
+            // that one — which the open dialog then intercepts the click for.
+            const runHistoryDialog = page.getByRole("dialog");
+            await runHistoryDialog.getByText("Degraded", { exact: true }).first().click();
             await page.getByLabel("Filter record activity").waitFor({ timeout: 20_000 });
             await shoot(page, device, "ticket-sync-run-detail");
           }

@@ -382,8 +382,10 @@ model TicketMerge {
   source Ticket @relation("MergeSource", fields: [sourceId], references: [id], onDelete: Cascade)
   target Ticket @relation("MergeTarget", fields: [targetId], references: [id], onDelete: Cascade)
 
-  // At most one live (un-reversed) merge per source. A source that is already
-  // merged is rejected at the route, but the index makes it structural.
+  // Lookup index only — it is NOT unique, so it enforces nothing on its own.
+  // "At most one live (un-reversed) merge per source" is made structural by the
+  // partial unique index `ticket_merges_one_live_per_source`, created and
+  // verified in db/pgExtras.ts (Prisma cannot express a partial unique index).
   @@index([sourceId, unmergedAt])
   @@index([targetId, mergedAt])
   @@map("ticket_merges")

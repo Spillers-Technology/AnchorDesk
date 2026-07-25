@@ -12,6 +12,8 @@ const valid = {
   childIds: [9],
   addedLabelIds: [3],
   addedDeviceIds: [],
+  sourceLabelIds: [3, 8],
+  sourceDeviceIds: [],
   clearedSyncPendingNoteIds: [2],
   source: { status: 'In Progress', closedAt: null, syncState: 'pending', parentId: 5 },
 };
@@ -23,6 +25,22 @@ describe('parseMergeLedger', () => {
     expect(parsed.checklistItems).toEqual([{ id: 4, sortOrder: 2 }]);
     expect(parsed.source.status).toBe('In Progress');
     expect(parsed.source.parentId).toBe(5);
+  });
+
+  // The two label sets are not interchangeable, and conflating them is what v1
+  // got wrong: `addedLabelIds` says what to strip from the target, while
+  // `sourceLabelIds` says what to give back to the source. A label both tickets
+  // carried appears only in the latter, and restoring from the former alone
+  // deleted it from the source permanently.
+  it('keeps the source label set distinct from the labels added to the target', () => {
+    const parsed = parseMergeLedger(valid);
+    expect(parsed.addedLabelIds).toEqual([3]);
+    expect(parsed.sourceLabelIds).toEqual([3, 8]);
+  });
+
+  it('refuses a v1 ledger, which cannot describe a lossless restore', () => {
+    const { sourceLabelIds: _l, sourceDeviceIds: _d, ...v1 } = valid;
+    expect(() => parseMergeLedger({ ...v1, version: 1 })).toThrow(MergeLedgerFormatError);
   });
 
   it('treats a missing parentId as null rather than failing', () => {

@@ -1,6 +1,6 @@
 # Relations 2.6 — merge and parent/child
 
-Status: **design accepted, implementation opening** (2026-07-25).
+Status: **shipped in 2.6.0** (2026-07-25).
 
 Two features that helpdesks are expected to have and AnchorDesk does not: **merging
 a duplicate ticket into the one you're keeping**, and **parent/child hierarchy**.
@@ -125,13 +125,22 @@ not a comment, not a link.
 
 ```ts
 if (ticket.mergedIntoId) {
-  return { ticketId, outcome: 'skipped', message: `merged into #${n}; local record only` };
+  return { ticketId, outcome: 'merged', message: `merged into #${n}; local record only` };
 }
 ```
 
 and the matching guard in the batch inbound path, so `upsertExternal` cannot
-resurrect a merged ticket by applying a remote status over it. Counted as
-`ticketsSkipped` in the `SyncRun`, not silently dropped.
+resurrect a merged ticket by applying a remote status over it. The outcome is
+`merged`, deliberately distinct from `skipped`: skipping is a symptom that
+degrades run health, whereas a tombstone left alone is the design working, and
+collapsing the two would leave every run permanently degraded for as long as one
+merged ticket exists. It still rolls up into `ticketsSkipped` in the `SyncRun`
+counters rather than being silently dropped.
+
+The guard is checked once, before the provider round-trip, so the merge also
+increments `syncRevision` — the write-back compare-and-set matches on
+`(id, syncRevision)`, and without the bump a reconcile already past the guard
+would stamp the tombstone synced or reapply a remote status over it.
 
 **3. The stop is stated, not implied.** Merging a two-way-synced source requires
 the client to echo back an acknowledgement code. Without it the route 400s. The UI
@@ -206,6 +215,41 @@ acknowledgement sentences as explicit checkboxes; a "Merged into #N" banner on t
 source; a parent chip and a children section with progress on the target. All
 full-screen at phone width, all added to the capture matrix
 (`ticket-merge-dialog`, `ticket-merge-warnings`, `ticket-children`).
+
+---
+
+## Known limitations at 2.6.0
+
+Found in the pre-release review pass, judged not worth a late refactor, and
+recorded here so they are not rediscovered as surprises.
+
+- **Preview-to-commit warning staleness.** Warnings are computed by
+  `previewMerge` outside the transaction; only the blockers are re-checked under
+  the row locks. A concurrent `PATCH` that moves the target to another company
+  between preview and commit lets a merge through without the `cross-company`
+  acknowledgement the operator would otherwise have had to tick. The blockers
+  that protect data integrity (already-merged, descendant, one-level) *are*
+  re-checked under the locks; it is only the consent prompts that can go stale.
+  Re-evaluating warnings inside the transaction is the fix.
+- **`cross-company` needs both `companyId`s.** A ticket with a null company
+  never raises the warning. Since 2.0 every ticket resolves to a real company,
+  so this is reachable only for pre-2.0 rows.
+- **`hasWritableRemote` is an identity-presence test.** It checks for
+  `externalId + externalProvider` rather than asking the provider whether it can
+  actually write back, so a note queued for a source whose target is attached to
+  a read-only or disabled provider can keep `syncPending` set. Asking the
+  registry for `canWriteBack` is the fix.
+- **`PATCH /tickets/:id` is not atomic across `parentId` + fields.**
+  `setParent` commits in its own transaction before the field update runs, so a
+  request that reparents *and* supplies an invalid foreign key returns 400 with
+  the reparent already applied. Fixing it means threading one transaction
+  through both repository calls.
+- **Automations still observe the survivor.** A merge publishes `ticket.updated`
+  for the target, and an automation rule matching it can change the survivor,
+  which for an externally-synced survivor eventually pushes. The merge itself
+  makes no provider call; this is user-configured automation reacting to a
+  ticket that genuinely did change. Called out because it is the one path by
+  which a merge can indirectly reach a remote system.
 
 ---
 

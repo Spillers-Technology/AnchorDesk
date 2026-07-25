@@ -80,7 +80,10 @@ A vitest guard (`dialogsFullScreen.mobile.test.tsx`) additionally asserts in CI
 that the create-ticket, run-script, advanced-filter, ticket-cockpit, Ticket Sync
 connection/job editor, and sync run-history dialogs render full-screen at phone
 width. The Ticket Sync matrix currently includes its consolidated admin page,
-both editors, run history, and expanded record activity.
+both editors, run history, and expanded record activity. The 2.6 relations
+matrix adds the merge dialog (`ticket-merge-dialog`), the same dialog with
+acknowledgement checkboxes showing (`ticket-merge-warnings`), and the ticket
+hierarchy panel with its parent picker and child list (`ticket-children`).
 
 The curated 2.2 release proof below shows the selected-device Network flow at
 360px, including touch map controls and the provider identities attached to the

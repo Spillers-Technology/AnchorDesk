@@ -322,6 +322,13 @@ export default function MergeTicketDialog({
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: { xs: 2, sm: 3 }, py: 1.5 }}>
+        {/* The acknowledgement checkboxes scroll out of view on short viewports,
+            which would otherwise leave Merge disabled for no stated reason. */}
+        {preview && preview.blockers.length === 0 && preview.warnings.length > 0 && !allWarningsAcknowledged && (
+          <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1, minWidth: 0, mr: 1 }}>
+            Tick every acknowledgement above to enable Merge.
+          </Typography>
+        )}
         <Button disabled={submitting} onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"

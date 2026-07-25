@@ -1328,7 +1328,15 @@ function TicketRelationsCard({
                   spacing={{ xs: 0.5, sm: 1 }}
                   sx={{ width: "100%", minWidth: 0, alignItems: { xs: "flex-start", sm: "center" } }}
                 >
-                  <Typography variant="body2" noWrap sx={{ minWidth: 0, flexGrow: 1, textAlign: "left" }}>
+                  {/* width:100% is load-bearing at xs: the Stack turns into a
+                      column with flex-start alignment, which sizes this item to
+                      max-content — so a noWrap title would run past the card
+                      edge instead of ellipsizing. */}
+                  <Typography
+                    variant="body2"
+                    noWrap
+                    sx={{ minWidth: 0, width: "100%", flexGrow: 1, textAlign: "left" }}
+                  >
                     #{child.ticketNumber} · {child.title}
                   </Typography>
                   <Stack direction="row" spacing={1.5} sx={{ flex: "0 0 auto" }}>

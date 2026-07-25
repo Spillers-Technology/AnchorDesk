@@ -206,6 +206,14 @@ export async function ensureTicketHierarchyInvariant(): Promise<void> {
           RAISE EXCEPTION 'ticket % cannot be its own parent', NEW.id
             USING ERRCODE = 'check_violation';
         END IF;
+        -- Lock the prospective parent before inspecting it. Without this the
+        -- EXISTS checks below read a snapshot, and two concurrent transactions
+        -- doing "A.parent := B" and "B.parent := A" each see the other's row as
+        -- still parentless and both commit -- producing the depth-2 cycle this
+        -- trigger exists to prevent. Each transaction already holds the row lock
+        -- on the ticket it is updating, so taking the parent's lock here makes
+        -- the pair either serialize or deadlock, and Postgres aborts one.
+        PERFORM 1 FROM tickets WHERE id = NEW.parent_id FOR UPDATE;
         IF EXISTS (SELECT 1 FROM tickets WHERE id = NEW.parent_id AND parent_id IS NOT NULL) THEN
           RAISE EXCEPTION 'ticket % is already a child; AnchorDesk supports one level of hierarchy', NEW.parent_id
             USING ERRCODE = 'check_violation';
@@ -242,10 +250,60 @@ export async function ensureTicketHierarchyInvariant(): Promise<void> {
       AND NOT trigger_meta.tgisinternal
   `);
 
-  // 'D' is a disabled trigger — present in the catalog but enforcing nothing.
-  if (rows.length !== 1 || rows[0].enabled === 'D') {
+  // Allowlist rather than a denylist of 'D': tgenabled is also 'R' (replica-only)
+  // and 'A' (always). 'R' looks enabled in the catalog but does not fire for
+  // ordinary origin writes, so treating anything-but-'D' as valid would accept a
+  // trigger that enforces nothing on the path we care about.
+  if (rows.length !== 1 || (rows[0].enabled !== 'O' && rows[0].enabled !== 'A')) {
     throw new CriticalPgInvariantError(
-      `Critical PostgreSQL invariant "${TICKET_HIERARCHY_TRIGGER_NAME}" is missing or disabled`,
+      `Critical PostgreSQL invariant "${TICKET_HIERARCHY_TRIGGER_NAME}" is missing or not ` +
+        `enabled for origin writes (tgenabled=${rows[0]?.enabled ?? 'absent'})`,
+    );
+  }
+}
+
+const LIVE_MERGE_LEDGER_INDEX_NAME = 'ticket_merges_one_live_per_source';
+
+/**
+ * At most one un-reversed merge ledger per source ticket.
+ *
+ * `@@index([sourceId, unmergedAt])` in the schema is not unique and cannot be —
+ * Prisma has no partial-unique syntax — so the guarantee has to be created here.
+ * Without it, "a source is already merged" is enforced only by the application,
+ * and a second live ledger would make unmerge silently pick the newest and strand
+ * the other one's rows on the target forever.
+ */
+export async function ensureLiveMergeLedgerInvariant(): Promise<void> {
+  await prisma.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS ${LIVE_MERGE_LEDGER_INDEX_NAME}
+      ON ticket_merges (source_id)
+      WHERE unmerged_at IS NULL
+  `);
+
+  const rows = await prisma.$queryRawUnsafe<Array<{ is_unique: boolean; is_valid: boolean; predicate: string | null }>>(`
+    SELECT index_meta.indisunique AS is_unique,
+           index_meta.indisvalid AS is_valid,
+           pg_catalog.pg_get_expr(index_meta.indpred, index_meta.indrelid) AS predicate
+    FROM pg_catalog.pg_index AS index_meta
+    JOIN pg_catalog.pg_class AS index_class ON index_class.oid = index_meta.indexrelid
+    JOIN pg_catalog.pg_class AS table_meta ON table_meta.oid = index_meta.indrelid
+    JOIN pg_catalog.pg_namespace AS schema_meta ON schema_meta.oid = table_meta.relnamespace
+    WHERE schema_meta.nspname = current_schema()
+      AND table_meta.relname = 'ticket_merges'
+      AND index_class.relname = '${LIVE_MERGE_LEDGER_INDEX_NAME}'
+  `);
+
+  const row = rows[0];
+  if (
+    rows.length !== 1 ||
+    row.is_unique !== true ||
+    row.is_valid !== true ||
+    // normalizePredicate lowercases and strips quotes, parens, and whitespace,
+    // so the expected value is written in that already-normalized form.
+    normalizePredicate(row.predicate) !== 'unmerged_atisnull'
+  ) {
+    throw new CriticalPgInvariantError(
+      `Critical PostgreSQL invariant "${LIVE_MERGE_LEDGER_INDEX_NAME}" is missing or has an unexpected definition`,
     );
   }
 }
@@ -257,6 +315,7 @@ export async function ensurePgExtras(log: FastifyBaseLogger): Promise<void> {
   await ensureRuntimeDependencies();
   await ensureLegacyExternalIdentityInvariant();
   await ensureTicketHierarchyInvariant();
+  await ensureLiveMergeLedgerInvariant();
 
   let optionalFailures = 0;
   for (const sql of OPTIONAL_STATEMENTS) {

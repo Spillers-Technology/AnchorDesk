@@ -123,6 +123,37 @@ describe('previewMerge blockers', () => {
     const preview = await previewMerge(1, 2);
     expect(preview.blockers.map((b) => b.code)).toContain('sync-conflict');
   });
+
+  // Reparenting the source's children onto a target that is itself a child would
+  // build a depth-2 tree, which the pgExtras trigger rejects. Without this
+  // blocker the operator gets a raw constraint violation out of the middle of
+  // the merge transaction instead of a sentence explaining the problem.
+  it('blocks merging a ticket with children into a ticket that is itself a child', async () => {
+    db.ticket.findUnique.mockImplementation(({ where }: { where: { id: number } }) =>
+      Promise.resolve(
+        where.id === 2
+          ? ticket({ id: 2, ticketNumber: '10002', parentId: 7 })
+          : ticket({ id: where.id, parentId: null })
+      )
+    );
+    db.ticket.count.mockResolvedValue(2); // the source is a parent
+
+    const preview = await previewMerge(1, 2);
+    const blocker = preview.blockers.find((b) => b.code === 'target-would-nest');
+    expect(blocker).toBeDefined();
+    expect(blocker!.message).toContain('one level of hierarchy');
+  });
+
+  it('allows merging a ticket with children into a top-level target', async () => {
+    db.ticket.findUnique.mockImplementation(({ where }: { where: { id: number } }) =>
+      Promise.resolve(ticket({ id: where.id, parentId: null }))
+    );
+    db.ticket.count.mockResolvedValue(2);
+
+    const preview = await previewMerge(1, 2);
+    expect(preview.blockers).toEqual([]);
+    expect(preview.moves.children).toBe(2);
+  });
 });
 
 describe('previewMerge warnings', () => {
@@ -228,11 +259,44 @@ describe('mergeTickets consent gate', () => {
       blockers: [expect.objectContaining({ code: 'target-descendant' })],
     });
   });
+
+  // Same reasoning for the one-level rule: preview saw a childless source and a
+  // top-level target, then both changed before the lock was taken.
+  it('re-checks the one-level rule inside the locked transaction', async () => {
+    db.ticket.findUnique.mockImplementation(({ where }: { where: { id: number } }) =>
+      Promise.resolve(ticket({ id: where.id, parentId: null }))
+    );
+    db.ticket.count.mockResolvedValue(0); // clean at preview time
+
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 1 }, { id: 2 }]),
+      ticket: {
+        findUniqueOrThrow: jest.fn(({ where }: { where: { id: number } }) =>
+          Promise.resolve(where.id === 2 ? ticket({ id: 2, parentId: 7 }) : ticket({ id: 1 }))
+        ),
+        // A child was attached to the source after preview ran.
+        findMany: jest.fn().mockResolvedValue([{ id: 55 }]),
+      },
+      note: { findMany: jest.fn().mockResolvedValue([]) },
+      attachment: { findMany: jest.fn().mockResolvedValue([]) },
+      checklistItem: { findMany: jest.fn().mockResolvedValue([]) },
+      ticketLabel: { findMany: jest.fn().mockResolvedValue([]) },
+      deviceLink: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    db.$transaction.mockImplementation((fn: (t: unknown) => unknown) => fn(tx));
+
+    await expect(mergeTickets(1, 2, 'alice')).rejects.toMatchObject({
+      blockers: [expect.objectContaining({ code: 'target-would-nest' })],
+    });
+  });
 });
 
 describe('unmergeTicket restore', () => {
   function unmergeTx(over: Record<string, unknown> = {}) {
     return {
+      // Unmerge locks the tombstone before reading it, so two concurrent
+      // unmerges cannot both act on the same ledger.
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 1 }]),
       ticket: {
         findUnique: jest.fn().mockResolvedValue(
           ticket({ id: 1, mergedIntoId: 2, externalId: null, externalProvider: null })
@@ -253,6 +317,8 @@ describe('unmergeTicket restore', () => {
             childIds: [],
             addedLabelIds: [],
             addedDeviceIds: [],
+            sourceLabelIds: [],
+            sourceDeviceIds: [],
             clearedSyncPendingNoteIds: [],
             source: { status: 'New', closedAt: null, syncState: null, parentId: null },
           },
@@ -278,12 +344,76 @@ describe('unmergeTicket restore', () => {
     await unmergeTicket(1, 'alice');
 
     const calls = tx.note.updateMany.mock.calls.map((c) => c[0]);
-    // First: everything named in the ledger comes back to the source.
-    expect(calls[0]).toMatchObject({ where: { id: { in: [100, 101] } }, data: { ticketId: 1 } });
+    // First: everything named in the ledger comes back to the source — but only
+    // the rows still sitting on the target this merge moved them to.
+    expect(calls[0]).toMatchObject({
+      where: { id: { in: [100, 101] }, ticketId: 2 },
+      data: { ticketId: 1 },
+    });
     // Second: origin is cleared ONLY where this merge set it (originTicketId = source).
     expect(calls[1]).toMatchObject({
       where: { id: { in: [100, 101] }, originTicketId: 1 },
       data: { originTicketId: null },
+    });
+  });
+
+  // A ledger that describes a different merge than the one the ticket is
+  // actually in means the rows are not where we would be pulling them from.
+  it('refuses when the ledger names a different target than the tombstone does', async () => {
+    const tx = unmergeTx({
+      ticketMerge: {
+        findFirst: jest.fn().mockResolvedValue({ id: 10, sourceId: 1, targetId: 77, undoPlan: {} }),
+        update: jest.fn(),
+      },
+    });
+    db.$transaction.mockImplementation((fn: (t: unknown) => unknown) => fn(tx));
+
+    await expect(unmergeTicket(1, 'alice')).rejects.toBeInstanceOf(MergeBlockedError);
+    expect(tx.note.updateMany).not.toHaveBeenCalled();
+  });
+
+  // v1 restored only the labels the merge ADDED to the target, while the merge
+  // deleted every source association — so a label both tickets carried was lost.
+  it('gives the source back every label it had, not just the ones added to the target', async () => {
+    const tx = unmergeTx({
+      ticketMerge: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 10,
+          sourceId: 1,
+          targetId: 2,
+          undoPlan: {
+            version: MERGE_LEDGER_VERSION,
+            noteIds: [],
+            attachmentIds: [],
+            checklistItems: [],
+            childIds: [],
+            // The target already had label 8; only 3 was newly added to it.
+            addedLabelIds: [3],
+            addedDeviceIds: [],
+            sourceLabelIds: [3, 8],
+            sourceDeviceIds: [],
+            clearedSyncPendingNoteIds: [],
+            source: { status: 'New', closedAt: null, syncState: null, parentId: null },
+          },
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    });
+    db.$transaction.mockImplementation((fn: (t: unknown) => unknown) => fn(tx));
+
+    await unmergeTicket(1, 'alice');
+
+    // Only the merge's own addition is stripped from the target...
+    expect(tx.ticketLabel.deleteMany).toHaveBeenCalledWith({
+      where: { ticketId: 2, labelId: { in: [3] } },
+    });
+    // ...but the source gets both of its labels back.
+    expect(tx.ticketLabel.createMany).toHaveBeenCalledWith({
+      data: [
+        { ticketId: 1, labelId: 3 },
+        { ticketId: 1, labelId: 8 },
+      ],
+      skipDuplicates: true,
     });
   });
 

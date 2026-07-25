@@ -12,7 +12,16 @@
  * closed rather than drive a partial restore that silently loses rows.
  */
 
-export const MERGE_LEDGER_VERSION = 1 as const;
+/**
+ * v2 added `sourceLabelIds` / `sourceDeviceIds`. v1 recorded only the ids the
+ * merge *added* to the target, but the merge deletes every source association —
+ * so a label the source and target both carried was dropped from the source and
+ * never restored. Undoing a merge must not lose rows, and the only way to put
+ * them back is to have written down what the source actually had. 2.6 has not
+ * shipped, so a v1 ledger exists only in a development database; it fails
+ * closed here rather than driving a lossy restore.
+ */
+export const MERGE_LEDGER_VERSION = 2 as const;
 
 export interface MergeLedger {
   version: typeof MERGE_LEDGER_VERSION;
@@ -29,6 +38,13 @@ export interface MergeLedger {
   addedLabelIds: number[];
   /** Device links the merge added to the target, same exclusion rule. */
   addedDeviceIds: number[];
+  /** Every label the SOURCE carried, including ones the target already had.
+   *  `addedLabelIds` says what to remove from the target; this says what to put
+   *  back on the source. They differ exactly on the overlap, which is the set v1
+   *  silently destroyed. */
+  sourceLabelIds: number[];
+  /** Every device link the source carried, same distinction. */
+  sourceDeviceIds: number[];
   /** Notes whose `syncPending` outbox flag the merge cleared because the target
    *  has no writable remote to drain them. Restored on unmerge. */
   clearedSyncPendingNoteIds: number[];
@@ -110,6 +126,8 @@ export function parseMergeLedger(raw: unknown): MergeLedger {
     childIds: intArray(plan.childIds, 'childIds'),
     addedLabelIds: intArray(plan.addedLabelIds, 'addedLabelIds'),
     addedDeviceIds: intArray(plan.addedDeviceIds, 'addedDeviceIds'),
+    sourceLabelIds: intArray(plan.sourceLabelIds, 'sourceLabelIds'),
+    sourceDeviceIds: intArray(plan.sourceDeviceIds, 'sourceDeviceIds'),
     clearedSyncPendingNoteIds: intArray(
       plan.clearedSyncPendingNoteIds,
       'clearedSyncPendingNoteIds'
