@@ -280,14 +280,39 @@ export async function ensureLiveMergeLedgerInvariant(): Promise<void> {
       WHERE unmerged_at IS NULL
   `);
 
-  const rows = await prisma.$queryRawUnsafe<Array<{ is_unique: boolean; is_valid: boolean; predicate: string | null }>>(`
+  // Verified as thoroughly as the legacy identity index: an index that merely
+  // carries the right NAME and predicate proves nothing. A unique index on the
+  // wrong column, or one still building, would pass a laxer check while
+  // enforcing something other than "one live ledger per source".
+  const rows = await prisma.$queryRawUnsafe<
+    Array<{
+      is_unique: boolean;
+      is_valid: boolean;
+      is_ready: boolean;
+      access_method: string;
+      key_columns: string[];
+      predicate: string | null;
+    }>
+  >(`
     SELECT index_meta.indisunique AS is_unique,
            index_meta.indisvalid AS is_valid,
+           index_meta.indisready AS is_ready,
+           access_method.amname AS access_method,
+           ARRAY(
+             SELECT attribute.attname::text
+             FROM unnest(index_meta.indkey::smallint[]) WITH ORDINALITY AS key_part(attnum, ordinal)
+             JOIN pg_catalog.pg_attribute AS attribute
+               ON attribute.attrelid = table_meta.oid
+              AND attribute.attnum = key_part.attnum
+             WHERE key_part.ordinal <= index_meta.indnkeyatts
+             ORDER BY key_part.ordinal
+           ) AS key_columns,
            pg_catalog.pg_get_expr(index_meta.indpred, index_meta.indrelid) AS predicate
     FROM pg_catalog.pg_index AS index_meta
     JOIN pg_catalog.pg_class AS index_class ON index_class.oid = index_meta.indexrelid
     JOIN pg_catalog.pg_class AS table_meta ON table_meta.oid = index_meta.indrelid
     JOIN pg_catalog.pg_namespace AS schema_meta ON schema_meta.oid = table_meta.relnamespace
+    JOIN pg_catalog.pg_am AS access_method ON access_method.oid = index_class.relam
     WHERE schema_meta.nspname = current_schema()
       AND table_meta.relname = 'ticket_merges'
       AND index_class.relname = '${LIVE_MERGE_LEDGER_INDEX_NAME}'
@@ -298,6 +323,11 @@ export async function ensureLiveMergeLedgerInvariant(): Promise<void> {
     rows.length !== 1 ||
     row.is_unique !== true ||
     row.is_valid !== true ||
+    row.is_ready !== true ||
+    row.access_method !== 'btree' ||
+    !Array.isArray(row.key_columns) ||
+    row.key_columns.length !== 1 ||
+    row.key_columns[0] !== 'source_id' ||
     // normalizePredicate lowercases and strips quotes, parens, and whitespace,
     // so the expected value is written in that already-normalized form.
     normalizePredicate(row.predicate) !== 'unmerged_atisnull'

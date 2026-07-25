@@ -658,13 +658,15 @@ export async function unmergeTicket(sourceId: number, actorSub: string): Promise
       // A merged into B and then B into C, undoing B→C must leave that note
       // still attributed to A, not blanked as if it had always lived on B.
       await tx.note.updateMany({
-        where: { id: { in: ledger.noteIds }, originTicketId: sourceId },
+        where: { id: { in: ledger.noteIds }, ticketId: sourceId, originTicketId: sourceId },
         data: { originTicketId: null },
       });
     }
     if (ledger.clearedSyncPendingNoteIds.length) {
+      // Scoped to notes that actually came back: re-queueing a note still living
+      // on the target would push it to the wrong remote.
       await tx.note.updateMany({
-        where: { id: { in: ledger.clearedSyncPendingNoteIds }, externalId: null },
+        where: { id: { in: ledger.clearedSyncPendingNoteIds }, ticketId: sourceId, externalId: null },
         data: { syncPending: true },
       });
     }

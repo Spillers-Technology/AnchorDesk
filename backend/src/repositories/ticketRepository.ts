@@ -706,7 +706,12 @@ export async function markConflictAfterConcurrentLocalEdit(
   remoteUpdatedAt?: Date | null
 ): Promise<boolean> {
   const updated = await prisma.ticket.updateMany({
-    where: { id, syncRevision: { gt: previousSyncRevision } },
+    // `mergedIntoId: null` matters as much as the revision test. A merge bumps
+    // syncRevision precisely so an in-flight reconcile's compare-and-set fails —
+    // which lands here. Without this predicate the losing reconcile would then
+    // flag the tombstone as a conflict, putting a ticket that was deliberately
+    // taken out of sync into the conflict queue for someone to "resolve".
+    where: { id, syncRevision: { gt: previousSyncRevision }, mergedIntoId: null },
     data: {
       syncState: 'conflict',
       ...(remoteUpdatedAt !== undefined ? { remoteUpdatedAt } : {}),

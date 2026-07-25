@@ -42,6 +42,18 @@ function validIndex(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function validLiveMergeIndex(overrides: Record<string, unknown> = {}) {
+  return {
+    is_unique: true,
+    is_valid: true,
+    is_ready: true,
+    access_method: 'btree',
+    key_columns: ['source_id'],
+    predicate: '(unmerged_at IS NULL)',
+    ...overrides,
+  };
+}
+
 function validRuntime(overrides: Record<string, unknown> = {}) {
   return {
     has_ticket_number_sequence: true,
@@ -197,23 +209,32 @@ describe('critical live merge ledger invariant', () => {
   });
 
   it('creates a partial unique index and verifies its catalog definition', async () => {
-    db.$queryRawUnsafe.mockResolvedValue([
-      { is_unique: true, is_valid: true, predicate: '(unmerged_at IS NULL)' },
-    ]);
+    db.$queryRawUnsafe.mockResolvedValue([validLiveMergeIndex()]);
     await expect(ensureLiveMergeLedgerInvariant()).resolves.toBeUndefined();
     expect(db.$executeRawUnsafe.mock.calls[0][0]).toContain('unmerged_at IS NULL');
   });
 
-  // A non-unique index of the same name would let a source accumulate several
-  // live ledgers, and unmerge would silently replay only the newest.
+  // An index that merely carries the right name proves nothing: a non-unique one
+  // would let a source accumulate several live ledgers (unmerge silently replays
+  // the newest), and one keyed on the wrong column enforces something else
+  // entirely while looking correct.
   it.each([
     ['not unique', { is_unique: false }],
     ['invalid', { is_valid: false }],
+    ['not ready', { is_ready: false }],
+    ['a different access method', { access_method: 'hash' }],
+    ['keyed on the wrong column', { key_columns: ['target_id'] }],
+    ['keyed on too many columns', { key_columns: ['source_id', 'target_id'] }],
     ['differently scoped', { predicate: '(merged_at IS NULL)' }],
   ])('fails closed when the index is %s', async (_case, overrides) => {
-    db.$queryRawUnsafe.mockResolvedValue([
-      { is_unique: true, is_valid: true, predicate: '(unmerged_at IS NULL)', ...overrides },
-    ]);
+    db.$queryRawUnsafe.mockResolvedValue([validLiveMergeIndex(overrides)]);
+    await expect(ensureLiveMergeLedgerInvariant()).rejects.toBeInstanceOf(
+      CriticalPgInvariantError
+    );
+  });
+
+  it('fails closed when the index is absent', async () => {
+    db.$queryRawUnsafe.mockResolvedValue([]);
     await expect(ensureLiveMergeLedgerInvariant()).rejects.toBeInstanceOf(
       CriticalPgInvariantError
     );
@@ -228,9 +249,7 @@ describe('optional Postgres extras', () => {
       .mockResolvedValueOnce([validIndex()])
       .mockResolvedValueOnce([{ enabled: 'O' }])
       // The live-merge-ledger partial unique index, verified after the trigger.
-      .mockResolvedValueOnce([
-        { is_unique: true, is_valid: true, predicate: '(unmerged_at IS NULL)' },
-      ]);
+      .mockResolvedValueOnce([validLiveMergeIndex()]);
   });
 
   it('logs an optional failure and continues through the remaining statements', async () => {
