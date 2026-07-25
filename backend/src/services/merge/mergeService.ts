@@ -84,10 +84,6 @@ export class MergeAcknowledgementRequiredError extends Error {
   }
 }
 
-/** Depth cap when walking a merge chain. Merging into a descendant and merging
- *  into self are both rejected, so a cycle should be unreachable — but this
- *  resolves on the inbound-mail hot path, where an infinite loop would wedge the
- *  poller on a poison message. Fail closed instead. */
 /**
  * Depth cap when walking a merge chain. The `seen` set already guarantees
  * termination on its own, so this is a second backstop rather than the real
