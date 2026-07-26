@@ -29,6 +29,11 @@ MUI's default breakpoints, used consistently:
   margins (theme-level override), two-column grids where they fit.
 - **`lg`+ = desktop.** Fluid Kanban columns, side-by-side ticket layout.
 
+Reports keep one chart per row at `xs`, with management summary tiles before
+the plots. Their chart/table bodies own any horizontal scrolling; changing to
+the accessible table view must not widen the page. The TIME calendar follows
+the same containment rule for its 680px day track and 900px ticket SLA track.
+
 Division of labor: **the theme owns dialog chrome and typography scaling**
 (`buildTheme()` in [`theme.ts`](../web-client/src/theme.ts) — responsive
 `MuiDialog`/`MuiDialogTitle`/`MuiDialogContent` overrides plus
@@ -84,6 +89,16 @@ both editors, run history, and expanded record activity. The 2.6 relations
 matrix adds the merge dialog (`ticket-merge-dialog`), the same dialog with
 acknowledgement checkboxes showing (`ticket-merge-warnings`), and the ticket
 hierarchy panel with its parent picker and child list (`ticket-children`).
+
+The 2.7 reporting matrix adds `reports` plus a separately scrolled capture for
+each report (`reports-volume`, `reports-durations`, `reports-sla`,
+`reports-backlog`, `reports-team-throughput`,
+`reports-assignee-throughput`, and `reports-time-company`). It also adds
+`time-day` and `time-sla`. The day fixture is intentionally only four logged
+hours inside the explicit default eight-hour day, so leading, interior, and
+trailing gaps must all be visible. The SLA fixture includes lifecycle facts,
+two frozen target snapshots, and breach points. Every one of these captures
+runs a document-width assertion before writing the screenshot.
 
 The curated 2.2 release proof below shows the selected-device Network flow at
 360px, including touch map controls and the provider identities attached to the

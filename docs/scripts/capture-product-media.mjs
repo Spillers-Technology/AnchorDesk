@@ -16,6 +16,20 @@ import {
 
 const outDir = path.join(repoRoot, "docs", "assets", "screenshots");
 
+async function assertNoHorizontalPageScroll(page, view) {
+  const metrics = await page.evaluate(() => ({
+    viewportWidth: document.documentElement.clientWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    bodyWidth: document.body?.scrollWidth ?? 0,
+  }));
+  const pageWidth = Math.max(metrics.documentWidth, metrics.bodyWidth);
+  if (pageWidth > metrics.viewportWidth + 1) {
+    throw new Error(
+      `${view} has horizontal page scroll: ${pageWidth}px content in a ${metrics.viewportWidth}px viewport`
+    );
+  }
+}
+
 async function main() {
   fs.mkdirSync(outDir, { recursive: true });
   const { chromium } = loadPlaywright();
@@ -60,10 +74,50 @@ async function main() {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(250);
 
-    console.log("Rendering My Day...");
-    await openDrawer(page, "My Day");
-    await page.getByText("Duration-only", { exact: false }).waitFor({ timeout: 20_000 });
+    console.log("Rendering Reports...");
+    await openDrawer(page, "Reports");
+    const reportsRoot = page.getByTestId("reports-view");
+    await reportsRoot.waitFor({ timeout: 20_000 });
+    await reportsRoot
+      .getByText("Includes reconstructed history", { exact: false })
+      .first()
+      .waitFor({ timeout: 20_000 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await assertNoHorizontalPageScroll(page, "reports");
+    await page.screenshot({ path: path.join(outDir, "anchordesk-reports.jpg"), type: "jpeg", quality: 90 });
+
+    console.log("Rendering TIME day spread...");
+    await openDrawer(page, "TIME calendar");
+    const daySpread = page.getByTestId("time-day-spread");
+    await daySpread.waitFor({ timeout: 20_000 });
+    await daySpread.getByText("Visible workday gaps", { exact: true }).waitFor({ timeout: 20_000 });
+    await daySpread.getByText("50%", { exact: true }).waitFor({ timeout: 20_000 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await assertNoHorizontalPageScroll(page, "time-day");
+    // Preserve the pre-2.7 My Day media path for documentation links while the
+    // explicit TIME filename becomes the release proof.
     await page.screenshot({ path: path.join(outDir, "anchordesk-my-day.jpg"), type: "jpeg", quality: 90 });
+    await page.screenshot({ path: path.join(outDir, "anchordesk-time-day.jpg"), type: "jpeg", quality: 90 });
+
+    console.log("Rendering TIME ticket SLA timeline...");
+    await page.getByRole("tab", { name: "Ticket SLA timeline" }).click();
+    const timeline = page.getByTestId("time-sla-timeline");
+    await timeline.waitFor({ timeout: 20_000 });
+    const ticketSearch = timeline.getByLabel("Find a ticket");
+    await ticketSearch.fill("10482");
+    const ticketOption = page.getByRole("option", {
+      name: /#10482 · VPN drops every 12 minutes/,
+    });
+    await ticketOption.waitFor({ timeout: 20_000 });
+    const timelineResponse = page.waitForResponse((candidate) =>
+      new URL(candidate.url()).pathname === "/api/tickets/101/sla-timeline"
+    );
+    await ticketOption.click();
+    await timelineResponse;
+    await timeline.getByLabel(/SLA breached at/).first().waitFor({ timeout: 20_000 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await assertNoHorizontalPageScroll(page, "time-sla");
+    await page.screenshot({ path: path.join(outDir, "anchordesk-time-sla.jpg"), type: "jpeg", quality: 90 });
 
     console.log("Rendering Companies...");
     await openDrawer(page, "Companies");

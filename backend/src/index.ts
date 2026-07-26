@@ -50,6 +50,7 @@ import { customFieldRoutes } from './routes/customFields';
 import { automationRoutes } from './routes/automations';
 import { savedViewRoutes } from './routes/views';
 import { kbRoutes } from './routes/kb';
+import { reportRoutes } from './routes/reports';
 import { config } from './config/config';
 import { prisma } from './db/prisma';
 import { backfillLegacyExternalRefs } from './repositories/deviceRepository';
@@ -138,6 +139,8 @@ async function start() {
   server.register(kbRoutes);
   // Time / "My Day" — the signed-in user's logged time for a day
   server.register(timeRoutes);
+  // Manager reporting + TIME day/ticket drill-downs over the 2.7 fact spine.
+  server.register(reportRoutes);
   // Devices (local-first asset records + ticket linking)
   server.register(deviceRoutes);
   // Probes (netviz scanner registration + inbound device ingest)

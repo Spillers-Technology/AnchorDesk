@@ -2,6 +2,7 @@ jest.mock('../db/prisma', () => ({
   prisma: {
     $queryRaw: jest.fn(),
     ticketEvent: { createMany: jest.fn() },
+    ticket: { findUnique: jest.fn() },
   },
 }));
 
@@ -13,6 +14,7 @@ import {
   durationPercentiles,
   metricContextAt,
   slaCompliance,
+  ticketSlaTimeline,
   timeLoggedByCompany,
   volumeByDay,
 } from './ticketEventRepository';
@@ -35,6 +37,14 @@ describe('duration percentile contract', () => {
     // The mean is 26.5, which is exactly the outlier-distorted metric this
     // report intentionally does not expose.
     expect(continuousPercentileReference(values, 0.5)).not.toBe(26.5);
+  });
+
+  it('matches percentile_cont edge cases for odd, single-row, and empty fixtures', () => {
+    expect(continuousPercentileReference([1, 2, 9], 0.5)).toBe(2);
+    expect(continuousPercentileReference([1, 2, 9], 0.9)).toBeCloseTo(7.6, 10);
+    expect(continuousPercentileReference([37], 0.5)).toBe(37);
+    expect(continuousPercentileReference([37], 0.9)).toBe(37);
+    expect(continuousPercentileReference([], 0.5)).toBeNull();
   });
 
   it('delegates p50/p90 aggregation to percentile_cont in Postgres', async () => {
@@ -130,6 +140,8 @@ describe('duration percentile contract', () => {
       'ORDER BY snapshot.established_at, snapshot.id',
     );
     expect(complianceSql).toContain('lead(snapshot.established_at)');
+    expect(complianceSql).toContain('ticket_sla_snapshots');
+    expect(complianceSql).not.toContain('sla_policies');
   });
 
   it('marks an SLA window that starts before immutable snapshot history', async () => {
@@ -210,5 +222,68 @@ describe('duration percentile contract', () => {
     expect(timeSql.replace(/\s+/g, ' ')).toContain(
       'ORDER BY event.occurred_at DESC, event.source_audit_id DESC NULLS LAST, event.id DESC',
     );
+    expect(timeSql.indexOf('WHEN note.time_start IS NOT NULL')).toBeLessThan(
+      timeSql.indexOf('WHEN note.minutes IS NOT NULL'),
+    );
+  });
+
+  it('fails closed instead of silently dropping an unreportable time entry', async () => {
+    queryRaw.mockImplementation(async (query: Prisma.Sql) => {
+      const text = sqlText(query);
+      if (text.includes('WITH entries AS')) {
+        return [{
+          companyId: 7,
+          companyName: 'Acme',
+          minutes: 0,
+          invalidEntries: 1,
+        }];
+      }
+      return [{ reconstructed_from: null, reconstructed_through: null }];
+    });
+
+    await expect(
+      timeLoggedByCompany({
+        from: new Date('2026-07-01T00:00:00Z'),
+        to: new Date('2026-08-01T00:00:00Z'),
+      }),
+    ).rejects.toThrow('1 time entry has no truthful positive duration');
+  });
+
+  it('builds a ticket timeline from frozen targets without joining live policies', async () => {
+    (prisma.ticket.findUnique as jest.Mock).mockResolvedValue({
+      id: 42,
+      ticketNumber: 'HD-42',
+      title: 'Printer',
+      status: 'In Progress',
+      createdAt: new Date('2026-07-01T10:00:00Z'),
+      updatedAt: new Date('2026-07-01T12:00:00Z'),
+    });
+    const observedSql: string[] = [];
+    queryRaw.mockImplementation(async (query: Prisma.Sql) => {
+      const text = sqlText(query);
+      observedSql.push(text);
+      if (text.includes('AS earliest')) {
+        return [{
+          earliest: new Date('2026-07-01T10:00:00Z'),
+          latest: new Date('2026-07-01T18:00:00Z'),
+        }];
+      }
+      if (text.includes('FROM ticket_events AS event') &&
+          text.includes('event.id::text')) {
+        return [];
+      }
+      if (text.includes('WITH ordered AS')) return [];
+      return [{ reconstructed_from: null, reconstructed_through: null }];
+    });
+
+    const result = await ticketSlaTimeline(42, {
+      from: new Date('2026-07-01T00:00:00Z'),
+      to: new Date('2026-07-02T00:00:00Z'),
+    });
+
+    expect(result?.data.ticket.ticketNumber).toBe('HD-42');
+    expect(observedSql.some((text) => text.includes('ticket_sla_snapshots')))
+      .toBe(true);
+    expect(observedSql.join('\n')).not.toContain('sla_policies');
   });
 });

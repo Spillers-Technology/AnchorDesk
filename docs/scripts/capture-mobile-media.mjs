@@ -86,6 +86,21 @@ async function assertNoHorizontalPageScroll(page, view) {
   }
 }
 
+async function shootWithoutPageOverflow(page, device, view) {
+  await assertNoHorizontalPageScroll(page, view);
+  await shoot(page, device, view);
+}
+
+async function shootSection(page, device, view, testId) {
+  const section = page.getByTestId(testId);
+  await section.waitFor({ timeout: 20_000 });
+  await section.evaluate((element) =>
+    element.scrollIntoView({ block: "center", inline: "nearest" })
+  );
+  await page.waitForTimeout(150);
+  await shootWithoutPageOverflow(page, device, view);
+}
+
 async function assertWideArticleContentScrollable(page, view) {
   const metrics = await page.locator("article .html-table-scroll").first().evaluate((element) => ({
     clientWidth: element.clientWidth,
@@ -224,10 +239,71 @@ async function captureDevice(browser, device) {
       await shoot(page, device, "cards");
     }
 
-    if (view("myday")) {
-      await openDrawer(page, "My Day");
-      await page.getByText("Duration-only", { exact: false }).waitFor({ timeout: 20_000 });
-      await shoot(page, device, "myday");
+    const reportSections = [
+      { view: "reports-volume", testId: "report-volume" },
+      { view: "reports-durations", testId: "report-durations" },
+      { view: "reports-sla", testId: "report-sla" },
+      { view: "reports-backlog", testId: "report-backlog" },
+      { view: "reports-team-throughput", testId: "report-team-throughput" },
+      { view: "reports-assignee-throughput", testId: "report-assignee-throughput" },
+      { view: "reports-time-company", testId: "report-time-company" },
+    ];
+    if (view("reports") || reportSections.some((section) => view(section.view))) {
+      await openDrawer(page, "Reports");
+      const reportsRoot = page.getByTestId("reports-view");
+      await reportsRoot.waitFor({ timeout: 20_000 });
+      await reportsRoot
+        .getByText("Includes reconstructed history", { exact: false })
+        .first()
+        .waitFor({ timeout: 20_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      if (view("reports")) {
+        await shootWithoutPageOverflow(page, device, "reports");
+      }
+      for (const section of reportSections) {
+        if (view(section.view)) {
+          await shootSection(page, device, section.view, section.testId);
+        }
+      }
+    }
+
+    // Keep the historical `myday` filename in the matrix while adding the two
+    // explicit 2.7 TIME proof views. It now points at the consolidated TIME
+    // calendar's day mode instead of the removed standalone navigation label.
+    const timeViews = ["myday", "time-day", "time-sla"];
+    if (timeViews.some(view)) {
+      await openDrawer(page, "TIME calendar");
+      const daySpread = page.getByTestId("time-day-spread");
+      await daySpread.waitFor({ timeout: 20_000 });
+      await daySpread.getByText("Visible workday gaps", { exact: true }).waitFor({ timeout: 20_000 });
+      await daySpread.getByText("50%", { exact: true }).waitFor({ timeout: 20_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      if (view("myday")) {
+        await shootWithoutPageOverflow(page, device, "myday");
+      }
+      if (view("time-day")) {
+        await shootWithoutPageOverflow(page, device, "time-day");
+      }
+
+      if (view("time-sla")) {
+        await page.getByRole("tab", { name: "Ticket SLA timeline" }).click();
+        const timeline = page.getByTestId("time-sla-timeline");
+        await timeline.waitFor({ timeout: 20_000 });
+        const search = timeline.getByLabel("Find a ticket");
+        await search.fill("10482");
+        const option = page.getByRole("option", {
+          name: /#10482 · VPN drops every 12 minutes/,
+        });
+        await option.waitFor({ timeout: 20_000 });
+        const response = page.waitForResponse((candidate) =>
+          new URL(candidate.url()).pathname === "/api/tickets/101/sla-timeline"
+        );
+        await option.click();
+        await response;
+        await timeline.getByLabel(/SLA breached at/).first().waitFor({ timeout: 20_000 });
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await shootWithoutPageOverflow(page, device, "time-sla");
+      }
     }
 
     if (view("companies")) {
