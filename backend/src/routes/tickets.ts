@@ -547,6 +547,8 @@ export async function ticketRoutes(server: FastifyInstance) {
         author: req.user?.displayName ?? req.actorSub,
         authorId: req.user?.id ?? undefined,
         queueForTicketSync: (body.noteType ?? 'note') === 'note',
+        visibility: (body.noteType ?? 'note') === 'note' ? 'public' : 'internal',
+        via: req.authChannel,
       },
       req.actorSub
     );
@@ -653,7 +655,17 @@ export async function ticketRoutes(server: FastifyInstance) {
     const content = body.note?.trim() || `Logged ${minutes} min`;
     const note = await noteRepo.create(
       id,
-      { content, author, authorId: req.user?.id || undefined, noteType: 'time_entry', minutes, timeStart, timeStop },
+      {
+        content,
+        author,
+        authorId: req.user?.id || undefined,
+        noteType: 'time_entry',
+        minutes,
+        timeStart,
+        timeStop,
+        visibility: 'internal',
+        via: req.authChannel,
+      },
       req.actorSub
     );
     return reply.status(201).send(note);

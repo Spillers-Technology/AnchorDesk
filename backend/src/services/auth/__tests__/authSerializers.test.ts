@@ -6,7 +6,10 @@
 import { AuthSetting, User } from '@prisma/client';
 import { toPublic } from '../../../repositories/userRepository';
 import { toPublicSettings, toLoginOptions } from '../authConfig';
-import { isPublic } from '../../../middleware/publicPaths';
+import {
+  isPortalSessionAllowed,
+  isPublic,
+} from '../../../middleware/publicPaths';
 import {
   buildMcpProtectedResourceMetadata,
   mcpProtectedResourceMetadataUrl,
@@ -111,6 +114,60 @@ describe('auth public-path guard', () => {
     expect(isPublic('/auth/settings')).toBe(false);
     expect(isPublic('/auth/me')).toBe(false);
     expect(isPublic('/devices')).toBe(false);
+  });
+
+  it('makes only POST portal login handshakes public', () => {
+    expect(isPublic('/portal/auth/magic-link', 'POST')).toBe(true);
+    expect(isPublic('/portal/auth/verify?unused=x', 'POST')).toBe(true);
+    expect(isPublic('/portal/auth/magic-link', 'GET')).toBe(false);
+    expect(isPublic('/portal/auth/verify', 'GET')).toBe(false);
+    expect(isPublic('/portal/auth/me', 'GET')).toBe(false);
+    expect(isPublic('/portal/auth/logout', 'POST')).toBe(false);
+  });
+});
+
+describe('portal session positive route allowlist', () => {
+  it.each([
+    ['POST', '/portal/auth/magic-link'],
+    ['POST', '/portal/auth/verify'],
+    ['GET', '/portal/auth/me'],
+    ['POST', '/portal/auth/logout'],
+    ['GET', '/portal/tickets'],
+    ['POST', '/portal/tickets'],
+    ['GET', '/portal/tickets/42'],
+    ['POST', '/portal/tickets/42/comments'],
+    ['POST', '/portal/tickets/42/attachments'],
+    ['GET', '/portal/attachments/7/download'],
+    ['GET', '/kb/search?q=printer&visibility=portal&limit=5'],
+  ])('allows %s %s', (method, url) => {
+    expect(isPortalSessionAllowed(method, url)).toBe(true);
+  });
+
+  it.each([
+    ['GET', '/tickets'],
+    ['POST', '/tickets'],
+    ['GET', '/users'],
+    ['GET', '/mcp/sse'],
+    ['GET', '/oauth/authorize'],
+    ['GET', '/portal'],
+    ['GET', '/portal/admin'],
+    ['GET', '/portal/tickets/0'],
+    ['GET', '/portal/tickets/-1'],
+    ['GET', '/portal/tickets/01'],
+    ['GET', '/portal/tickets/4/comments'],
+    ['POST', '/portal/tickets/4'],
+    ['DELETE', '/portal/tickets/4'],
+    ['POST', '/portal/attachments/7/download'],
+    ['HEAD', '/portal/attachments/7/download'],
+    ['GET', '/kb/search?q=printer'],
+    ['GET', '/kb/search?visibility=internal'],
+    ['GET', '/kb/search?q=printer&visibility=portal'],
+    ['GET', '/kb/search?q=printer&visibility=portal&limit=50'],
+    ['GET', '/kb/search?q=printer&visibility=portal&limit=5&includeDrafts=true'],
+    ['GET', '/kb/search?visibility=portal&visibility=internal'],
+    ['POST', '/kb/search?visibility=portal'],
+  ])('rejects %s %s', (method, url) => {
+    expect(isPortalSessionAllowed(method, url)).toBe(false);
   });
 });
 

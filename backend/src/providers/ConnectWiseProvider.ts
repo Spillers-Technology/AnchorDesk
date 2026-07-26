@@ -247,6 +247,11 @@ export class ConnectWiseProvider implements TicketProvider {
   private normalizeNote(n: Record<string, unknown>): ExternalNote {
     const member = n["member"] as Record<string, unknown> | undefined;
     const isTimeEntry = Boolean(n["timeStart"]);
+    const isExplicitlyPublic =
+      !isTimeEntry &&
+      n["detailDescriptionFlag"] === true &&
+      n["internalAnalysisFlag"] === false &&
+      n["internalFlag"] !== true;
 
     return {
       externalId: String(n["id"]),
@@ -255,6 +260,9 @@ export class ConnectWiseProvider implements TicketProvider {
         ? `${member["firstName"]} ${member["lastName"]}`
         : "Unknown",
       noteType: isTimeEntry ? "time_entry" : "note",
+      // Only an explicitly external detail note is safe for a requester.
+      // Missing, contradictory, internal-analysis, and time shapes fail closed.
+      visibility: isExplicitlyPublic ? "public" : "internal",
       timeStart: n["timeStart"]
         ? new Date(n["timeStart"] as string)
         : undefined,

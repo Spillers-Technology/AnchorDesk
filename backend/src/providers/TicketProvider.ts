@@ -43,9 +43,24 @@ export interface ExternalNote {
   content: string;
   author: string;
   noteType: 'note' | 'time_entry';
+  /**
+   * Provider-proven requester audience. Required so sync never infers public
+   * visibility merely because a remote row looks like a comment.
+   */
+  visibility: 'public' | 'internal';
   timeStart?: Date;
   timeStop?: Date;
   createdAt?: Date;
+}
+
+/** Runtime backstop for adapters or stale mocks that omit the audience. */
+export function localVisibilityForExternalNote(
+  note: Pick<ExternalNote, 'noteType'> &
+    Partial<Pick<ExternalNote, 'visibility'>>,
+): 'public' | 'internal' {
+  return note.noteType === 'note' && note.visibility === 'public'
+    ? 'public'
+    : 'internal';
 }
 
 /** Fields a provider is actually able to write back. */

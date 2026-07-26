@@ -2,8 +2,8 @@
  * Idempotent boot-time data migrations — the data counterpart to the schema
  * `prisma db push` the containers run before start. Each fix is a no-op once
  * applied, so running on every boot is safe and old instances upgrade just by
- * pulling a newer image. Only LOCAL tickets are touched: external providers
- * own their status/priority vocabularies.
+ * pulling a newer image. Status/priority fixes only touch LOCAL tickets:
+ * external providers own their vocabularies.
  */
 import { FastifyBaseLogger } from 'fastify';
 import { Prisma } from '@prisma/client';
@@ -50,9 +50,64 @@ export async function runDataMigrations(log: FastifyBaseLogger): Promise<void> {
 
   if (fixed > 0) log.info(`Data migrations normalized ${fixed} ticket status/priority values.`);
 
+  await classifyLegacyEmailCorrespondence(log);
   await adoptLegacyCredentialsAsConnections(log);
   await purgeIllegalConnectwiseConnections(log);
   await disableUnscopedConnectwiseJobs(log);
+}
+
+/**
+ * 2.7 — before notes had an explicit portal audience, `note_type = 'email'`
+ * was the representation for requester-visible correspondence. Classify those
+ * rows once so every portal read can fail closed on the audience fields alone.
+ *
+ * A single data-modifying CTE classifies notes and attachments atomically. The
+ * portal also requires a linked note to be explicitly public before serving
+ * its bytes, which keeps mixed-version rollouts fail closed.
+ */
+export async function classifyLegacyEmailCorrespondence(
+  log: FastifyBaseLogger,
+): Promise<void> {
+  const [result] = await prisma.$queryRaw<
+    Array<{ attachments: number; notes: number }>
+  >`
+    WITH legacy_email_notes AS MATERIALIZED (
+      SELECT id
+      FROM notes
+      WHERE note_type = 'email'
+        AND via IS NULL
+    ),
+    updated_attachments AS (
+      UPDATE attachments AS attachment
+      SET portal_visible = true
+      WHERE attachment.note_id IN (
+        SELECT id FROM legacy_email_notes
+      )
+        AND attachment.portal_visible = false
+      RETURNING attachment.id
+    ),
+    updated_notes AS (
+      UPDATE notes AS note
+      SET visibility = 'public',
+          via = 'email'
+      WHERE note.id IN (
+        SELECT id FROM legacy_email_notes
+      )
+      RETURNING note.id
+    )
+    SELECT
+      (SELECT count(*)::int FROM updated_attachments) AS attachments,
+      (SELECT count(*)::int FROM updated_notes) AS notes
+  `;
+  const attachments = result?.attachments ?? 0;
+  const notes = result?.notes ?? 0;
+
+  if (notes > 0 || attachments > 0) {
+    log.info(
+      `Data migrations classified ${notes} legacy email note(s) and ` +
+        `${attachments} attachment(s) as requester-visible.`,
+    );
+  }
 }
 
 /**

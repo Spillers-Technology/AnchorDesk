@@ -33,7 +33,14 @@ async function appendJobLog(job: ScriptJob): Promise<void> {
   const html = `<p><strong>${escape(header)}</strong></p>${out ? `<pre>${escape(out)}</pre>` : ''}`;
   await noteRepo.create(
     job.ticketId,
-    { content: `${header}\n\n${out}`, htmlContent: html, author: 'RMM', noteType: 'note' },
+    {
+      content: `${header}\n\n${out}`,
+      htmlContent: html,
+      author: 'RMM',
+      noteType: 'internal',
+      visibility: 'internal',
+      via: 'rmm',
+    },
     'rmm',
   ).catch(() => {});
 }

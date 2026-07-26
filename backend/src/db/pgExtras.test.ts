@@ -17,10 +17,13 @@ import {
   ensureLiveMergeLedgerInvariant,
   ensurePgExtras,
   ensureRuntimeDependencies,
+  ensureSessionPrincipalInvariant,
   ensureTicketHierarchyInvariant,
   LEGACY_EXTERNAL_IDENTITY_INDEX_NAME,
   LEGACY_EXTERNAL_IDENTITY_INDEX_SQL,
   PG_TRGM_EXTENSION_SQL,
+  SESSION_PRINCIPAL_CHECK_NAME,
+  SESSION_PRINCIPAL_CHECK_SQL,
   TICKET_NUMBER_SEQUENCE_SQL,
 } from './pgExtras';
 
@@ -58,6 +61,17 @@ function validRuntime(overrides: Record<string, unknown> = {}) {
   return {
     has_ticket_number_sequence: true,
     has_pg_trgm: true,
+    ...overrides,
+  };
+}
+
+function validSessionConstraint(overrides: Record<string, unknown> = {}) {
+  return {
+    is_validated: true,
+    definition:
+      `CHECK (((scope = 'staff'::"SessionScope") AND (user_id IS NOT NULL) ` +
+      `AND (contact_id IS NULL)) OR ((scope = 'portal'::"SessionScope") ` +
+      `AND (user_id IS NULL) AND (contact_id IS NOT NULL)))`,
     ...overrides,
   };
 }
@@ -164,6 +178,46 @@ describe('critical runtime dependencies', () => {
   });
 });
 
+describe('critical scoped-session principal invariant', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    db.$executeRawUnsafe.mockResolvedValue(0);
+    db.$queryRawUnsafe.mockResolvedValue([validSessionConstraint()]);
+  });
+
+  it('creates, validates, and catalog-checks the exact principal pairing', async () => {
+    await expect(ensureSessionPrincipalInvariant()).resolves.toBeUndefined();
+    expect(db.$executeRawUnsafe).toHaveBeenNthCalledWith(
+      1,
+      SESSION_PRINCIPAL_CHECK_SQL,
+    );
+    expect(db.$executeRawUnsafe.mock.calls[1][0]).toContain(
+      `VALIDATE CONSTRAINT ${SESSION_PRINCIPAL_CHECK_NAME}`,
+    );
+    expect(db.$queryRawUnsafe.mock.calls[0][0]).toContain(
+      SESSION_PRINCIPAL_CHECK_NAME,
+    );
+  });
+
+  it.each([
+    ['absent', []],
+    ['not validated', [validSessionConstraint({ is_validated: false })]],
+    [
+      'weaker/wrong definition',
+      [
+        validSessionConstraint({
+          definition: `CHECK (user_id IS NOT NULL OR contact_id IS NOT NULL)`,
+        }),
+      ],
+    ],
+  ])('fails closed when the constraint is %s', async (_case, rows) => {
+    db.$queryRawUnsafe.mockResolvedValue(rows);
+    await expect(ensureSessionPrincipalInvariant()).rejects.toBeInstanceOf(
+      CriticalPgInvariantError,
+    );
+  });
+});
+
 describe('critical ticket hierarchy trigger', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -247,17 +301,20 @@ describe('optional Postgres extras', () => {
     db.$queryRawUnsafe
       .mockResolvedValueOnce([validRuntime()])
       .mockResolvedValueOnce([validIndex()])
+      .mockResolvedValueOnce([validSessionConstraint()])
       .mockResolvedValueOnce([{ enabled: 'O' }])
       // The live-merge-ledger partial unique index, verified after the trigger.
       .mockResolvedValueOnce([validLiveMergeIndex()]);
   });
 
   it('logs an optional failure and continues through the remaining statements', async () => {
-    // Seven required statements run before the optional ones: sequence, pg_trgm,
-    // legacy identity index, the hierarchy function/drop/create, and the live
-    // merge ledger index. The rejection below is therefore the FIRST optional
-    // statement — a required one failing must abort startup, not warn.
+    // Nine required statements run before the optional ones: sequence, pg_trgm,
+    // legacy identity index, scoped-session create/validate, the hierarchy
+    // function/drop/create, and the live merge ledger index. The rejection below
+    // is therefore the FIRST optional statement.
     db.$executeRawUnsafe
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(0)
@@ -274,7 +331,7 @@ describe('optional Postgres extras', () => {
     expect(db.$executeRawUnsafe.mock.calls[2][0]).toBe(
       LEGACY_EXTERNAL_IDENTITY_INDEX_SQL,
     );
-    expect(db.$executeRawUnsafe.mock.calls.length).toBeGreaterThan(7);
+    expect(db.$executeRawUnsafe.mock.calls.length).toBeGreaterThan(9);
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         err: expect.any(Error),

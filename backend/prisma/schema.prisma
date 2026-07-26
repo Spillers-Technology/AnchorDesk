@@ -125,17 +125,24 @@ model OAuthAuthCode {
 // store only its SHA-256 hash, so a DB read never yields a usable session.
 // Enables instant revocation (delete the row) which JWTs can't do.
 model Session {
-  id        String   @id @default(cuid())
-  userId    Int      @map("user_id")
-  tokenHash String   @unique @map("token_hash") @db.VarChar(64)
-  userAgent String?  @map("user_agent") @db.VarChar(255)
-  ip        String?  @db.VarChar(45)
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  id        String       @id @default(cuid())
+  // Existing rows and all staff login paths default to staff. Portal sessions
+  // bind to a Contact instead; the pgExtras CHECK requires exactly one
+  // principal for the selected scope.
+  scope     SessionScope @default(staff)
+  userId    Int?         @map("user_id")
+  contactId Int?         @map("contact_id")
+  tokenHash String       @unique @map("token_hash") @db.VarChar(64)
+  userAgent String?      @map("user_agent") @db.VarChar(255)
+  ip        String?      @db.VarChar(45)
+  expiresAt DateTime     @map("expires_at")
+  createdAt DateTime     @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([contactId])
   @@index([expiresAt])
   @@map("sessions")
 }
@@ -239,6 +246,8 @@ model Contact {
 
   company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   tickets Ticket[]
+  portalSessions Session[]
+  portalMagicLinks PortalMagicLink[]
 
   @@index([companyId])
   @@map("contacts")
@@ -298,6 +307,9 @@ model Ticket {
   // (chips, at-risk/breach evaluation, automations); clearing it falls back to
   // resolutionDueAt. The response clock is a separate promise and is unaffected.
   dueAt            DateTime?    @map("due_at")
+  // A Contact/company transfer does not prove that the new requester may read
+  // the old conversation. V1 quarantines transferred history from the portal.
+  portalAccessRevokedAt DateTime? @map("portal_access_revoked_at")
   // Hierarchy. Deliberately a scalar rather than a link table: cardinality and
   // acyclicity are constraints a generic graph table cannot cheaply enforce, and
   // "children of #123" must be one indexed lookup. 2.6 invariant: exactly one
@@ -355,6 +367,7 @@ model Ticket {
   @@index([responseDueAt])
   @@index([resolutionDueAt])
   @@index([dueAt])
+  @@index([portalAccessRevokedAt])
   @@index([parentId])
   @@index([mergedIntoId])
   @@map("tickets")
@@ -408,6 +421,12 @@ model Note {
   // local notes set this; internal/RMM/provider-ingested notes stay false even
   // when their noteType is `note`.
   syncPending    Boolean   @default(false) @map("sync_pending")
+  // Portal serialization includes only explicitly-public conversation rows.
+  // Existing/internal automation, RMM, time, and provider notes remain closed
+  // by default. `via` records portal provenance without pretending a Contact is
+  // a staff-note author.
+  visibility     NoteVisibility @default(internal)
+  via            String?    @db.VarChar(20)
   // Set when a merge moved this note off another ticket. Kept so the timeline
   // can attribute it ("from #1042") and so the merge ledger's restore is
   // verifiable against the rows themselves, not only against its own JSON.
@@ -448,6 +467,7 @@ model Attachment {
   storageBackend String   @default("local") @map("storage_backend") @db.VarChar(20)
   storageKey     String   @map("storage_key") @db.VarChar(500)
   createdBy      String?  @map("created_by") @db.VarChar(255)
+  portalVisible  Boolean  @default(false) @map("portal_visible")
   createdAt      DateTime @default(now()) @map("created_at")
 
   ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
@@ -1020,6 +1040,7 @@ enum AuthProvider {
 
 enum TicketSource {
   local
+  portal
   connectwise
   jira
   imap
@@ -1115,4 +1136,36 @@ enum SyncRunStatus {
   success
   degraded
   error
+}
+
+// ─── Workstream C: requester portal auth + visibility boundary ──────────────
+
+enum SessionScope {
+  staff
+  portal
+}
+
+enum NoteVisibility {
+  internal
+  public
+}
+
+// A magic-link verifier is a short-lived, one-time bearer credential for a
+// Contact requester. The emailed token contains a random selector and verifier;
+// only independent SHA-256 digests are stored here. The selector digest locates
+// a candidate row, then the verifier digest is compared in constant time.
+model PortalMagicLink {
+  id           Int       @id @default(autoincrement())
+  contactId    Int       @map("contact_id")
+  selectorHash String    @unique @map("selector_hash") @db.VarChar(64)
+  verifierHash String    @map("verifier_hash") @db.VarChar(64)
+  expiresAt    DateTime  @map("expires_at")
+  usedAt       DateTime? @map("used_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, createdAt])
+  @@index([expiresAt])
+  @@map("portal_magic_links")
 }

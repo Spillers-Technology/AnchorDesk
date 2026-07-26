@@ -71,6 +71,7 @@ const actor = "alice (mcp)";
 
 const mockedTickets = {
   getById: tickets.getById as jest.Mock,
+  listPaged: tickets.listPaged as jest.Mock,
 };
 const mockedChecklist = {
   listForTicket: checklist.listForTicket as jest.Mock,
@@ -123,6 +124,32 @@ afterEach(async () => {
 });
 
 describe("MCP checklist protocol surface", () => {
+  it("preserves portal provenance in get_ticket and list_tickets", async () => {
+    const portalTicket = {
+      id: 42,
+      title: "Portal request",
+      source: "portal",
+      contactId: 9,
+      companyId: 7,
+    };
+    mockedTickets.getById.mockResolvedValue(portalTicket);
+    mockedTickets.listPaged.mockResolvedValue({
+      items: [portalTicket],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+    });
+    const client = await connect("technician");
+
+    const detail = JSON.parse(resultText(await call(client, "get_ticket", {
+      id: 42,
+    })));
+    const listed = JSON.parse(resultText(await call(client, "list_tickets", {})));
+
+    expect(detail.ticket.source).toBe("portal");
+    expect(listed.items[0].source).toBe("portal");
+  });
+
   it("advertises the backend package version and complete checklist schemas", async () => {
     const client = await connect();
     const packageVersion = (

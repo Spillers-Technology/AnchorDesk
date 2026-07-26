@@ -124,6 +124,8 @@ describe('POST /tickets/:id/notes public create contract', () => {
         author: 'Technician',
         authorId: 2,
         queueForTicketSync: true,
+        visibility: 'public',
+        via: 'web',
       });
       expect(input).not.toHaveProperty('externalId');
       expect(input).not.toHaveProperty('direction');

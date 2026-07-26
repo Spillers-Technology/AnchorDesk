@@ -175,6 +175,11 @@ export interface JiraComment {
   author?: { displayName?: string };
   body?: unknown;
   created?: string;
+  visibility?: {
+    type?: string;
+    value?: string;
+    identifier?: string;
+  } | null;
 }
 
 const ISSUE_FIELDS = 'summary,description,status,priority,assignee,project,updated';

@@ -229,7 +229,14 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
       const changedBy = actor;
       const note = await notes.create(
         ticketId,
-        { content, author: actor, noteType: 'note', queueForTicketSync: true },
+        {
+          content,
+          author: actor,
+          noteType: 'note',
+          queueForTicketSync: true,
+          visibility: 'public',
+          via: 'mcp',
+        },
         changedBy
       );
       return { content: [{ type: 'text', text: JSON.stringify(note, null, 2) }] };
@@ -552,7 +559,16 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
       }
       const entry = await notes.create(
         ticketId,
-        { content: note?.trim() || `Logged ${mins} min`, author, noteType: 'time_entry', minutes: mins, timeStart, timeStop },
+        {
+          content: note?.trim() || `Logged ${mins} min`,
+          author,
+          noteType: 'time_entry',
+          minutes: mins,
+          timeStart,
+          timeStop,
+          visibility: 'internal',
+          via: 'mcp',
+        },
         changedBy,
       );
       return { content: [{ type: 'text', text: JSON.stringify(entry, null, 2) }] };
@@ -579,7 +595,10 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
         return { content: [{ type: 'text', text: 'SMTP is not configured' }], isError: true };
       }
       try {
-        const { messageId } = await ticketMail.sendTicketEmail(ticketId, { to, cc, subject, html, text, author });
+        const { messageId } = await ticketMail.sendTicketEmail(
+          ticketId,
+          { to, cc, subject, html, text, author, actorSub: actor },
+        );
         return { content: [{ type: 'text', text: JSON.stringify({ ok: true, messageId }, null, 2) }] };
       } catch (err) {
         return { content: [{ type: 'text', text: (err as Error).message }], isError: true };

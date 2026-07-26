@@ -24,6 +24,8 @@ import { pingRoutes } from './routes/ping';
 import { mcpRoutes } from './routes/mcp';
 import { oauthRoutes } from './routes/oauth';
 import { authRoutes } from './routes/auth';
+import { portalAuthRoutes } from './routes/portalAuth';
+import { portalRoutes } from './routes/portal';
 import { apiTokenRoutes } from './routes/apiTokens';
 import { userRoutes } from './routes/users';
 import { integrationRoutes } from './routes/integrations';
@@ -34,6 +36,7 @@ import { registerAuthHook } from './middleware/auth';
 import { bootstrapAuth } from './services/auth/bootstrap';
 import { pruneExpiredSessions } from './services/auth/sessions';
 import { pruneExpiredCodes } from './services/auth/oauthProvider';
+import { pruneExpiredMagicLinks } from './services/auth/portalMagicLinks';
 import { seedSettings } from './services/settingsService';
 import { ensurePgExtras } from './db/pgExtras';
 import { runDataMigrations } from './db/dataMigrations';
@@ -97,6 +100,11 @@ async function start() {
 
   // Auth: login flows, session, self-service (public + authed endpoints).
   server.register(authRoutes);
+  // Requester magic-link auth + scoped Contact sessions.
+  server.register(portalAuthRoutes);
+  // Requester-owned ticket activity; this plugin has a separate principal guard
+  // and an encapsulated no-store response boundary.
+  server.register(portalRoutes);
   // OAuth 2.0 authorization server for MCP clients (DCR + authorize + token).
   server.register(oauthRoutes);
   // Personal access tokens (self-service) — used by MCP / programmatic clients.
@@ -220,6 +228,9 @@ async function start() {
   setInterval(() => {
     pruneExpiredSessions().catch((err) => server.log.warn({ err }, 'Session prune failed'));
     pruneExpiredCodes().catch((err) => server.log.warn({ err }, 'OAuth code prune failed'));
+    pruneExpiredMagicLinks().catch((err) =>
+      server.log.warn({ err }, 'Portal magic-link prune failed')
+    );
   }, 60 * 60 * 1000).unref();
 }
 

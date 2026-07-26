@@ -1,4 +1,4 @@
-import { NoteType } from '@prisma/client';
+import { Note, NoteType, Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
 import { publish } from '../services/realtime/eventBus';
@@ -25,6 +25,10 @@ export interface CreateNoteInput {
   emailBcc?: string;
   subject?: string;
   inReplyTo?: string;
+  /** Customer-facing classification. Defaults to internal at the schema layer. */
+  visibility?: 'internal' | 'public';
+  /** Authored/ingested channel, e.g. web, email, mcp, portal, automation, rmm. */
+  via?: string;
 }
 
 export interface UpdateNoteInput {
@@ -82,8 +86,13 @@ export async function listForTicket(ticketId: number) {
   });
 }
 
-export async function create(ticketId: number, input: CreateNoteInput, actorSub: string) {
-  const note = await prisma.$transaction(async (tx) => {
+export async function create(
+  ticketId: number,
+  input: CreateNoteInput,
+  actorSub: string,
+  transaction?: Prisma.TransactionClient,
+) {
+  const write = async (tx: Prisma.TransactionClient) => {
     const ticket = input.queueForTicketSync
       ? await tx.ticket.findUnique({
           where: { id: ticketId },
@@ -99,8 +108,7 @@ export async function create(ticketId: number, input: CreateNoteInput, actorSub:
       (ticket.externalProvider === 'jira' || ticket.externalProvider === 'connectwise')
     );
 
-    const row = await tx.note.create({
-      data: {
+    const data = {
         ticketId,
         content: input.content,
         author: clamp(input.author, 150),
@@ -121,8 +129,10 @@ export async function create(ticketId: number, input: CreateNoteInput, actorSub:
         emailBcc: input.emailBcc,
         subject: clamp(input.subject, 255),
         inReplyTo: clamp(input.inReplyTo, 255),
-      },
-    });
+        visibility: input.visibility,
+        via: clamp(input.via, 20),
+      } as Prisma.NoteUncheckedCreateInput;
+    const row = await tx.note.create({ data });
 
     await audit.record({
       entityType: 'note',
@@ -141,10 +151,24 @@ export async function create(ticketId: number, input: CreateNoteInput, actorSub:
       });
     }
     return row;
-  });
+  };
 
-  publish({ type: 'note.added', ticketId, note, actor: actorSub });
+  const note = transaction
+    ? await write(transaction)
+    : await prisma.$transaction(write);
+
+  // A caller-supplied transaction has not committed yet. That caller must
+  // publish explicitly after its outer transaction succeeds.
+  if (!transaction) publishCreatedNote(ticketId, note, actorSub);
   return note;
+}
+
+export function publishCreatedNote(
+  ticketId: number,
+  note: Note,
+  actorSub: string,
+): void {
+  publish({ type: 'note.added', ticketId, note, actor: actorSub });
 }
 
 export async function update(id: number, ticketId: number, input: UpdateNoteInput, actorSub: string) {

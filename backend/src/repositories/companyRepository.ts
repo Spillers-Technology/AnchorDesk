@@ -5,6 +5,15 @@
 import { Company, Contact, Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
+import {
+  canonicalContactEmail,
+  findContactsByNormalizedEmail,
+  lockPortalIdentityWrites,
+  normalizeContactIdentityEmail,
+  revokeContactPortalCredentials,
+  revokeIfEmailAmbiguous,
+  type ContactIdentityRow,
+} from './portalIdentityRepository';
 
 // ─── Companies ───────────────────────────────────────────────────────────────
 
@@ -30,7 +39,7 @@ export interface CompanyInput {
   name: string;
   domain?: string;
   phone?: string;
-  email?: string;
+  email?: string | null;
   website?: string;
   address?: string;
   notes?: string;
@@ -119,36 +128,99 @@ export async function timeTotalMinutes(companyId: number): Promise<number> {
 export interface ContactInput {
   companyId: number;
   name: string;
-  email?: string;
+  email?: string | null;
   phone?: string;
   title?: string;
   isPrimary?: boolean;
 }
 
+/**
+ * Resolve a portal/email identity without guessing. Contact email is legacy
+ * CRM data and is not structurally unique, so a duplicate case-insensitive
+ * address is ambiguous and deliberately resolves to null.
+ */
+export async function findUniqueContactByEmail(
+  email: string,
+): Promise<ContactIdentityRow | null> {
+  const normalized = normalizeContactIdentityEmail(email);
+  if (!normalized) return null;
+  const matches = await findContactsByNormalizedEmail(prisma, normalized);
+  return matches.length === 1 ? matches[0] : null;
+}
+
 export async function createContact(input: ContactInput, actor: string): Promise<Contact> {
   const contact = await prisma.$transaction(async (tx) => {
+    await lockPortalIdentityWrites(tx);
+    const email = canonicalContactEmail(input.email);
     if (input.isPrimary) {
       await tx.contact.updateMany({ where: { companyId: input.companyId, isPrimary: true }, data: { isPrimary: false } });
     }
-    return tx.contact.create({ data: input });
+    const row = await tx.contact.create({
+      data: { ...input, email },
+    });
+    await revokeIfEmailAmbiguous(
+      tx,
+      normalizeContactIdentityEmail(row.email),
+    );
+    await audit.record({
+      entityType: 'contact',
+      entityId: row.id,
+      action: 'create',
+      changedBy: actor,
+      newValue: { name: row.name, companyId: row.companyId },
+    }, tx);
+    return row;
   });
-  await audit.record({ entityType: 'contact', entityId: contact.id, action: 'create', changedBy: actor, newValue: { name: contact.name, companyId: contact.companyId } });
   return contact;
 }
 
 export async function updateContact(id: number, input: Partial<ContactInput>, actor: string): Promise<Contact> {
   const contact = await prisma.$transaction(async (tx) => {
+    await lockPortalIdentityWrites(tx);
+    await tx.$queryRaw(
+      Prisma.sql`SELECT id FROM contacts WHERE id = ${id} FOR UPDATE`,
+    );
     const current = await tx.contact.findUnique({ where: { id } });
     if (!current) throw Object.assign(new Error('contact not found'), { statusCode: 404 });
+    const email = Object.prototype.hasOwnProperty.call(input, 'email')
+      ? canonicalContactEmail(input.email)
+      : undefined;
+    const data = {
+      ...input,
+      ...(email !== undefined || input.email === null ? { email } : {}),
+    };
+    const portalIdentityChanged =
+      (input.companyId !== undefined && input.companyId !== current.companyId) ||
+      (Object.prototype.hasOwnProperty.call(input, 'email') &&
+        normalizeContactIdentityEmail(email) !==
+          normalizeContactIdentityEmail(current.email));
+    if (portalIdentityChanged) {
+      // A portal credential authenticates the current Contact row. Without
+      // revocation, an old mailbox/browser would silently inherit a reassigned
+      // Contact's new company boundary. Keep revocation and the identity edit
+      // atomic so neither can commit on its own.
+      await revokeContactPortalCredentials(tx, [id]);
+    }
     if (input.isPrimary) {
       await tx.contact.updateMany({
         where: { companyId: input.companyId ?? current.companyId, isPrimary: true, id: { not: id } },
         data: { isPrimary: false },
       });
     }
-    return tx.contact.update({ where: { id }, data: input });
+    const row = await tx.contact.update({ where: { id }, data });
+    await revokeIfEmailAmbiguous(
+      tx,
+      normalizeContactIdentityEmail(row.email),
+    );
+    await audit.record({
+      entityType: 'contact',
+      entityId: id,
+      action: 'update',
+      changedBy: actor,
+      newValue: { name: row.name },
+    }, tx);
+    return row;
   });
-  await audit.record({ entityType: 'contact', entityId: id, action: 'update', changedBy: actor, newValue: { name: contact.name } });
   return contact;
 }
 
