@@ -7,6 +7,42 @@ magic-link auth, Contact-bound sessions, and the field-allowlist serializer.
 This document is the layer on top — how a customer *gets* access, what they can
 see, and how they tell us whether we did a good job.
 
+## Release gate for 2.7 — one switch, default off
+
+**This is a blocker for shipping 2.7, not part of the v2 feature layer.**
+
+Two findings from integration review, both the same shape — safe in isolation,
+but exposed more broadly by default than any admin would expect:
+
+1. **The portal has no global enable flag.** `requestMagicLink(email)` issues a
+   link to any uniquely-matching `Contact`. Upgrading to 2.7 therefore hands an
+   MSP a live customer portal at `/portal` that they never opted into, which
+   every contact in their CRM can sign into. Each requester only reaches their
+   own tickets — Workstream C's dual contact+company predicate holds — so this
+   is not a data leak. It is an un-asked-for capability, which is its own kind
+   of bad.
+2. **Knowledge-base portal reads are anonymous.** Workstream D's
+   `authorizePortalKbRead()` returns `true` for
+   `GET /kb/search?visibility=portal` and `GET /kb/portal/:slug`, because the
+   portal principal did not exist on that branch. Narrowly scoped,
+   rate-limited, and only ever published portal-visible articles — but it would
+   be AnchorDesk's first anonymous data-returning endpoint, and an author's
+   mental model of "portal" is "our customers," not "the internet."
+
+**Both close with a single admin setting, `portal.enabled`, defaulting to
+false**, stored in the existing `settings` row pattern. While off:
+
+- `/portal/*` document requests and every `portalAuth` route refuse.
+- `authorizePortalKbRead()` returns false, so KB portal reads require staff auth.
+
+While on, the KB seam stops returning a bare `true` and resolves the portal
+session instead — which is what Workstream D always intended, and what its notes
+asked the integrator to wire up.
+
+This keeps both features fully built and fully tested, while making "we now have
+a customer portal" a decision someone makes rather than a side effect of
+upgrading.
+
 ## The principle this design extends
 
 Workstream C's substrate is built on one idea, and it is worth naming because
