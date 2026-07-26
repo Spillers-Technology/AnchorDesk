@@ -51,6 +51,12 @@ describe('pickPolicy precedence', () => {
   it('does not match a policy whose company differs', () => {
     expect(pickPolicy([byCompany], 'High', 8)).toBeNull();
   });
+
+  it('uses the lowest id as a stable tie-break for duplicate scopes', () => {
+    const older = policy({ id: 10, priority: 'High' });
+    const newer = policy({ id: 11, priority: 'High' });
+    expect(pickPolicy([newer, older], 'High', 99)?.id).toBe(10);
+  });
 });
 
 describe('effectiveResolutionDueAt', () => {

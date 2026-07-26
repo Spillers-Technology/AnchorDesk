@@ -55,7 +55,7 @@ const PUBLIC_TICKET_CREATE_FIELD_SET: ReadonlySet<string> = new Set(PUBLIC_TICKE
  */
 const PUBLIC_NOTE_CREATE_FIELDS = ['content', 'htmlContent', 'noteType'] as const;
 const PUBLIC_NOTE_CREATE_FIELD_SET: ReadonlySet<string> = new Set(PUBLIC_NOTE_CREATE_FIELDS);
-const PUBLIC_NOTE_UPDATE_FIELDS = ['content', 'htmlContent', 'minutes', 'timeStart', 'timeStop'] as const;
+const PUBLIC_NOTE_UPDATE_FIELDS = ['content', 'htmlContent', 'minutes', 'timeStart', 'timeStop', 'workedAt'] as const;
 const PUBLIC_NOTE_UPDATE_FIELD_SET: ReadonlySet<string> = new Set(PUBLIC_NOTE_UPDATE_FIELDS);
 
 interface PublicNoteCreateInput {
@@ -194,6 +194,16 @@ function publicNoteUpdateInput(value: unknown): noteRepo.UpdateNoteInput | strin
     } else {
       return `${field} must be an ISO 8601 datetime string or null`;
     }
+  }
+  if (value.workedAt !== undefined) {
+    if (
+      typeof value.workedAt !== 'string' ||
+      !/(?:[zZ]|[+-]\d{2}:\d{2})$/.test(value.workedAt) ||
+      Number.isNaN(Date.parse(value.workedAt))
+    ) {
+      return 'workedAt must be an ISO 8601 datetime string with a timezone';
+    }
+    data.workedAt = new Date(value.workedAt);
   }
   if (data.content !== undefined && !data.content && !data.htmlContent) {
     return 'content cannot be blank';
@@ -589,6 +599,9 @@ export async function ticketRoutes(server: FastifyInstance) {
       if (err instanceof noteRepo.ExternalNoteImmutableError) {
         return reply.status(409).send({ error: err.message });
       }
+      if (err instanceof noteRepo.InvalidTimeEntryMutationError) {
+        return reply.status(400).send({ error: err.message });
+      }
       throw err;
     }
     if (!note) return reply.status(404).send({ error: 'Note not found' });
@@ -619,8 +632,11 @@ export async function ticketRoutes(server: FastifyInstance) {
   server.get('/tickets/:id/time', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
     const id = parseId(req.params.id);
     if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
-    const minutes = await noteRepo.timeTotalForTicket(id);
-    return reply.send({ minutes });
+    const [minutes, entries] = await Promise.all([
+      noteRepo.timeTotalForTicket(id),
+      noteRepo.listTimeEntriesForTicket(id),
+    ]);
+    return reply.send({ minutes, entries });
   });
 
   // Log time: a time_entry note carrying a duration (minutes) + optional note.
@@ -631,15 +647,37 @@ export async function ticketRoutes(server: FastifyInstance) {
   server.post('/tickets/:id/time', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
     const id = parseId(req.params.id);
     if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
-    const body = (req.body ?? {}) as { minutes?: number; note?: string; start?: string; stop?: string };
+    const body = (req.body ?? {}) as {
+      minutes?: number;
+      note?: string;
+      start?: string;
+      stop?: string;
+      workedAt?: string;
+    };
 
-    let minutes = Math.round(Number(body.minutes));
+    const hasMinutes = body.minutes !== undefined;
+    const hasStart = body.start !== undefined;
+    const hasStop = body.stop !== undefined;
+    if (hasStart !== hasStop) {
+      return reply.status(400).send({ error: 'start and stop must be provided together' });
+    }
+    if (hasMinutes && hasStart) {
+      return reply.status(400).send({ error: 'provide minutes or start/stop, not both' });
+    }
+    if (body.workedAt !== undefined && hasStart) {
+      return reply.status(400).send({
+        error: 'workedAt is only accepted for duration-only entries; start is the work date for a window',
+      });
+    }
+
+    let minutes = hasMinutes ? Math.round(Number(body.minutes)) : 0;
     let timeStart: Date | undefined;
     let timeStop: Date | undefined;
+    let workedAt: Date | undefined;
 
-    if (body.start && body.stop) {
-      timeStart = new Date(body.start);
-      timeStop = new Date(body.stop);
+    if (hasStart && hasStop) {
+      timeStart = new Date(body.start!);
+      timeStop = new Date(body.stop!);
       if (isNaN(timeStart.getTime()) || isNaN(timeStop.getTime())) {
         return reply.status(400).send({ error: 'start and stop must be valid timestamps' });
       }
@@ -648,12 +686,31 @@ export async function ticketRoutes(server: FastifyInstance) {
     }
 
     if (!minutes || minutes <= 0) return reply.status(400).send({ error: 'provide a positive duration (minutes or start/stop)' });
+    if (body.workedAt !== undefined) {
+      if (
+        typeof body.workedAt !== 'string' ||
+        !/(?:[zZ]|[+-]\d{2}:\d{2})$/.test(body.workedAt) ||
+        Number.isNaN(Date.parse(body.workedAt))
+      ) {
+        return reply.status(400).send({ error: 'workedAt must be an ISO 8601 datetime string with a timezone' });
+      }
+      workedAt = new Date(body.workedAt);
+    }
 
     const author = req.user?.displayName ?? req.actorSub;
     const content = body.note?.trim() || `Logged ${minutes} min`;
     const note = await noteRepo.create(
       id,
-      { content, author, authorId: req.user?.id || undefined, noteType: 'time_entry', minutes, timeStart, timeStop },
+      {
+        content,
+        author,
+        authorId: req.user?.id || undefined,
+        noteType: 'time_entry',
+        minutes,
+        timeStart,
+        timeStop,
+        workedAt,
+      },
       req.actorSub
     );
     return reply.status(201).send(note);

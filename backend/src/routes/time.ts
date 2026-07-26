@@ -44,6 +44,7 @@ export async function timeRoutes(server: FastifyInstance) {
         minutes: entryMinutes(e),
         timeStart: e.timeStart,
         timeStop: e.timeStop,
+        workedAt: e.workedAt,
         // A "placed" entry sits on the clock; duration-only ones are unplaced and
         // can't reveal gaps, so the UI keeps them in a separate tray.
         placed,

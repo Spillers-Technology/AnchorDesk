@@ -42,6 +42,7 @@ import { startImapScheduler } from './services/imapScheduler';
 import { startSlaScheduler } from './services/slaScheduler';
 import { startSyncScheduler } from './services/syncScheduler';
 import { initWsHub } from './services/realtime/wsHub';
+import { initTicketEventSubscriber } from './services/realtime/ticketEventSubscriber';
 import { initNotificationService } from './services/notificationService';
 import { initAutomationService } from './services/automation/automationService';
 import { teamRoutes } from './routes/teams';
@@ -200,6 +201,7 @@ async function start() {
 
   // Wire the WebSocket hub + notification service to the in-process event bus.
   initWsHub();
+  initTicketEventSubscriber(server.log);
   initNotificationService();
   initAutomationService();
 

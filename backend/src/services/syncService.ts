@@ -467,6 +467,7 @@ async function executeSync(providerRow: ProviderRow, runId: number): Promise<Syn
                   noteType: n.noteType,
                   timeStart: n.timeStart,
                   timeStop: n.timeStop,
+                  createdAt: n.createdAt,
                   externalId: n.externalId,
                 },
                 'system'
