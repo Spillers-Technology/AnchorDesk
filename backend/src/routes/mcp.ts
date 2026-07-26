@@ -23,6 +23,7 @@ import { MergeLedgerFormatError } from '../services/merge/mergeLedger';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
 import { actorFor } from '../middleware/auth';
 import { buildMcpProtectedResourceMetadata } from '../services/auth/mcpOAuth';
+import { registerKbTools } from './mcpKb';
 
 const MAX_TEMPLATE_ITEMS = 100;
 const MAX_DUE_OFFSET_MINUTES = 60 * 24 * 365;
@@ -78,6 +79,7 @@ const checklistTemplateItems = z.array(z.object({
  */
 export function buildMcpServer(actor: string, userId: number, role: UserRole): McpServer {
   const server = new McpServer({ name: 'anchordesk', version: MCP_SERVER_VERSION });
+  registerKbTools(server, actor, role);
 
   server.tool(
     'list_tickets',

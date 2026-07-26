@@ -1116,3 +1116,36 @@ enum SyncRunStatus {
   degraded
   error
 }
+
+// ---- 2.7 Workstream D: knowledge base --------------------------------------
+//
+// `author` is an attribution snapshot rather than a User relation. User rows
+// can be renamed or deleted, while an article must retain the name under which
+// it was written (the audit log records every later editor separately).
+// `bodyText` is derived from the sanitized HTML on every write and exists only
+// to give Postgres search and excerpts clean text instead of HTML markup.
+model KbArticle {
+  id         Int          @id @default(autoincrement())
+  slug       String       @unique @db.VarChar(200)
+  title      String       @db.VarChar(255)
+  bodyHtml   String       @map("body_html") @db.Text
+  bodyText   String       @map("body_text") @db.Text
+  category   String       @db.VarChar(100)
+  visibility KbVisibility @default(internal)
+  published  Boolean      @default(false)
+  author     String       @db.VarChar(255)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  // Soft deletion keeps the globally unique slug reserved, so a stale public
+  // URL can never resolve to a different article created later.
+  deletedAt  DateTime?    @map("deleted_at")
+
+  @@index([deletedAt, visibility, published])
+  @@index([category])
+  @@map("kb_articles")
+}
+
+enum KbVisibility {
+  internal
+  portal
+}

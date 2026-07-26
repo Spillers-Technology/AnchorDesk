@@ -25,6 +25,20 @@ export const TICKET_TSV =
 export const TICKET_TRGM =
   "lower(coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' || coalesce(description,'') || ' ' || coalesce(company_name,'') || ' ' || coalesce(priority,'') || ' ' || coalesce(ticket_number,''))";
 
+// Knowledge-base search uses clean body_text derived from sanitized HTML. Title
+// is weighted highest so an article explicitly about the query beats one that
+// merely mentions it deep in a long body. These expressions are shared verbatim
+// with kbArticleRepository's query so Postgres can use the functional indexes.
+export const KB_ARTICLE_TSV =
+  "setweight(to_tsvector('english', coalesce(title,'')), 'A') || " +
+  "setweight(to_tsvector('english', coalesce(category,'')), 'B') || " +
+  "setweight(to_tsvector('english', coalesce(body_text,'')), 'C')";
+
+export const KB_ARTICLE_TRGM =
+  "lower(coalesce(title,'') || ' ' || coalesce(category,'') || ' ' || coalesce(body_text,''))";
+
+export const KB_ARTICLE_TITLE_TRGM = "lower(coalesce(title,''))";
+
 export const LEGACY_EXTERNAL_IDENTITY_INDEX_NAME =
   'idx_tickets_external_legacy_unique';
 export const LEGACY_EXTERNAL_IDENTITY_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT EXISTS ${LEGACY_EXTERNAL_IDENTITY_INDEX_NAME}
@@ -70,6 +84,13 @@ const OPTIONAL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_tickets_trgm ON tickets USING GIN (${TICKET_TRGM} gin_trgm_ops)`,
   // Trigram over note bodies so search reaches into the conversation/timeline.
   `CREATE INDEX IF NOT EXISTS idx_notes_content_trgm ON notes USING GIN (lower(content) gin_trgm_ops)`,
+  // Knowledge-base FTS + typo tolerance. Visibility/published are relational
+  // predicates in every query; the schema's btree index covers that boundary.
+  // Compound tsvector concatenation needs its own expression parentheses
+  // inside GIN's index-column list (a bare function expression does not).
+  `CREATE INDEX IF NOT EXISTS idx_kb_articles_fts ON kb_articles USING GIN ((${KB_ARTICLE_TSV}))`,
+  `CREATE INDEX IF NOT EXISTS idx_kb_articles_trgm ON kb_articles USING GIN (${KB_ARTICLE_TRGM} gin_trgm_ops)`,
+  `CREATE INDEX IF NOT EXISTS idx_kb_articles_title_trgm ON kb_articles USING GIN (${KB_ARTICLE_TITLE_TRGM} gin_trgm_ops)`,
   // Common list filter: open tickets by company, excluding soft-deleted ones.
   `CREATE INDEX IF NOT EXISTS idx_tickets_active ON tickets (company_name, status, created_at DESC) WHERE status <> 'Deleted'`,
   // Device map / Network view groups by company; partial-skip orphans.
