@@ -1,6 +1,7 @@
 jest.mock('./prisma', () => ({
   prisma: {
     $executeRaw: jest.fn(),
+    $executeRawUnsafe: jest.fn(),
     $transaction: jest.fn(),
     connection: { findMany: jest.fn() },
     setting: { findUnique: jest.fn() },
@@ -8,10 +9,17 @@ jest.mock('./prisma', () => ({
 }));
 
 import { prisma } from './prisma';
-import { legacyJiraScope, runDataMigrations } from './dataMigrations';
+import {
+  backfillTicketEvents,
+  backfillWorkedAt,
+  legacyJiraScope,
+  runDataMigrations,
+  TICKET_EVENT_BACKFILL_SQL,
+} from './dataMigrations';
 
 const db = prisma as unknown as {
   $executeRaw: jest.Mock;
+  $executeRawUnsafe: jest.Mock;
   $transaction: jest.Mock;
   connection: { findMany: jest.Mock };
   setting: { findUnique: jest.Mock };
@@ -38,10 +46,47 @@ describe('legacyJiraScope', () => {
   });
 });
 
+describe('2.7 reporting-spine data backfills', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('is idempotent across repeated TicketEvent reconstruction passes', async () => {
+    const durableSourceRows = new Set<string>();
+    db.$executeRawUnsafe.mockImplementation(async (sql: string) => {
+      expect(sql).toBe(TICKET_EVENT_BACKFILL_SQL);
+      const before = durableSourceRows.size;
+      for (const key of ['101:created', '102:resolved', '103:first_response']) {
+        durableSourceRows.add(key);
+      }
+      return durableSourceRows.size - before;
+    });
+
+    await expect(backfillTicketEvents()).resolves.toBe(3);
+    const idsAfterFirstRun = [...durableSourceRows];
+    await expect(backfillTicketEvents()).resolves.toBe(0);
+
+    expect([...durableSourceRows]).toEqual(idsAfterFirstRun);
+    expect(TICKET_EVENT_BACKFILL_SQL).toContain('source_audit_id');
+    expect(TICKET_EVENT_BACKFILL_SQL).toContain("'backfill'");
+    expect(TICKET_EVENT_BACKFILL_SQL).toContain('ON CONFLICT DO NOTHING');
+  });
+
+  it('records legacy work dates once from time_start then created_at', async () => {
+    db.$executeRaw.mockResolvedValueOnce(4).mockResolvedValueOnce(0);
+    await expect(backfillWorkedAt()).resolves.toBe(4);
+    await expect(backfillWorkedAt()).resolves.toBe(0);
+    const sql = (db.$executeRaw.mock.calls[0][0] as TemplateStringsArray).join('');
+    expect(sql).toContain('worked_at = coalesce(time_start, created_at)');
+    expect(sql).toContain('worked_at IS NULL');
+  });
+});
+
 describe('2.5 connection data migration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     db.$executeRaw.mockResolvedValue(0);
+    db.$executeRawUnsafe.mockResolvedValue(0);
     db.setting.findUnique.mockResolvedValue(null);
   });
 

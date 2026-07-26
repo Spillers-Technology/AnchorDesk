@@ -9,9 +9,8 @@
  *  - resolution — active until the ticket reaches a terminal status
  *
  * A manual ticket deadline (dueAt) overrides the SLA resolution target — see
- * effectiveResolutionDueAt. Note: editing a deadline does not reset the dedupe
- * set, so an alert that already fired for a ticket's resolution clock won't
- * re-fire until restart (same limitation as an SLA recompute).
+ * effectiveResolutionDueAt. Frozen snapshot identity distinguishes legitimate
+ * SLA re-targets even when two policies happen to produce the same deadline.
  *
  * An in-memory set dedupes alerts so each (ticket, clock, level) fires once per
  * process lifetime instead of every tick. Single-replica, like the other
@@ -44,13 +43,47 @@ function evaluate(createdAt: Date, dueAt: Date, now: number): Level | null {
   return null;
 }
 
-function fire(ticketId: number, kind: Clock, level: Level) {
+function fire(
+  ticket: {
+    id: number;
+    companyId: number | null;
+    teamId: number | null;
+    assigneeId: number | null;
+    priority: string | null;
+    status: string;
+  },
+  kind: Clock,
+  level: Level,
+  dueAt: Date,
+  targetSource: 'sla' | 'manual',
+  occurredAt: Date,
+  targetIdentity: string,
+) {
   // A breach supersedes a prior warning for the same clock.
-  const key = `${ticketId}:${kind}:${level}`;
+  // The target is part of the key: a legitimate re-target may warn/breach
+  // again, while a process restart converges on the subscriber's DB key.
+  const targetKey = `${ticket.id}:${kind}:${targetIdentity}`;
+  const key = `${targetKey}:${level}`;
   if (alerted.has(key)) return;
-  if (level === 'breached') alerted.add(`${ticketId}:${kind}:warning`); // suppress late warnings
+  if (level === 'breached') alerted.add(`${targetKey}:warning`); // suppress late warnings
   alerted.add(key);
-  publish({ type: 'sla.atRisk', ticketId, kind, level });
+  publish({
+    type: 'sla.atRisk',
+    ticketId: ticket.id,
+    kind,
+    level,
+    dueAt,
+    targetSource,
+    targetIdentity,
+    metricContext: {
+      companyId: ticket.companyId,
+      teamId: ticket.teamId,
+      assigneeId: ticket.assigneeId,
+      priority: ticket.priority,
+      status: ticket.status,
+      occurredAt,
+    },
+  });
 }
 
 async function tick(log: FastifyBaseLogger) {
@@ -67,6 +100,11 @@ async function tick(log: FastifyBaseLogger) {
       },
       select: {
         id: true,
+        companyId: true,
+        teamId: true,
+        assigneeId: true,
+        priority: true,
+        status: true,
         createdAt: true,
         firstRespondedAt: true,
         responseDueAt: true,
@@ -74,16 +112,67 @@ async function tick(log: FastifyBaseLogger) {
         dueAt: true,
       },
     });
+    const snapshots = tickets.length
+      ? await prisma.ticketSlaSnapshot.findMany({
+          where: { ticketId: { in: tickets.map((ticket) => ticket.id) } },
+          orderBy: [
+            { ticketId: 'asc' },
+            { establishedAt: 'desc' },
+            { id: 'desc' },
+          ],
+          select: {
+            id: true,
+            ticketId: true,
+            responseDueAt: true,
+            resolutionDueAt: true,
+          },
+        })
+      : [];
+    const latestSnapshot = new Map<number, (typeof snapshots)[number]>();
+    for (const snapshot of snapshots) {
+      if (!latestSnapshot.has(snapshot.ticketId)) {
+        latestSnapshot.set(snapshot.ticketId, snapshot);
+      }
+    }
 
     for (const t of tickets) {
+      const snapshot = latestSnapshot.get(t.id);
       if (!t.firstRespondedAt && t.responseDueAt) {
         const level = evaluate(t.createdAt, t.responseDueAt, now);
-        if (level) fire(t.id, 'response', level);
+        if (level) {
+          const targetIdentity =
+            snapshot?.responseDueAt?.getTime() === t.responseDueAt.getTime()
+              ? `snapshot:${snapshot.id}`
+              : `due:${t.responseDueAt.toISOString()}`;
+          fire(
+            t,
+            'response',
+            level,
+            t.responseDueAt,
+            'sla',
+            new Date(now),
+            targetIdentity,
+          );
+        }
       }
       const resolutionDue = effectiveResolutionDueAt(t);
       if (resolutionDue) {
         const level = evaluate(t.createdAt, resolutionDue, now);
-        if (level) fire(t.id, 'resolution', level);
+        if (level) {
+          fire(
+            t,
+            'resolution',
+            level,
+            resolutionDue,
+            t.dueAt ? 'manual' : 'sla',
+            new Date(now),
+            t.dueAt
+              ? `manual:${resolutionDue.toISOString()}`
+              : snapshot?.resolutionDueAt?.getTime() === resolutionDue.getTime()
+                ? `snapshot:${snapshot.id}`
+                : `due:${resolutionDue.toISOString()}`,
+          );
+        }
       }
     }
   } catch (err) {

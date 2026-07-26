@@ -1,13 +1,19 @@
 import { Prisma, Ticket, TicketSource, SyncState } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
-import { publish } from '../services/realtime/eventBus';
+import { publish, TicketMetricContext } from '../services/realtime/eventBus';
 import { computeSlaFields } from '../services/sla';
 import { getTickets } from '../services/settingsService';
 import { sanitizeEmailHtml } from '../services/mail/sanitizeHtml';
 import { clamp } from '../util/strings';
 import { resolveTicketCompany } from '../services/companyResolution';
 import { mergeCustomFields } from '../services/customFields';
+import { TERMINAL_TICKET_STATUSES } from '../services/ticketVocab';
+
+const reportingTerminalStatuses = new Set<string>([
+  ...TERMINAL_TICKET_STATUSES,
+  'Deleted',
+]);
 
 export interface TicketListOptions {
   status?: string;
@@ -212,6 +218,24 @@ function sanitizeTicketDescription(value: string | undefined): string | undefine
   return HTML_TAG_RE.test(value) ? sanitizeEmailHtml(value) : value;
 }
 
+function metricContext(ticket: Pick<
+  Ticket,
+  'companyId' | 'teamId' | 'assigneeId' | 'priority' | 'status' | 'updatedAt'
+>, occurredAt = ticket.updatedAt): TicketMetricContext {
+  return {
+    companyId: ticket.companyId,
+    teamId: ticket.teamId,
+    assigneeId: ticket.assigneeId,
+    priority: ticket.priority,
+    status: ticket.status,
+    occurredAt,
+  };
+}
+
+function sameDate(a: Date | null, b: Date | null): boolean {
+  return a?.getTime() === b?.getTime();
+}
+
 /** Resolve a Company's name so we can keep ticket.companyName denormalized. */
 async function companyNameFor(companyId?: number | null): Promise<string | undefined> {
   if (!companyId) return undefined;
@@ -359,56 +383,81 @@ export async function create(input: CreateTicketInput, actorSub: string) {
   // promoted, while genuinely unclassified work falls back to the internal
   // company so downstream company views, SLA rules, and contacts stay usable.
   const company = await resolveTicketCompany(input, actorSub);
-  // Score SLA at creation time; deadlines are anchored to "now" (= createdAt).
-  const sla = await computeSlaFields(input.priority, company.id, new Date());
+  const establishedAt = new Date();
+  const effectivePriority = input.priority ?? 'Medium';
+  // Score the value that is actually persisted. Previously an omitted priority
+  // stored Medium but resolved an SLA as null, making the live deadline and the
+  // frozen promise disagree from birth.
+  const sla = await computeSlaFields(effectivePriority, company.id, establishedAt);
   // Externally-sourced tickets keep their provider's number; everything else
   // gets a generated, human-friendly number from the sequence.
   const ticketNumber = input.ticketNumber ?? (await nextTicketNumber());
   const customFields = input.customFields !== undefined
     ? await mergeCustomFields(null, input.customFields)
     : null;
-  const ticket = await prisma.ticket.create({
-    data: {
-      // Clamp bounded VarChar columns so wild inbound email subjects/Message-IDs
-      // can't overflow and 500 the insert (see schema column widths).
-      title: clamp(input.title, 255),
-      summary: clamp(input.summary, 500),
-      description: sanitizeTicketDescription(input.description),
-      status: input.status ?? 'New',
-      // Force a priority default here (not just in the create dialog) so tickets
-      // arriving from inbound email / API / sync are never left without one —
-      // a null priority renders as a blank chip that reads as "unset" everywhere.
-      priority: input.priority ?? 'Medium',
-      companyName: clamp(company.name, 150),
-      companyId: company.id,
-      contactId: input.contactId ?? undefined,
-      assignee: clamp(input.assignee, 100),
-      assigneeId: input.assigneeId,
-      teamId: input.teamId ?? undefined,
-      customFields: customFields && Object.keys(customFields).length
-        ? customFields as Prisma.InputJsonValue
-        : undefined,
-      source: input.source ?? 'local',
-      ticketNumber: clamp(ticketNumber, 50),
-      externalId: clamp(input.externalId, 255),
-      externalProvider: clamp(input.externalProvider, 50),
-      syncConnectionId: input.syncConnectionId ?? null,
-      slaPolicyId: sla.slaPolicyId ?? undefined,
-      responseDueAt: sla.responseDueAt,
-      resolutionDueAt: sla.resolutionDueAt,
-      dueAt: input.dueAt ?? undefined,
-    },
+  const { ticket, auditId } = await prisma.$transaction(async (tx) => {
+    const row = await tx.ticket.create({
+      data: {
+        // Clamp bounded VarChar columns so wild inbound email subjects/Message-IDs
+        // can't overflow and 500 the insert (see schema column widths).
+        title: clamp(input.title, 255),
+        summary: clamp(input.summary, 500),
+        description: sanitizeTicketDescription(input.description),
+        status: input.status ?? 'New',
+        // Force a priority default here (not just in the create dialog) so tickets
+        // arriving from inbound email / API / sync are never left without one —
+        // a null priority renders as a blank chip that reads as "unset" everywhere.
+        priority: effectivePriority,
+        companyName: clamp(company.name, 150),
+        companyId: company.id,
+        contactId: input.contactId ?? undefined,
+        assignee: clamp(input.assignee, 100),
+        assigneeId: input.assigneeId,
+        teamId: input.teamId ?? undefined,
+        customFields: customFields && Object.keys(customFields).length
+          ? customFields as Prisma.InputJsonValue
+          : undefined,
+        source: input.source ?? 'local',
+        ticketNumber: clamp(ticketNumber, 50),
+        externalId: clamp(input.externalId, 255),
+        externalProvider: clamp(input.externalProvider, 50),
+        syncConnectionId: input.syncConnectionId ?? null,
+        slaPolicyId: sla.slaPolicyId ?? undefined,
+        responseDueAt: sla.responseDueAt,
+        resolutionDueAt: sla.resolutionDueAt,
+        dueAt: input.dueAt ?? undefined,
+        createdAt: establishedAt,
+      },
+    });
+
+    if (sla.snapshot) {
+      await tx.ticketSlaSnapshot.create({
+        data: {
+          ticketId: row.id,
+          ...sla.snapshot,
+          establishedAt,
+        },
+      });
+    }
+
+    const auditRow = await audit.record({
+      entityType: 'ticket',
+      entityId: row.id,
+      action: 'create',
+      changedBy: actorSub,
+      newValue: row as unknown as Record<string, unknown>,
+    }, tx);
+    return { ticket: row, auditId: auditRow?.id.toString() };
   });
 
-  await audit.record({
-    entityType: 'ticket',
-    entityId: ticket.id,
-    action: 'create',
-    changedBy: actorSub,
-    newValue: ticket as unknown as Record<string, unknown>,
+  publish({
+    type: 'ticket.created',
+    ticketId: ticket.id,
+    ticket,
+    actor: actorSub,
+    auditId,
+    metric: { context: metricContext(ticket, ticket.createdAt) },
   });
-
-  publish({ type: 'ticket.created', ticketId: ticket.id, ticket, actor: actorSub });
   return ticket;
 }
 
@@ -418,77 +467,99 @@ export async function update(
   actorSub: string,
   options: UpdateTicketOptions = {}
 ) {
-  const before = await prisma.ticket.findUnique({ where: { id } });
-  if (!before) return null;
+  // Company resolution can create the internal fallback Company and has its own
+  // audit path, so do it before taking the ticket row lock.
+  const resolvedCompany = input.companyId !== undefined
+    ? await resolveTicketCompany({ companyId: input.companyId }, actorSub)
+    : null;
 
-  const data: Prisma.TicketUncheckedUpdateInput = {
-    // Explicitly pick writable fields. Request bodies are runtime data, so
-    // spreading them here would let unknown Prisma fields bypass the API surface.
-    companyId: input.companyId,
-    contactId: input.contactId,
-    assigneeId: input.assigneeId,
-    teamId: input.teamId,
-    dueAt: input.dueAt,
-    closedAt: input.closedAt,
-    // Custom fields merge per-key into the stored map (null clears a key) and
-    // are validated against the definitions — never a raw spread.
-    customFields:
-      input.customFields !== undefined
-        ? ((await mergeCustomFields(before.customFields, input.customFields)) as Prisma.InputJsonValue)
-        : undefined,
-    title: clamp(input.title, 255),
-    summary: clamp(input.summary, 500),
-    description: sanitizeTicketDescription(input.description),
-    status: clamp(input.status, 100),
-    priority: clamp(input.priority, 50),
-    companyName: clamp(input.companyName, 150),
-    assignee: clamp(input.assignee, 100),
-  };
-  // Re-denormalize companyName when the company link changes. Clearing a
-  // company means "move to internal", never "make this ticket an orphan".
-  if (input.companyId !== undefined) {
-    const company = await resolveTicketCompany({ companyId: input.companyId }, actorSub);
-    data.companyId = company.id;
-    data.companyName = clamp(company.name, 150);
-  }
+  const result = await prisma.$transaction(async (tx) => {
+    // The transition decision and write share a row lock. Without it, two
+    // concurrent "New -> Resolved" calls can both read New and emit two facts.
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM tickets WHERE id = ${id} FOR UPDATE`);
+    const before = await tx.ticket.findUnique({ where: { id } });
+    if (!before) return null;
 
-  // Recompute SLA deadlines when priority or company changes, anchored to the
-  // original creation time so the clock isn't reset by an edit.
-  const priorityChanged = input.priority !== undefined && input.priority !== before.priority;
-  const companyChanged = input.companyId !== undefined && input.companyId !== before.companyId;
-  if (priorityChanged || companyChanged) {
-    const sla = await computeSlaFields(
-      input.priority ?? before.priority,
-      (data.companyId as number | undefined) ?? before.companyId,
-      before.createdAt,
-    );
-    data.slaPolicyId = sla.slaPolicyId;
-    data.responseDueAt = sla.responseDueAt;
-    data.resolutionDueAt = sla.resolutionDueAt;
-  }
-
-  const localSyncMutation =
-    (options.origin ?? 'local') === 'local' &&
-    before.externalId != null &&
-    before.externalProvider != null &&
-    SYNC_RELEVANT_UPDATE_FIELDS.some((field) => input[field] !== undefined);
-  if (localSyncMutation) {
-    data.syncRevision = { increment: 1 };
-    // Held conflicts stay held until explicit resolution; the revision still
-    // advances so an in-flight resolution cannot overwrite this newer edit.
-    if (before.syncState !== 'conflict') data.syncState = 'pending';
-  }
-
-  if (options.syncResult) {
-    data.syncState = options.syncResult.state;
-    if (options.syncResult.remoteHash !== undefined) data.remoteHash = options.syncResult.remoteHash;
-    if (options.syncResult.remoteUpdatedAt !== undefined) {
-      data.remoteUpdatedAt = options.syncResult.remoteUpdatedAt;
+    const data: Prisma.TicketUncheckedUpdateInput = {
+      // Explicitly pick writable fields. Request bodies are runtime data, so
+      // spreading them here would let unknown Prisma fields bypass the API surface.
+      companyId: input.companyId,
+      contactId: input.contactId,
+      assigneeId: input.assigneeId,
+      teamId: input.teamId,
+      dueAt: input.dueAt,
+      closedAt: input.closedAt,
+      // Custom fields merge per-key into the stored map (null clears a key) and
+      // are validated against the definitions — never a raw spread.
+      customFields:
+        input.customFields !== undefined
+          ? ((await mergeCustomFields(before.customFields, input.customFields)) as Prisma.InputJsonValue)
+          : undefined,
+      title: clamp(input.title, 255),
+      summary: clamp(input.summary, 500),
+      description: sanitizeTicketDescription(input.description),
+      status: clamp(input.status, 100),
+      priority: clamp(input.priority, 50),
+      companyName: clamp(input.companyName, 150),
+      assignee: clamp(input.assignee, 100),
+    };
+    if (resolvedCompany) {
+      data.companyId = resolvedCompany.id;
+      data.companyName = clamp(resolvedCompany.name, 150);
     }
-    if (options.syncResult.syncedAt !== undefined) data.syncedAt = options.syncResult.syncedAt;
-  }
 
-  const ticket = await prisma.$transaction(async (tx) => {
+    const priorityChanged = input.priority !== undefined && input.priority !== before.priority;
+    const companyChanged = resolvedCompany !== null && resolvedCompany.id !== before.companyId;
+    let retarget:
+      | {
+          policyId: number | null;
+          policyName: string | null;
+          responseMinutes: number | null;
+          resolutionMinutes: number | null;
+          responseDueAt: Date | null;
+          resolutionDueAt: Date | null;
+        }
+      | null = null;
+    if (priorityChanged || companyChanged) {
+      const sla = await computeSlaFields(
+        input.priority ?? before.priority,
+        resolvedCompany?.id ?? before.companyId,
+        before.createdAt,
+      );
+      data.slaPolicyId = sla.slaPolicyId;
+      data.responseDueAt = sla.responseDueAt;
+      data.resolutionDueAt = sla.resolutionDueAt;
+      retarget = sla.snapshot
+        ? sla.snapshot
+        : {
+            policyId: null,
+            policyName: null,
+            responseMinutes: null,
+            resolutionMinutes: null,
+            responseDueAt: null,
+            resolutionDueAt: null,
+          };
+    }
+
+    const localSyncMutation =
+      (options.origin ?? 'local') === 'local' &&
+      before.externalId != null &&
+      before.externalProvider != null &&
+      SYNC_RELEVANT_UPDATE_FIELDS.some((field) => input[field] !== undefined);
+    if (localSyncMutation) {
+      data.syncRevision = { increment: 1 };
+      if (before.syncState !== 'conflict') data.syncState = 'pending';
+    }
+
+    if (options.syncResult) {
+      data.syncState = options.syncResult.state;
+      if (options.syncResult.remoteHash !== undefined) data.remoteHash = options.syncResult.remoteHash;
+      if (options.syncResult.remoteUpdatedAt !== undefined) {
+        data.remoteUpdatedAt = options.syncResult.remoteUpdatedAt;
+      }
+      if (options.syncResult.syncedAt !== undefined) data.syncedAt = options.syncResult.syncedAt;
+    }
+
     if (options.expectedSyncRevision !== undefined) {
       const changed = await tx.ticket.updateMany({
         where: { id, syncRevision: options.expectedSyncRevision },
@@ -499,7 +570,42 @@ export async function update(
       await tx.ticket.update({ where: { id }, data });
     }
     const row = await tx.ticket.findUniqueOrThrow({ where: { id } });
-    await audit.record({
+
+    // A priority/company edit after completion is bookkeeping, not a new
+    // promise. If the same mutation reopens the ticket, row.status is live and
+    // a fresh target is legitimate.
+    if (retarget && !reportingTerminalStatuses.has(row.status)) {
+      const latest = await tx.ticketSlaSnapshot.findFirst({
+        where: { ticketId: id },
+        orderBy: [{ establishedAt: 'desc' }, { id: 'desc' }],
+      });
+      const targetChanged =
+        !latest ||
+        latest.policyId !== retarget.policyId ||
+        latest.policyName !== retarget.policyName ||
+        latest.responseMinutes !== retarget.responseMinutes ||
+        latest.resolutionMinutes !== retarget.resolutionMinutes ||
+        !sameDate(latest.responseDueAt, retarget.responseDueAt) ||
+        !sameDate(latest.resolutionDueAt, retarget.resolutionDueAt);
+      // Do not manufacture a "no SLA" baseline for a ticket that never had one.
+      // A null row is only an append-only tombstone superseding a real target.
+      const hadTarget = latest && (
+        latest.policyId !== null ||
+        latest.responseDueAt !== null ||
+        latest.resolutionDueAt !== null
+      );
+      if (targetChanged && (retarget.policyId !== null || hadTarget)) {
+        await tx.ticketSlaSnapshot.create({
+          data: {
+            ticketId: id,
+            ...retarget,
+            establishedAt: row.updatedAt,
+          },
+        });
+      }
+    }
+
+    const auditRow = await audit.record({
       entityType: 'ticket',
       entityId: id,
       action: 'update',
@@ -507,20 +613,41 @@ export async function update(
       oldValue: before as unknown as Record<string, unknown>,
       newValue: row as unknown as Record<string, unknown>,
     }, tx);
-    return row;
+    return { row, before, auditId: auditRow?.id.toString() };
   });
+  if (!result) return null;
+  const { row: ticket, before, auditId } = result;
 
   // Surface assignment changes so the notification service can alert the new
   // assignee; include the previous assignee so it can avoid self-notifying.
   const assigneeChanged =
-    (input.assigneeId !== undefined && input.assigneeId !== before.assigneeId) ||
-    (input.assignee !== undefined && input.assignee !== before.assignee);
+    ticket.assigneeId !== before.assigneeId || ticket.assignee !== before.assignee;
+  const teamChanged = ticket.teamId !== before.teamId;
+  const statusChanged = ticket.status !== before.status;
+  const contextChanged =
+    ticket.companyId !== before.companyId || ticket.priority !== before.priority;
   publish({
     type: 'ticket.updated',
     ticketId: id,
     ticket,
     actor: actorSub,
     changes: assigneeChanged ? { assigneeId: ticket.assigneeId, prevAssigneeId: before.assigneeId } : undefined,
+    auditId,
+    metric: {
+      context: metricContext(ticket),
+      ...(statusChanged ? { status: { from: before.status, to: ticket.status } } : {}),
+      ...(assigneeChanged || teamChanged
+        ? {
+            assignment: {
+              fromAssigneeId: before.assigneeId,
+              toAssigneeId: ticket.assigneeId,
+              fromTeamId: before.teamId,
+              toTeamId: ticket.teamId,
+            },
+          }
+        : {}),
+      ...(contextChanged ? { contextChanged: true } : {}),
+    },
   });
 
   return ticket;
@@ -633,23 +760,37 @@ export function listChildren(parentId: number) {
 
 /** Soft-delete: sets status to 'Deleted' rather than hard-removing the row. */
 export async function remove(id: number, actorSub: string) {
-  const before = await prisma.ticket.findUnique({ where: { id } });
-  if (!before) return null;
-
-  const ticket = await prisma.ticket.update({
-    where: { id },
-    data: { status: 'Deleted', closedAt: new Date() },
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM tickets WHERE id = ${id} FOR UPDATE`);
+    const before = await tx.ticket.findUnique({ where: { id } });
+    if (!before) return null;
+    const ticket = await tx.ticket.update({
+      where: { id },
+      data: { status: 'Deleted', closedAt: new Date() },
+    });
+    const auditRow = await audit.record({
+      entityType: 'ticket',
+      entityId: id,
+      action: 'delete',
+      changedBy: actorSub,
+      oldValue: before as unknown as Record<string, unknown>,
+    }, tx);
+    return { ticket, before, auditId: auditRow?.id.toString() };
   });
+  if (!result) return null;
+  const { ticket, before, auditId } = result;
 
-  await audit.record({
-    entityType: 'ticket',
-    entityId: id,
-    action: 'delete',
-    changedBy: actorSub,
-    oldValue: before as unknown as Record<string, unknown>,
+  publish({
+    type: 'ticket.deleted',
+    ticketId: id,
+    ticket,
+    actor: actorSub,
+    auditId,
+    metric: {
+      context: metricContext(ticket),
+      status: { from: before.status, to: ticket.status },
+    },
   });
-
-  publish({ type: 'ticket.deleted', ticketId: id, actor: actorSub });
   return ticket;
 }
 

@@ -56,6 +56,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as tickets from "../repositories/ticketRepository";
+import * as notes from "../repositories/noteRepository";
 import * as checklist from "../repositories/checklistRepository";
 import * as checklistTemplates from "../repositories/checklistTemplateRepository";
 import { buildMcpServer, MCP_SERVER_VERSION } from "./mcp";
@@ -71,6 +72,9 @@ const actor = "alice (mcp)";
 
 const mockedTickets = {
   getById: tickets.getById as jest.Mock,
+};
+const mockedNotes = {
+  create: notes.create as jest.Mock,
 };
 const mockedChecklist = {
   listForTicket: checklist.listForTicket as jest.Mock,
@@ -238,6 +242,50 @@ describe("MCP checklist protocol surface", () => {
       /one level of hierarchy/,
     );
     expect(byName.get("set_ticket_parent")?.description).toMatch(/local only/);
+  });
+
+  it("advertises and records a backdated workedAt through log_time", async () => {
+    const client = await connect("technician");
+    const { tools } = await client.listTools();
+    const logTime = tools.find((tool) => tool.name === "log_time");
+    expect(logTime?.inputSchema.properties).toHaveProperty("workedAt");
+
+    mockedNotes.create.mockResolvedValue({
+      id: 91,
+      ticketId: 42,
+      noteType: "time_entry",
+      minutes: 45,
+      workedAt: new Date("2026-07-24T13:00:00-04:00"),
+    });
+    const result = await call(client, "log_time", {
+      ticketId: 42,
+      minutes: 45,
+      workedAt: "2026-07-24T13:00:00-04:00",
+      note: "Friday maintenance",
+      author: "Alice",
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(mockedNotes.create).toHaveBeenCalledWith(
+      42,
+      expect.objectContaining({
+        author: "Alice",
+        authorId: 7,
+        noteType: "time_entry",
+        minutes: 45,
+        workedAt: new Date("2026-07-24T17:00:00.000Z"),
+      }),
+      actor,
+    );
+
+    mockedNotes.create.mockClear();
+    const invalid = await call(client, "log_time", {
+      ticketId: 42,
+      minutes: 45,
+      workedAt: "last Friday",
+    });
+    expect(invalid.isError).toBe(true);
+    expect(mockedNotes.create).not.toHaveBeenCalled();
   });
 
   it("lists, fully updates, and deletes ticket checklist items through MCP", async () => {

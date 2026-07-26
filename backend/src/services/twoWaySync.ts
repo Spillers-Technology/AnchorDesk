@@ -441,7 +441,15 @@ async function pullNotes(ticket: Ticket, provider: TicketProvider): Promise<numb
     if (existing) continue;
     await noteRepo.create(
       ticket.id,
-      { content: n.content, author: n.author, noteType: n.noteType, externalId: n.externalId },
+      {
+        content: n.content,
+        author: n.author,
+        noteType: n.noteType,
+        timeStart: n.timeStart,
+        timeStop: n.timeStop,
+        createdAt: n.createdAt,
+        externalId: n.externalId,
+      },
       'system'
     );
     inserted++;

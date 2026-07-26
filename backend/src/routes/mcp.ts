@@ -525,20 +525,43 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
 
   server.tool(
     'log_time',
-    'Log billable time on a ticket, either as a duration (minutes) or a start/stop window.',
+    'Log billable time on a ticket, either as a duration (minutes) or a start/stop window. workedAt records when the work happened, so past work can be entered later.',
     {
       ticketId: z.number().int(),
       minutes: z.number().int().positive().optional().describe('Duration in minutes (omit if using start/stop)'),
       start: z.string().optional().describe('ISO timestamp; with `stop`, duration is derived'),
       stop: z.string().optional().describe('ISO timestamp'),
+      workedAt: z.string().datetime({ offset: true }).optional().describe('ISO timestamp for when duration-only work occurred; a start/stop window uses start'),
       note: z.string().optional().describe('Optional note for the entry'),
       author: z.string().optional().default('MCP Agent'),
     },
-    async ({ ticketId, minutes, start, stop, note, author }) => {
+    async ({ ticketId, minutes, start, stop, workedAt, note, author }) => {
       const changedBy = actor;
       let mins = minutes ?? 0;
       let timeStart: Date | undefined;
       let timeStop: Date | undefined;
+      const recordedWorkedAt = workedAt ? new Date(workedAt) : undefined;
+      if (Boolean(start) !== Boolean(stop)) {
+        return {
+          content: [{ type: 'text', text: 'start and stop must be provided together' }],
+          isError: true,
+        };
+      }
+      if (minutes !== undefined && start) {
+        return {
+          content: [{ type: 'text', text: 'Provide minutes or start/stop, not both' }],
+          isError: true,
+        };
+      }
+      if (workedAt && start) {
+        return {
+          content: [{
+            type: 'text',
+            text: 'workedAt is only accepted for duration-only entries; start is the work date for a window',
+          }],
+          isError: true,
+        };
+      }
       if (start && stop) {
         timeStart = new Date(start);
         timeStop = new Date(stop);
@@ -552,7 +575,16 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
       }
       const entry = await notes.create(
         ticketId,
-        { content: note?.trim() || `Logged ${mins} min`, author, noteType: 'time_entry', minutes: mins, timeStart, timeStop },
+        {
+          content: note?.trim() || `Logged ${mins} min`,
+          author,
+          authorId: userId,
+          noteType: 'time_entry',
+          minutes: mins,
+          timeStart,
+          timeStop,
+          workedAt: recordedWorkedAt,
+        },
         changedBy,
       );
       return { content: [{ type: 'text', text: JSON.stringify(entry, null, 2) }] };

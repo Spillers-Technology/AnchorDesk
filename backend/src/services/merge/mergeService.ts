@@ -309,7 +309,7 @@ export async function mergeTickets(
 
   const resolvedTargetId = preview.target.id;
 
-  const merged = await prisma.$transaction(async (tx) => {
+  const mergeResult = await prisma.$transaction(async (tx) => {
     // Re-read inside the transaction and lock both rows. Preview ran outside it,
     // so without this a concurrent merge of the same source could double-move
     // rows, and a concurrent reparent could re-open the descendant cycle the
@@ -536,7 +536,7 @@ export async function mergeTickets(
       },
     });
 
-    await audit.record(
+    const sourceAudit = await audit.record(
       {
         entityType: 'ticket',
         entityId: sourceId,
@@ -561,8 +561,13 @@ export async function mergeTickets(
       tx
     );
 
-    return updated;
+    return {
+      updated,
+      sourceStatus: source.status,
+      auditId: sourceAudit?.id.toString(),
+    };
   });
+  const { updated: merged, sourceStatus, auditId } = mergeResult;
 
   // A distinct event type: automations must be able to tell a merge apart from
   // an ordinary close, or a bulk cleanup becomes a notification storm.
@@ -572,6 +577,18 @@ export async function mergeTickets(
     ticket: merged,
     actor: actorSub,
     changes: { mergedIntoId: resolvedTargetId },
+    auditId,
+    metric: {
+      context: {
+        companyId: merged.companyId,
+        teamId: merged.teamId,
+        assigneeId: merged.assigneeId,
+        priority: merged.priority,
+        status: merged.status,
+        occurredAt: merged.mergedAt ?? merged.updatedAt,
+      },
+      merge: { targetId: resolvedTargetId, fromStatus: sourceStatus },
+    },
   });
   const survivor = await prisma.ticket.findUnique({ where: { id: resolvedTargetId } });
   publish({
@@ -593,7 +610,7 @@ export async function mergeTickets(
  * the ledger can honestly promise.
  */
 export async function unmergeTicket(sourceId: number, actorSub: string): Promise<Ticket> {
-  const restored = await prisma.$transaction(async (tx) => {
+  const unmergeResult = await prisma.$transaction(async (tx) => {
     // Lock the tombstone first, for the same reason merge locks both rows: two
     // concurrent unmerges would otherwise both read a merged source, and the
     // slower one would clear a `mergedIntoId` written by a merge it knows
@@ -736,7 +753,7 @@ export async function unmergeTicket(sourceId: number, actorSub: string): Promise
       data: { unmergedAt: new Date() },
     });
 
-    await audit.record(
+    const auditRow = await audit.record(
       {
         entityType: 'ticket',
         entityId: sourceId,
@@ -748,8 +765,14 @@ export async function unmergeTicket(sourceId: number, actorSub: string): Promise
       tx
     );
 
-    return restored;
+    return {
+      restored,
+      previousTargetId: record.targetId,
+      fromStatus: source.status,
+      auditId: auditRow?.id.toString(),
+    };
   });
+  const { restored, previousTargetId, fromStatus, auditId } = unmergeResult;
 
   // Published after commit, not inside the transaction: subscribers (and the
   // automation service, which re-reads the ticket) must never see a restore that
@@ -760,6 +783,22 @@ export async function unmergeTicket(sourceId: number, actorSub: string): Promise
     ticket: restored,
     actor: actorSub,
     changes: { mergedIntoId: null },
+    auditId,
+    metric: {
+      context: {
+        companyId: restored.companyId,
+        teamId: restored.teamId,
+        assigneeId: restored.assigneeId,
+        priority: restored.priority,
+        status: restored.status,
+        occurredAt: restored.updatedAt,
+      },
+      unmerge: {
+        previousTargetId,
+        fromStatus,
+        toStatus: restored.status,
+      },
+    },
   });
   return restored;
 }

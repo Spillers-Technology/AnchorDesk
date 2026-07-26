@@ -10,6 +10,247 @@ import { Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 import { TICKET_PRIORITIES, TICKET_STATUSES } from '../services/ticketVocab';
 
+/**
+ * 2.7 — reconstruct the metric spine from durable audit rows. source_audit_id +
+ * kind is the same identity used by live delivery, so this safely repairs a
+ * subscriber write lost to process shutdown without duplicating facts that did
+ * commit. Reconstructed rows are always labelled actor='backfill'.
+ *
+ * One status mutation produces exactly one classification: resolved, reopened,
+ * or status_changed. Merge is kept distinct, and only the merge source's full
+ * audit row qualifies.
+ */
+export const TICKET_EVENT_BACKFILL_SQL = `
+  WITH ticket_audits AS (
+    SELECT audit.id AS audit_id,
+           audit.entity_id AS ticket_id,
+           audit.action::text AS action,
+           audit.old_value,
+           audit.new_value,
+           CASE
+             WHEN audit.action::text = 'create'
+               THEN coalesce(
+                 nullif(audit.new_value ->> 'createdAt', '')::timestamptz,
+                 audit.occurred_at
+               )
+             WHEN audit.action::text = 'merge'
+               THEN coalesce(
+                 nullif(audit.new_value ->> 'mergedAt', '')::timestamptz,
+                 nullif(audit.new_value ->> 'updatedAt', '')::timestamptz,
+                 audit.occurred_at
+               )
+             ELSE coalesce(
+               nullif(audit.new_value ->> 'updatedAt', '')::timestamptz,
+               audit.occurred_at
+             )
+           END AS occurred_at,
+           audit.old_value ->> 'status' AS old_status,
+           CASE
+             WHEN audit.action::text = 'delete' THEN 'Deleted'
+             ELSE audit.new_value ->> 'status'
+           END AS new_status,
+           nullif(coalesce(audit.new_value ->> 'companyId', audit.old_value ->> 'companyId'), '')::int AS company_id,
+           nullif(coalesce(audit.new_value ->> 'teamId', audit.old_value ->> 'teamId'), '')::int AS team_id,
+           nullif(coalesce(audit.new_value ->> 'assigneeId', audit.old_value ->> 'assigneeId'), '')::int AS assignee_id,
+           coalesce(audit.new_value ->> 'priority', audit.old_value ->> 'priority') AS priority
+    FROM audit_log AS audit
+    WHERE audit.entity_type = 'ticket'
+  ),
+  created AS (
+    SELECT audit_id AS source_audit_id,
+           ticket_id,
+           'created'::text AS kind,
+           NULL::text AS from_value,
+           coalesce(new_status, 'New')::text AS to_value,
+           company_id,
+           team_id,
+           assignee_id,
+           priority,
+           occurred_at
+    FROM ticket_audits
+    WHERE action = 'create'
+  ),
+  status_transitions AS (
+    SELECT audit_id AS source_audit_id,
+           ticket_id,
+           CASE
+             WHEN old_status NOT IN ('Resolved', 'Closed')
+              AND new_status IN ('Resolved', 'Closed') THEN 'resolved'
+             WHEN old_status IN ('Resolved', 'Closed')
+              AND new_status NOT IN ('Resolved', 'Closed', 'Deleted') THEN 'reopened'
+             ELSE 'status_changed'
+           END::text AS kind,
+           old_status::text AS from_value,
+           new_status::text AS to_value,
+           company_id,
+           team_id,
+           assignee_id,
+           priority,
+           occurred_at
+    FROM ticket_audits
+    WHERE action IN ('update', 'unmerge', 'delete')
+      AND old_status IS NOT NULL
+      AND new_status IS NOT NULL
+      AND old_status IS DISTINCT FROM new_status
+  ),
+  assignments AS (
+    SELECT audit_id AS source_audit_id,
+           ticket_id,
+           'assigned'::text AS kind,
+           concat(
+             'a:', coalesce(old_value ->> 'assigneeId', ''),
+             ';t:', coalesce(old_value ->> 'teamId', '')
+           )::text AS from_value,
+           concat(
+             'a:', coalesce(new_value ->> 'assigneeId', ''),
+             ';t:', coalesce(new_value ->> 'teamId', '')
+           )::text AS to_value,
+           company_id,
+           team_id,
+           assignee_id,
+           priority,
+           occurred_at
+    FROM ticket_audits
+    WHERE action = 'update'
+      AND old_value ? 'status'
+      AND new_value ? 'status'
+      AND (
+        old_value ->> 'assigneeId' IS DISTINCT FROM new_value ->> 'assigneeId'
+        OR old_value ->> 'assignee' IS DISTINCT FROM new_value ->> 'assignee'
+        OR old_value ->> 'teamId' IS DISTINCT FROM new_value ->> 'teamId'
+      )
+  ),
+  context_changes AS (
+    SELECT audit_id AS source_audit_id,
+           ticket_id,
+           'context_changed'::text AS kind,
+           NULL::text AS from_value,
+           NULL::text AS to_value,
+           company_id,
+           team_id,
+           assignee_id,
+           priority,
+           occurred_at
+    FROM ticket_audits
+    WHERE action = 'update'
+      AND old_value ? 'status'
+      AND new_value ? 'status'
+      AND (
+        old_value ->> 'companyId' IS DISTINCT FROM new_value ->> 'companyId'
+        OR old_value ->> 'priority' IS DISTINCT FROM new_value ->> 'priority'
+      )
+  ),
+  merges AS (
+    SELECT audit_id AS source_audit_id,
+           ticket_id,
+           'merged'::text AS kind,
+           old_status::text AS from_value,
+           new_value ->> 'mergedIntoId' AS to_value,
+           company_id,
+           team_id,
+           assignee_id,
+           priority,
+           occurred_at
+    FROM ticket_audits
+    WHERE action = 'merge'
+      AND new_value ? 'status'
+      AND nullif(new_value ->> 'mergedIntoId', '') IS NOT NULL
+  ),
+  outbound_emails AS (
+    SELECT audit.id AS source_audit_id,
+           nullif(audit.new_value ->> 'ticketId', '')::int AS ticket_id,
+           coalesce(
+             nullif(audit.new_value ->> 'createdAt', '')::timestamptz,
+             audit.occurred_at
+           ) AS occurred_at,
+           row_number() OVER (
+             PARTITION BY nullif(audit.new_value ->> 'ticketId', '')::int
+             ORDER BY coalesce(
+               nullif(audit.new_value ->> 'createdAt', '')::timestamptz,
+               audit.occurred_at
+             ), audit.id
+           ) AS response_number
+    FROM audit_log AS audit
+    WHERE audit.entity_type = 'note'
+      AND audit.action::text = 'create'
+      AND audit.new_value ->> 'noteType' = 'email'
+      AND audit.new_value ->> 'direction' = 'outbound'
+      AND nullif(audit.new_value ->> 'ticketId', '') IS NOT NULL
+  ),
+  first_responses AS (
+    SELECT email.source_audit_id,
+           email.ticket_id,
+           'first_response'::text AS kind,
+           NULL::text AS from_value,
+           'responded'::text AS to_value,
+           context.company_id,
+           context.team_id,
+           context.assignee_id,
+           context.priority,
+           email.occurred_at
+    FROM outbound_emails AS email
+    LEFT JOIN LATERAL (
+      SELECT ticket.company_id,
+             ticket.team_id,
+             ticket.assignee_id,
+             ticket.priority
+      FROM ticket_audits AS ticket
+      WHERE ticket.ticket_id = email.ticket_id
+        AND ticket.occurred_at <= email.occurred_at
+      ORDER BY ticket.occurred_at DESC, ticket.audit_id DESC
+      LIMIT 1
+    ) AS context ON true
+    WHERE email.response_number = 1
+  ),
+  candidates AS (
+    SELECT * FROM created
+    UNION ALL SELECT * FROM status_transitions
+    UNION ALL SELECT * FROM assignments
+    UNION ALL SELECT * FROM context_changes
+    UNION ALL SELECT * FROM merges
+    UNION ALL SELECT * FROM first_responses
+  )
+  INSERT INTO ticket_events (
+    ticket_id,
+    kind,
+    from_value,
+    to_value,
+    actor,
+    company_id,
+    team_id,
+    assignee_id,
+    priority,
+    occurred_at,
+    source_audit_id
+  )
+  SELECT ticket_id,
+         kind,
+         left(from_value, 100),
+         left(to_value, 100),
+         'backfill',
+         company_id,
+         team_id,
+         assignee_id,
+         left(priority, 50),
+         occurred_at,
+         source_audit_id
+  FROM candidates
+  ON CONFLICT DO NOTHING
+`;
+
+export async function backfillTicketEvents(): Promise<number> {
+  return prisma.$executeRawUnsafe(TICKET_EVENT_BACKFILL_SQL);
+}
+
+export async function backfillWorkedAt(): Promise<number> {
+  return prisma.$executeRaw`
+    UPDATE notes
+    SET worked_at = coalesce(time_start, created_at)
+    WHERE note_type = 'time_entry'
+      AND worked_at IS NULL
+  `;
+}
+
 export async function runDataMigrations(log: FastifyBaseLogger): Promise<void> {
   let fixed = 0;
 
@@ -49,6 +290,17 @@ export async function runDataMigrations(log: FastifyBaseLogger): Promise<void> {
   }
 
   if (fixed > 0) log.info(`Data migrations normalized ${fixed} ticket status/priority values.`);
+
+  const [workedAtRows, eventRows] = await Promise.all([
+    backfillWorkedAt(),
+    backfillTicketEvents(),
+  ]);
+  if (workedAtRows > 0) {
+    log.info(`Data migrations recorded worked_at for ${workedAtRows} legacy time entr${workedAtRows === 1 ? 'y' : 'ies'}.`);
+  }
+  if (eventRows > 0) {
+    log.info(`Data migrations reconstructed ${eventRows} ticket event fact(s) from audit_log.`);
+  }
 
   await adoptLegacyCredentialsAsConnections(log);
   await purgeIllegalConnectwiseConnections(log);

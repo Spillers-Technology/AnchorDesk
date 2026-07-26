@@ -18,6 +18,14 @@ export interface SlaFields {
   slaPolicyId: number | null;
   responseDueAt: Date | null;
   resolutionDueAt: Date | null;
+  snapshot: {
+    policyId: number;
+    policyName: string;
+    responseMinutes: number;
+    resolutionMinutes: number;
+    responseDueAt: Date;
+    resolutionDueAt: Date;
+  } | null;
 }
 
 /**
@@ -53,7 +61,16 @@ export function pickPolicy(
   for (const p of candidates) {
     if (!p.enabled) continue;
     if (!matches(p, priority ?? null, companyId ?? null)) continue;
-    if (!best || specificity(p) > specificity(best)) best = p;
+    // Duplicate scopes are currently representable in the schema. Freeze a
+    // deterministic winner rather than whichever row PostgreSQL happened to
+    // return first; the lower id is the older policy and wins equal specificity.
+    if (
+      !best ||
+      specificity(p) > specificity(best) ||
+      (specificity(p) === specificity(best) && p.id < best.id)
+    ) {
+      best = p;
+    }
   }
   return best;
 }
@@ -74,10 +91,27 @@ export async function computeSlaFields(
   from: Date,
 ): Promise<SlaFields> {
   const policy = await resolvePolicy(priority, companyId);
-  if (!policy) return { slaPolicyId: null, responseDueAt: null, resolutionDueAt: null };
+  if (!policy) {
+    return {
+      slaPolicyId: null,
+      responseDueAt: null,
+      resolutionDueAt: null,
+      snapshot: null,
+    };
+  }
+  const responseDueAt = new Date(from.getTime() + policy.responseMinutes * 60_000);
+  const resolutionDueAt = new Date(from.getTime() + policy.resolutionMinutes * 60_000);
   return {
     slaPolicyId: policy.id,
-    responseDueAt: new Date(from.getTime() + policy.responseMinutes * 60_000),
-    resolutionDueAt: new Date(from.getTime() + policy.resolutionMinutes * 60_000),
+    responseDueAt,
+    resolutionDueAt,
+    snapshot: {
+      policyId: policy.id,
+      policyName: policy.name,
+      responseMinutes: policy.responseMinutes,
+      resolutionMinutes: policy.resolutionMinutes,
+      responseDueAt,
+      resolutionDueAt,
+    },
   };
 }
