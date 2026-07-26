@@ -89,7 +89,9 @@ describe('portal auth repository', () => {
           ? query.join(' ')
           : String(query);
       return Promise.resolve(
-        sql.includes('lower(btrim(email))')
+        sql.includes('pg_advisory_xact_lock')
+          ? [{ locked: 1 }]
+          : sql.includes('lower(btrim(email))')
           ? [contact]
           : [{ id: contact.id }],
       );
@@ -118,6 +120,12 @@ describe('portal auth repository', () => {
       expiresAt: new Date('2026-07-26T12:15:00.000Z'),
     });
     expect(mockTx.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(mockTx.$queryRaw.mock.calls[0][0].strings.join(' ')).toContain(
+      'SELECT 1::int AS locked',
+    );
+    expect(mockTx.$queryRaw.mock.calls[0][0].strings.join(' ')).toContain(
+      'FROM pg_advisory_xact_lock',
+    );
     expect(mockTx.$queryRaw.mock.calls[2][0].join(' ')).toContain(
       'FOR SHARE',
     );
@@ -151,7 +159,7 @@ describe('portal auth repository', () => {
     'issues no credential when the Contact %s',
     async (_case, matches, locked) => {
       mockTx.$queryRaw
-        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ locked: 1 }])
         .mockResolvedValueOnce(matches)
         .mockResolvedValueOnce(locked);
 

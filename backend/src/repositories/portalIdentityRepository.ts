@@ -37,9 +37,16 @@ export function canonicalContactEmail(
 export async function lockPortalIdentityWrites(
   tx: Prisma.TransactionClient,
 ): Promise<void> {
-  await tx.$queryRaw`
-    SELECT pg_advisory_xact_lock(${PORTAL_IDENTITY_ADVISORY_LOCK})
-  `;
+  // pg_advisory_xact_lock() returns PostgreSQL's `void` type, which Prisma
+  // cannot deserialize. Put the volatile function in FROM so it still executes,
+  // while the result set contains only an ordinary integer sentinel.
+  const rows = await tx.$queryRaw<Array<{ locked: number }>>(Prisma.sql`
+    SELECT 1::int AS locked
+    FROM pg_advisory_xact_lock(${PORTAL_IDENTITY_ADVISORY_LOCK})
+  `);
+  if (rows.length !== 1 || rows[0].locked !== 1) {
+    throw new Error('Failed to acquire portal identity lock');
+  }
 }
 
 /**

@@ -51,7 +51,7 @@ beforeEach(() => {
     ...data,
   }));
   tx.$queryRaw
-    .mockResolvedValueOnce([{ id: 9 }])
+    .mockResolvedValueOnce([{ locked: 1 }])
     .mockResolvedValue([]);
 });
 
@@ -95,9 +95,18 @@ describe('portal credential revocation on Contact identity edits', () => {
     await updateContact(9, input, 'admin');
 
     expect(
-      tx.$queryRaw.mock.calls.some((call) =>
-        call[0].join(' ').includes('pg_advisory_xact_lock'),
-      ),
+      tx.$queryRaw.mock.calls.some((call) => {
+        const query = call[0] as {
+          strings?: readonly string[];
+          join?: (separator: string) => string;
+        };
+        const sql = query.strings
+          ? query.strings.join(' ')
+          : typeof query.join === 'function'
+            ? query.join(' ')
+            : String(query);
+        return sql.includes('pg_advisory_xact_lock');
+      }),
     ).toBe(true);
     expect(tx.portalMagicLink.deleteMany).toHaveBeenCalledWith({
       where: { contactId: { in: [9] } },
