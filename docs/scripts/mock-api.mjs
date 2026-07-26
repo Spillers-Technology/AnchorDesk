@@ -67,6 +67,101 @@ const demoUser = {
   kanbanColumns: ["New", "Assigned", "In Progress", "Waiting", "Resolved"],
 };
 
+const portalRequester = {
+  displayName: "Morgan Lee",
+  email: "morgan@acme.example",
+};
+
+const portalTickets = [
+  {
+    id: 801,
+    ticketNumber: "10501",
+    title: "Conference room display will not connect",
+    summary: "Conference room display will not connect",
+    description:
+      "The display in Cedar Room says “No signal” when I connect my laptop over USB-C.",
+    status: "In Progress",
+    priority: "Medium",
+    createdAt: daysFromNow(-2, 9, 20),
+    updatedAt: daysFromNow(0, 10, 35),
+    closedAt: null,
+    notes: [
+      {
+        id: 8101,
+        content: "I tried both USB-C cables from the cabinet.",
+        htmlContent: null,
+        direction: null,
+        authorKind: "you",
+        createdAt: daysFromNow(-2, 9, 22),
+      },
+      {
+        id: 8102,
+        content:
+          "Thanks, Morgan. We are checking the room controller and will update you shortly.",
+        htmlContent: null,
+        direction: "outbound",
+        authorKind: "support",
+        createdAt: daysFromNow(0, 10, 35),
+      },
+    ],
+    attachments: [
+      {
+        id: 8201,
+        filename: "display-error.jpg",
+        contentType: "image/jpeg",
+        size: 184320,
+        createdAt: daysFromNow(-2, 9, 23),
+        downloadUrl: "/api/portal/attachments/8201/download",
+      },
+    ],
+  },
+  {
+    id: 802,
+    ticketNumber: "10476",
+    title: "Access to the quarterly planning folder",
+    summary: "Access to the quarterly planning folder",
+    description: "Please add me to the Finance planning folder before Thursday.",
+    status: "Waiting",
+    priority: null,
+    createdAt: daysFromNow(-8, 14, 5),
+    updatedAt: daysFromNow(-1, 16, 10),
+    closedAt: null,
+    notes: [],
+    attachments: [],
+  },
+  {
+    id: 803,
+    ticketNumber: "10421",
+    title: "Replace damaged laptop charger",
+    summary: "Replace damaged laptop charger",
+    description: null,
+    status: "Closed",
+    priority: "Low",
+    createdAt: daysFromNow(-24, 11, 30),
+    updatedAt: daysFromNow(-20, 15, 45),
+    closedAt: daysFromNow(-20, 15, 45),
+    notes: [],
+    attachments: [],
+  },
+];
+
+const portalKbItems = [
+  {
+    id: 901,
+    slug: "conference-room-display-usb-c",
+    title: "Connect a laptop to a conference-room display",
+    excerpt: "Check the room input, reconnect USB-C, and wake the display controller.",
+    score: 0.94,
+  },
+  {
+    id: 902,
+    slug: "usb-c-display-no-signal",
+    title: "Troubleshoot a USB-C “No signal” message",
+    excerpt: "A quick checklist for cables, adapters, display input, and laptop permissions.",
+    score: 0.87,
+  },
+];
+
 const labels = [
   { id: 1, name: "help@", color: "#2563eb" },
   { id: 2, name: "vip", color: "#dc2626" },
@@ -996,8 +1091,119 @@ export async function handleApi(route) {
   const url = new URL(request.url());
   const apiPath = url.pathname.replace(/^\/api/, "");
   const method = request.method();
-  const body = request.postData() ? request.postDataJSON() : {};
+  let body = {};
+  const contentType = request.headers()["content-type"] ?? "";
+  if (request.postData() && contentType.includes("application/json")) {
+    try {
+      body = request.postDataJSON();
+    } catch {
+      body = {};
+    }
+  }
   if (debugCapture) console.log(`API ${method} ${apiPath}`);
+
+  if (method === "GET" && apiPath === "/portal/auth/me") {
+    return json(route, { requester: portalRequester });
+  }
+  if (method === "POST" && apiPath === "/portal/auth/magic-link") {
+    return json(
+      route,
+      {
+        ok: true,
+        message: "If that email address is registered, a sign-in link will arrive shortly.",
+      },
+      202
+    );
+  }
+  if (method === "POST" && apiPath === "/portal/auth/verify") {
+    return json(route, { requester: portalRequester });
+  }
+  if (method === "POST" && apiPath === "/portal/auth/logout") {
+    return json(route, { ok: true });
+  }
+  if (method === "GET" && apiPath === "/kb/search") {
+    return json(route, { items: portalKbItems });
+  }
+  if (method === "GET" && apiPath === "/portal/tickets") {
+    const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+    const pageSize = Math.min(
+      50,
+      Math.max(1, Number(url.searchParams.get("pageSize") || 20))
+    );
+    const start = (page - 1) * pageSize;
+    return json(route, {
+      items: portalTickets
+        .slice(start, start + pageSize)
+        .map(({ notes: _notes, attachments: _attachments, ...ticket }) => ({
+          ...ticket,
+          notes: [],
+          attachments: [],
+        })),
+      total: portalTickets.length,
+      page,
+      pageSize,
+    });
+  }
+  if (method === "POST" && apiPath === "/portal/tickets") {
+    const now = new Date().toISOString();
+    return json(
+      route,
+      {
+        id: 804,
+        ticketNumber: "10502",
+        title: body.summary,
+        summary: body.summary,
+        description: body.description || null,
+        status: "New",
+        priority: "Medium",
+        createdAt: now,
+        updatedAt: now,
+        closedAt: null,
+        notes: [],
+        attachments: [],
+      },
+      201
+    );
+  }
+  let portalMatch = apiPath.match(/^\/portal\/tickets\/(\d+)$/);
+  if (method === "GET" && portalMatch) {
+    const ticket = portalTickets.find((item) => item.id === Number(portalMatch[1]));
+    return ticket
+      ? json(route, ticket)
+      : json(route, { error: "Ticket not found" }, 404);
+  }
+  portalMatch = apiPath.match(/^\/portal\/tickets\/(\d+)\/comments$/);
+  if (method === "POST" && portalMatch) {
+    return json(
+      route,
+      {
+        id: 8103,
+        content: body.content,
+        htmlContent: null,
+        direction: null,
+        authorKind: "you",
+        createdAt: new Date().toISOString(),
+      },
+      201
+    );
+  }
+  portalMatch = apiPath.match(/^\/portal\/tickets\/(\d+)\/attachments$/);
+  if (method === "POST" && portalMatch) {
+    return json(
+      route,
+      [
+        {
+          id: 8202,
+          filename: "room-controller.jpg",
+          contentType: "image/jpeg",
+          size: 13724,
+          createdAt: new Date().toISOString(),
+          downloadUrl: "/api/portal/attachments/8202/download",
+        },
+      ],
+      201
+    );
+  }
 
   if (method === "GET" && apiPath === "/auth/me") return json(route, { user: demoUser });
   if (method === "PUT" && apiPath === "/auth/kanban-columns") {
@@ -1579,13 +1785,20 @@ export async function handleApi(route) {
 
 /**
  * Route every /api/* request on the page into the mock dataset.
- * `authenticated: false` makes /auth/me return 401 so the login screen renders.
+ * `authenticated: false` makes /auth/me return 401 so the staff login renders.
+ * `portalAuthenticated: false` does the same for the requester portal.
  */
 export function installApiMock(page, options = {}) {
   return page.route("**/*", (route) => {
     const pathname = new URL(route.request().url()).pathname;
     if (!pathname.startsWith("/api/")) return route.continue();
     if (options.authenticated === false && pathname === "/api/auth/me") {
+      return route.fulfill({ status: 401, contentType: "application/json", body: "{}" });
+    }
+    if (
+      options.portalAuthenticated === false
+      && pathname === "/api/portal/auth/me"
+    ) {
       return route.fulfill({ status: 401, contentType: "application/json", body: "{}" });
     }
     return handleApi(route);

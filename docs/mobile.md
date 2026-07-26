@@ -84,6 +84,11 @@ both editors, run history, and expanded record activity. The 2.6 relations
 matrix adds the merge dialog (`ticket-merge-dialog`), the same dialog with
 acknowledgement checkboxes showing (`ticket-merge-warnings`), and the ticket
 hierarchy panel with its parent picker and child list (`ticket-children`).
+The 2.7 requester matrix adds the separate portal bundle's magic-link login,
+ticket list, new-request form with KB deflection, public conversation, comment
+composer, and attachment flow (`portal-login`, `portal-tickets`,
+`portal-new-ticket`, `portal-ticket`, `portal-comment`, and
+`portal-attachment`).
 
 The curated 2.2 release proof below shows the selected-device Network flow at
 360px, including touch map controls and the provider identities attached to the

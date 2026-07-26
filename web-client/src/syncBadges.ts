@@ -7,6 +7,7 @@ export const SYNC_PROVIDER_LABELS: Record<string, string> = {
   connectwise: "ConnectWise",
   jira: "Jira",
   imap: "IMAP",
+  portal: "Customer portal",
   tactical_rmm: "Tactical",
   ninjaone: "NinjaOne",
   datto_rmm: "Datto RMM",

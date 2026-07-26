@@ -15,17 +15,21 @@ mocked `/api/*` responses (no backend or database needed):
   **ticket hierarchy**, **cards**, **My Day**,
   **Companies**, **Network**, **Sync**, and the **Admin** dashboard, teams,
   custom fields, checklist templates, checklist-template editor, automations,
-  devices, and device-asset editor across five touch device profiles (Galaxy
-  360, iPhone 393, Pixel 412, folded foldable 344, unfolded foldable 717).
+  devices, device-asset editor, and the requester portal's login, ticket list,
+  new-request/deflection form, ticket conversation, comment form, and attachment
+  flow across five touch device profiles (Galaxy 360, iPhone 393, Pixel 412,
+  folded foldable 344, unfolded foldable 717).
   Output lands in
   `docs/assets/screenshots/mobile/` — **gitignored** working artifacts; curated
   marketing shots (e.g. `anchordesk-mobile-board.jpg`) are copied into the
   committed folder by hand.
 
 Both import **`mock-api.mjs`**, which owns the fixture dataset, the
-`handleApi()` route handler, and shared helpers: `installApiMock(page, { authenticated })`
+`handleApi()` route handler, and shared helpers:
+`installApiMock(page, { authenticated, portalAuthenticated })`
 (pass `authenticated: false` to get a 401 from `/auth/me` so the login screen
-renders), `freezeAnimations(page)` (deterministic screenshots), `loadPlaywright()`,
+renders, or `portalAuthenticated: false` for `/portal/auth/me`),
+`freezeAnimations(page)` (deterministic screenshots), `loadPlaywright()`,
 `waitForServer()`, and `openDrawer()`.
 
 ## Regenerating the screenshots
@@ -60,14 +64,14 @@ renders), `freezeAnimations(page)` (deterministic screenshots), `loadPlaywright(
 
    ```bash
    node docs/scripts/capture-product-media.mjs   # desktop hero shots
-   node docs/scripts/capture-mobile-media.mjs    # mobile matrix (105 shots)
+   node docs/scripts/capture-mobile-media.mjs    # mobile verification matrix
    ```
 
    Review the desktop diff before committing. While iterating on a mobile fix,
    filter the matrix:
 
    ```bash
-   ANCHORDESK_CAPTURE_DEVICES=galaxy,fold-closed ANCHORDESK_CAPTURE_VIEWS=saved-view,kanban-columns \
+   ANCHORDESK_CAPTURE_DEVICES=galaxy,fold-closed ANCHORDESK_CAPTURE_VIEWS=portal-tickets,portal-new-ticket \
      node docs/scripts/capture-mobile-media.mjs
    ```
 
