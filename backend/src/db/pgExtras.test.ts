@@ -16,6 +16,7 @@ import {
   ensureLegacyExternalIdentityInvariant,
   ensureLiveMergeLedgerInvariant,
   ensurePgExtras,
+  ensureReportingSpineInvariants,
   ensureRuntimeDependencies,
   ensureSessionPrincipalInvariant,
   ensureTicketHierarchyInvariant,
@@ -74,6 +75,48 @@ function validSessionConstraint(overrides: Record<string, unknown> = {}) {
       `AND (user_id IS NULL) AND (contact_id IS NOT NULL)))`,
     ...overrides,
   };
+}
+
+function validReportingIndexes() {
+  return [
+    {
+      name: 'ticket_events_source_audit_kind_key',
+      is_unique: true,
+      is_valid: true,
+      is_ready: true,
+      access_method: 'btree',
+      key_columns: ['source_audit_id', 'kind'],
+      predicate: null,
+    },
+    {
+      name: 'ticket_events_source_key_key',
+      is_unique: true,
+      is_valid: true,
+      is_ready: true,
+      access_method: 'btree',
+      key_columns: ['source_key'],
+      predicate: null,
+    },
+  ];
+}
+
+function validReportingTriggers() {
+  return [
+    {
+      table_name: 'ticket_events',
+      trigger_name: 'trg_ticket_events_append_only',
+      enabled: 'O',
+      trigger_type: 27,
+      definition: 'EXECUTE FUNCTION anchordesk_reject_reporting_fact_mutation()',
+    },
+    {
+      table_name: 'ticket_sla_snapshots',
+      trigger_name: 'trg_ticket_sla_snapshots_append_only',
+      enabled: 'O',
+      trigger_type: 27,
+      definition: 'EXECUTE FUNCTION anchordesk_reject_reporting_fact_mutation()',
+    },
+  ];
 }
 
 function logger() {
@@ -295,6 +338,61 @@ describe('critical live merge ledger invariant', () => {
   });
 });
 
+describe('critical reporting-spine invariants', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    db.$executeRawUnsafe.mockResolvedValue(0);
+    db.$queryRawUnsafe
+      .mockResolvedValueOnce(validReportingIndexes())
+      .mockResolvedValueOnce(validReportingTriggers());
+  });
+
+  it('verifies durable source identities and append-only event/snapshot triggers', async () => {
+    await expect(ensureReportingSpineInvariants()).resolves.toBeUndefined();
+    const statements = db.$executeRawUnsafe.mock.calls.map(([sql]) => String(sql));
+    expect(statements.join('\n')).toContain('UNIQUE INDEX');
+    expect(statements.join('\n')).toContain('source_audit_id, kind');
+    expect(statements.join('\n')).toContain('CREATE OR REPLACE TRIGGER');
+    expect(statements.join('\n')).not.toContain('DROP TRIGGER');
+    expect(statements.join('\n')).toContain('trg_ticket_events_append_only');
+    expect(statements.join('\n')).toContain('trg_ticket_sla_snapshots_append_only');
+  });
+
+  it('fails closed when a source identity index has the wrong key', async () => {
+    const indexes = validReportingIndexes();
+    indexes[0] = { ...indexes[0], key_columns: ['kind', 'source_audit_id'] };
+    db.$queryRawUnsafe
+      .mockReset()
+      .mockResolvedValueOnce(indexes)
+      .mockResolvedValueOnce(validReportingTriggers());
+    await expect(ensureReportingSpineInvariants()).rejects.toBeInstanceOf(
+      CriticalPgInvariantError,
+    );
+  });
+
+  it('fails closed when either append-only trigger is absent', async () => {
+    db.$queryRawUnsafe
+      .mockReset()
+      .mockResolvedValueOnce(validReportingIndexes())
+      .mockResolvedValueOnce(validReportingTriggers().slice(0, 1));
+    await expect(ensureReportingSpineInvariants()).rejects.toBeInstanceOf(
+      CriticalPgInvariantError,
+    );
+  });
+
+  it('fails closed when a same-named trigger does not cover before-row updates and deletes', async () => {
+    const triggers = validReportingTriggers();
+    triggers[0] = { ...triggers[0], trigger_type: 19 };
+    db.$queryRawUnsafe
+      .mockReset()
+      .mockResolvedValueOnce(validReportingIndexes())
+      .mockResolvedValueOnce(triggers);
+    await expect(ensureReportingSpineInvariants()).rejects.toBeInstanceOf(
+      CriticalPgInvariantError,
+    );
+  });
+});
+
 describe('optional Postgres extras', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -304,26 +402,25 @@ describe('optional Postgres extras', () => {
       .mockResolvedValueOnce([validSessionConstraint()])
       .mockResolvedValueOnce([{ enabled: 'O' }])
       // The live-merge-ledger partial unique index, verified after the trigger.
-      .mockResolvedValueOnce([validLiveMergeIndex()]);
+      .mockResolvedValueOnce([validLiveMergeIndex()])
+      .mockResolvedValueOnce(validReportingIndexes())
+      .mockResolvedValueOnce(validReportingTriggers());
   });
 
   it('logs an optional failure and continues through the remaining statements', async () => {
-    // Nine required statements run before the optional ones: sequence, pg_trgm,
-    // legacy identity index, scoped-session create/validate, the hierarchy
-    // function/drop/create, and the live merge ledger index. The rejection below
-    // is therefore the FIRST optional statement.
-    db.$executeRawUnsafe
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockRejectedValueOnce(new Error('optional index unavailable'))
-      .mockResolvedValue(0);
+    // Fourteen required statements run before the optional ones: sequence and
+    // pg_trgm; the legacy identity index; scoped-session create/validate; the
+    // hierarchy function/drop/create; the live-merge index; and the reporting
+    // source-identity indexes plus append-only trigger setup. The rejection is
+    // therefore the FIRST optional statement.
+    let statementNumber = 0;
+    db.$executeRawUnsafe.mockImplementation(async () => {
+      statementNumber += 1;
+      if (statementNumber === 15) {
+        throw new Error('optional index unavailable');
+      }
+      return 0;
+    });
     const log = logger();
 
     await expect(ensurePgExtras(log)).resolves.toBeUndefined();
@@ -331,7 +428,12 @@ describe('optional Postgres extras', () => {
     expect(db.$executeRawUnsafe.mock.calls[2][0]).toBe(
       LEGACY_EXTERNAL_IDENTITY_INDEX_SQL,
     );
-    expect(db.$executeRawUnsafe.mock.calls.length).toBeGreaterThan(9);
+    expect(db.$executeRawUnsafe.mock.calls.length).toBeGreaterThan(14);
+    expect(
+      db.$executeRawUnsafe.mock.calls.map(([sql]) => sql).join('\n'),
+    ).toContain(
+      "idx_ticket_events_backfill_occurred\n     ON ticket_events (occurred_at)\n     WHERE actor = 'backfill'",
+    );
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         err: expect.any(Error),

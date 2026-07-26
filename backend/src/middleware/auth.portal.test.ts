@@ -73,6 +73,14 @@ describe('portal session auth boundary', () => {
       channel: request.authChannel,
       hasStaffUser: Boolean(request.user),
     }));
+    app.get('/kb/search', async (request) => ({
+      kind: request.principal.kind,
+      channel: request.authChannel,
+    }));
+    app.get('/kb/portal/:slug', async (request) => ({
+      kind: request.principal.kind,
+      channel: request.authChannel,
+    }));
     await app.ready();
   });
 
@@ -120,6 +128,29 @@ describe('portal session auth boundary', () => {
       channel: 'portal',
       hasStaffUser: false,
     });
+  });
+
+  it.each([
+    '/kb/search?q=printer&visibility=portal&limit=5',
+    '/kb/portal/reset-password',
+  ])('permits an exact requester KB read: %s', async (url) => {
+    const response = await app.inject({ method: 'GET', url });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      kind: 'requester',
+      channel: 'portal',
+    });
+  });
+
+  it.each([
+    '/kb/search?q=printer&visibility=portal',
+    '/kb/search?q=printer&visibility=internal&limit=5',
+    '/kb/portal/reset-password?preview=true',
+  ])('rejects a requester KB read outside the exact allowlist: %s', async (url) => {
+    const response = await app.inject({ method: 'GET', url });
+
+    expect(response.statusCode).toBe(403);
   });
 
   it('preserves requester scope under the local dev auth bypass', async () => {

@@ -7,11 +7,16 @@
 jest.mock('../db/prisma', () => ({
   prisma: {
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
     ticket: {
       findUnique: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
       findUniqueOrThrow: jest.fn(),
+    },
+    ticketSlaSnapshot: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
     },
   },
 }));
@@ -38,6 +43,7 @@ const ticketFindUnique = prisma.ticket.findUnique as jest.Mock;
 const ticketUpdate = prisma.ticket.update as jest.Mock;
 const ticketFindUniqueOrThrow = prisma.ticket.findUniqueOrThrow as jest.Mock;
 const computeSla = computeSlaFields as jest.Mock;
+const snapshotFindFirst = prisma.ticketSlaSnapshot.findFirst as jest.Mock;
 
 const MANUAL_DUE = new Date('2026-07-18T09:00:00Z');
 
@@ -70,6 +76,7 @@ beforeEach(() => {
   transaction.mockImplementation(
     async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma)
   );
+  snapshotFindFirst.mockResolvedValue(null);
 });
 
 describe('ticketRepository.update dueAt handling', () => {
@@ -96,6 +103,7 @@ describe('ticketRepository.update dueAt handling', () => {
       slaPolicyId: 2,
       responseDueAt: new Date('2026-07-15T08:30:00Z'),
       resolutionDueAt: new Date('2026-07-15T12:00:00Z'),
+      snapshot: null,
     });
 
     await update(42, { priority: 'High' }, 'alice');

@@ -115,5 +115,9 @@ export function isPortalSessionAllowed(method: string, url: string): boolean {
       limit[0] === '5'
     );
   }
+  if (verb === 'GET' && parsed.search === '') {
+    const match = /^\/kb\/portal\/([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(path);
+    if (match && match[1].length <= 200) return true;
+  }
   return false;
 }

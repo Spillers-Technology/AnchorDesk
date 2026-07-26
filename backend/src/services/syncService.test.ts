@@ -51,7 +51,9 @@ import {
   createTicketProvider,
   resolveCredentials,
 } from '../providers/ticketProviderFactory';
+import * as noteRepo from '../repositories/noteRepository';
 import * as syncRunRepo from '../repositories/syncRunRepository';
+import * as ticketRepo from '../repositories/ticketRepository';
 import * as twoWaySync from './twoWaySync';
 import {
   runSync,
@@ -63,10 +65,13 @@ const db = prisma as unknown as {
   syncLog: { create: jest.Mock };
   syncProvider: { updateMany: jest.Mock; findMany: jest.Mock };
   ticket: { findFirst: jest.Mock; findMany: jest.Mock };
+  note: { findFirst: jest.Mock };
 };
 const mockedCreateProvider = jest.mocked(createTicketProvider);
+const mockedNotes = jest.mocked(noteRepo);
 const mockedResolveCredentials = jest.mocked(resolveCredentials);
 const mockedRuns = jest.mocked(syncRunRepo);
+const mockedTickets = jest.mocked(ticketRepo);
 const mockedTwoWay = jest.mocked(twoWaySync);
 
 const providerRow = {
@@ -127,6 +132,60 @@ describe('durable sync run recording', () => {
       where: { id: 7, configRevision: 1 },
       data: { lastSyncedAt: expect.any(Date) },
     });
+  });
+
+  it('preserves inbound time-entry timestamps and fails portal visibility closed', async () => {
+    const timeStart = new Date('2026-07-24T13:00:00.000Z');
+    const timeStop = new Date('2026-07-24T13:45:00.000Z');
+    const createdAt = new Date('2026-07-25T09:00:00.000Z');
+    mockedCreateProvider.mockReturnValue(provider({
+      fetchTickets: jest.fn().mockResolvedValue([{
+        externalId: 'HELP-77',
+        title: 'Printer maintenance',
+        status: 'Closed',
+        priority: 'Medium',
+      }]),
+      fetchNotes: jest.fn().mockResolvedValue([{
+        externalId: 'work-77',
+        content: 'Remote labor',
+        author: 'Remote technician',
+        noteType: 'time_entry',
+        // A stale or faulty adapter cannot make a time entry requester-visible.
+        visibility: 'public',
+        timeStart,
+        timeStop,
+        createdAt,
+      }]),
+    }) as never);
+    mockedTickets.upsertExternal.mockResolvedValue({
+      created: true,
+      merged: false,
+    } as never);
+    db.ticket.findFirst.mockResolvedValue({ id: 99 });
+    db.note.findFirst.mockResolvedValue(null);
+    mockedNotes.create.mockResolvedValue({ id: 77 } as never);
+
+    const result = await runSync(providerRow, { trigger: 'manual', actor: 'admin' });
+
+    expect(result).toMatchObject({ status: 'success', notesUpserted: 1 });
+    expect(mockedNotes.create).toHaveBeenCalledWith(
+      99,
+      {
+        content: 'Remote labor',
+        author: 'Remote technician',
+        noteType: 'time_entry',
+        timeStart,
+        timeStop,
+        createdAt,
+        externalId: 'work-77',
+        visibility: 'internal',
+        via: 'sync',
+      },
+      'system',
+    );
+    // noteRepository derives persisted workedAt from timeStart. Supplying both
+    // would conflict with its guard and create two authorities for the work date.
+    expect(mockedNotes.create.mock.calls[0][1]).not.toHaveProperty('workedAt');
   });
 
   it('records a fetch failure as an error run and links its log row', async () => {

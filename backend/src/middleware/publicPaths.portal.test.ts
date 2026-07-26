@@ -14,6 +14,7 @@ describe('requester positive route allowlist', () => {
     ['POST', '/portal/tickets/42/attachments'],
     ['GET', '/portal/attachments/17/download'],
     ['GET', '/kb/search?q=printer&visibility=portal&limit=5'],
+    ['GET', '/kb/portal/reset-password'],
   ])('admits only the published requester operation: %s %s', (method, url) => {
     expect(isPortalSessionAllowed(method, url)).toBe(true);
   });
@@ -28,6 +29,10 @@ describe('requester positive route allowlist', () => {
     ['GET', '/kb/search?q=printer&visibility=internal&limit=5'],
     ['GET', '/kb/search?q=printer&visibility=portal&limit=50'],
     ['GET', '/kb/search?q=printer&visibility=portal&limit=5&include=drafts'],
+    ['GET', '/kb/portal/Reset-Password'],
+    ['GET', '/kb/portal/reset-password?preview=true'],
+    ['GET', '/kb/portal/reset-password/extra'],
+    ['GET', `/kb/portal/${'a'.repeat(201)}`],
   ])('rejects everything outside the exact allowlist: %s %s', (method, url) => {
     expect(isPortalSessionAllowed(method, url)).toBe(false);
   });

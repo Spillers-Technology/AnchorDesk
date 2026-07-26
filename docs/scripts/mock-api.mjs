@@ -752,6 +752,171 @@ const savedViews = [
   { id: 2, userId: null, name: "Unassigned work", filters: { assignee: "" }, shared: true, sortOrder: 10, createdAt: daysFromNow(-10, 9) },
 ];
 
+// Knowledge-base fixtures deliberately cover both visibility values, a draft,
+// ranked-search relevance, and hostile-width article content. The long VPN
+// runbook is selected by the mobile reader capture to exercise table/pre/image
+// containment without needing a database.
+const kbArticles = [
+  {
+    id: 401,
+    slug: "diagnose-vpn-tunnel-renegotiation",
+    title: "Diagnose VPN tunnel renegotiation every 12 minutes",
+    bodyHtml: [
+      "<p><strong>Use this runbook when a site-to-site VPN stays online but renegotiates on a predictable interval.</strong> The usual cause is a phase-one lifetime mismatch after an ISP or firewall change.</p>",
+      "<h2>Before you change anything</h2>",
+      "<ol><li>Confirm which WAN path is active.</li><li>Export the current phase-one and phase-two settings from both peers.</li><li>Schedule a five-minute validation window with the requester.</li></ol>",
+      "<blockquote>Do not clear every tunnel on a production firewall. Reset only the affected security association after the values match.</blockquote>",
+      "<h2>Compare both peers</h2>",
+      '<table style="min-width: 940px"><thead><tr><th>Peer</th><th>IKE version</th><th>Phase-one lifetime</th><th>Phase-two lifetime</th><th>DPD interval</th><th>Observed symptom</th></tr></thead><tbody><tr><td>ACME-FW-01 / WAN1</td><td>IKEv2</td><td>28,800 seconds</td><td>3,600 seconds</td><td>10 seconds, retry 3</td><td>Stable during the primary circuit test</td></tr><tr><td>Upstream managed peer / WAN2</td><td>IKEv2</td><td>720 seconds</td><td>3,600 seconds</td><td>10 seconds, retry 3</td><td>Deletes and rebuilds the phase-one SA every 12 minutes</td></tr></tbody></table>',
+      "<h2>Collect a narrow diagnostic</h2>",
+      "<p>Capture the active peer, negotiated lifetime, byte counters, and the final two rekey events. This intentionally wide command is part of the phone-layout regression fixture:</p>",
+      "<pre><code>Get-NetIPsecMainModeSA | Select-Object LocalEndpoint,RemoteEndpoint,KeyModule,AuthenticationMethod,EncryptionAlgorithm,HashAlgorithm,DHGroup,LifeTimeSeconds,QuickModeLimit | ConvertTo-Json -Depth 8 -Compress</code></pre>",
+      "<h2>Expected topology</h2>",
+      `<img loading="lazy" width="1280" height="260" alt="Wide VPN topology showing users, ACME firewall, two WAN paths, and the managed peer" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1280' height='260' viewBox='0 0 1280 260'%3E%3Crect width='1280' height='260' rx='24' fill='%23e8eef7'/%3E%3Cg fill='%231d4ed8'%3E%3Crect x='40' y='82' width='190' height='96' rx='16'/%3E%3Crect x='420' y='82' width='210' height='96' rx='16'/%3E%3Crect x='1030' y='82' width='210' height='96' rx='16'/%3E%3C/g%3E%3Cg stroke='%23475569' stroke-width='8'%3E%3Cpath d='M230 112 H420'/%3E%3Cpath d='M630 112 C780 112 870 45 1030 100'/%3E%3Cpath d='M630 150 C780 150 870 220 1030 160'/%3E%3C/g%3E%3Cg fill='white' font-family='Arial,sans-serif' font-size='24' text-anchor='middle'%3E%3Ctext x='135' y='138'%3EPlant users%3C/text%3E%3Ctext x='525' y='138'%3EACME-FW-01%3C/text%3E%3Ctext x='1135' y='138'%3EManaged peer%3C/text%3E%3C/g%3E%3Cg fill='%23334155' font-family='Arial,sans-serif' font-size='20'%3E%3Ctext x='770' y='73'%3EWAN1 primary%3C/text%3E%3Ctext x='770' y='219'%3EWAN2 failover%3C/text%3E%3C/g%3E%3C/svg%3E">`,
+      "<h2>Resolution</h2>",
+      "<p>Match the phase-one lifetime on both peers, save each side, and clear only the affected SA. Watch through two full lifetime windows. A healthy result has no delete/recreate pair, increasing byte counters, and no fresh disconnect report.</p>",
+      "<h2>Close-out evidence</h2>",
+      "<ul><li>Attach the before/after peer configuration.</li><li>Record the exact SA cleared and the validation window.</li><li>Ask the requester to keep one ERP session open through the second interval.</li></ul>",
+    ].join(""),
+    category: "Network",
+    visibility: "internal",
+    published: true,
+    author: "Jess Spillers",
+    createdAt: daysFromNow(-24, 9),
+    updatedAt: daysFromNow(0, 10, 30),
+  },
+  {
+    id: 402,
+    slug: "reset-microsoft-365-password-and-mfa",
+    title: "Reset your Microsoft 365 password and MFA",
+    bodyHtml:
+      "<p>If your password or authenticator phone changed, start at the company sign-in page and choose <strong>Forgot my password</strong>.</p><ol><li>Verify your identity with the recovery method shown.</li><li>Create a unique password.</li><li>Open Security info and register the new authenticator.</li></ol><p>If no recovery method is available, contact the service desk. We will verify your identity before resetting MFA.</p>",
+    category: "Accounts",
+    visibility: "portal",
+    published: true,
+    author: "Priya Shah",
+    createdAt: daysFromNow(-18, 11),
+    updatedAt: daysFromNow(0, 9, 45),
+  },
+  {
+    id: 403,
+    slug: "reconnect-wifi-after-password-change",
+    title: "Reconnect to company Wi-Fi after a password change",
+    bodyHtml:
+      "<p>Forget the saved company network, reconnect, and enter your new password. On Windows, open Settings → Network &amp; internet → Wi-Fi → Manage known networks. On iPhone or Android, tap the network details and choose Forget.</p><p>If the device still offers the old credentials, restart it once before contacting support.</p>",
+    category: "Getting connected",
+    visibility: "portal",
+    published: true,
+    author: "Sam Rivera",
+    createdAt: daysFromNow(-12, 14),
+    updatedAt: daysFromNow(-1, 16),
+  },
+  {
+    id: 404,
+    slug: "replace-edge-firewall-without-downtime",
+    title: "Replace an edge firewall without downtime",
+    bodyHtml:
+      "<p>Draft cutover sequence for the next hardware refresh.</p><ul><li>Pre-stage firmware and configuration.</li><li>Verify HA heartbeat on an isolated switch.</li><li>Move the standby unit first.</li></ul>",
+    category: "Network",
+    visibility: "internal",
+    published: false,
+    author: "Jess Spillers",
+    createdAt: daysFromNow(-2, 15),
+    updatedAt: daysFromNow(0, 10, 45),
+  },
+  {
+    id: 405,
+    slug: "triage-a-shared-mailbox-delivery-delay",
+    title: "Triage a shared mailbox delivery delay",
+    bodyHtml:
+      "<p>Check message trace before changing mailbox permissions. Compare the transport timestamp with the client sync timestamp, then test in Outlook on the web to separate delivery from desktop caching.</p>",
+    category: "Email",
+    visibility: "internal",
+    published: true,
+    author: "Priya Shah",
+    createdAt: daysFromNow(-9, 10),
+    updatedAt: daysFromNow(-2, 13),
+  },
+];
+
+function plainKbText(html) {
+  return String(html)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&(?:nbsp|amp|lt|gt|quot|#39);/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function kbSearchScore(article, rawQuery) {
+  const query = rawQuery.trim().toLowerCase();
+  if (!query) return 0;
+  const title = article.title.toLowerCase();
+  const category = article.category.toLowerCase();
+  const body = plainKbText(article.bodyHtml).toLowerCase();
+  const tokens = [...new Set(query.split(/\s+/).filter((token) => token.length > 1))];
+  let score = 0;
+  if (title === query) score += 150;
+  else if (title.includes(query)) score += 90;
+  if (body.includes(query)) score += 35;
+  for (const token of tokens) {
+    if (title.includes(token)) score += 14;
+    if (category.includes(token)) score += 5;
+    const occurrences = body.split(token).length - 1;
+    score += Math.min(occurrences, 4) * 2.5;
+  }
+  return score;
+}
+
+function kbExcerpt(article, rawQuery, maxLength = 220) {
+  const text = plainKbText(article.bodyHtml);
+  if (text.length <= maxLength) return text;
+  const query = rawQuery.trim().toLowerCase();
+  const lowered = text.toLowerCase();
+  const tokens = query.split(/\s+/).filter((token) => token.length > 1);
+  let matchAt = lowered.indexOf(query);
+  if (matchAt < 0) {
+    const positions = tokens.map((token) => lowered.indexOf(token)).filter((index) => index >= 0);
+    matchAt = positions.length ? Math.min(...positions) : 0;
+  }
+  let start = Math.max(0, matchAt - 65);
+  let end = Math.min(text.length, start + maxLength);
+  if (end === text.length) start = Math.max(0, end - maxLength);
+  if (start > 0) {
+    const nextSpace = text.indexOf(" ", start);
+    if (nextSpace >= 0 && nextSpace < matchAt) start = nextSpace + 1;
+  }
+  if (end < text.length) {
+    const previousSpace = text.lastIndexOf(" ", end);
+    if (previousSpace > start) end = previousSpace;
+  }
+  return `${start > 0 ? "…" : ""}${text.slice(start, end).trim()}${end < text.length ? "…" : ""}`;
+}
+
+function kbSlugBase(title) {
+  return String(title)
+    .normalize("NFKD")
+    .replace(/\p{Mark}/gu, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 200) || "article";
+}
+
+function uniqueKbSlug(title) {
+  const base = kbSlugBase(title);
+  const used = new Set(kbArticles.map((article) => article.slug));
+  if (!used.has(base)) return base;
+  for (let suffix = 2; suffix < 1_000; suffix += 1) {
+    const marker = `-${suffix}`;
+    const candidate = `${base.slice(0, 200 - marker.length).replace(/-+$/g, "")}${marker}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  throw new Error("Mock KB slug space exhausted");
+}
+
 const connections = [
   {
     id: 1,
@@ -1307,6 +1472,111 @@ export async function handleApi(route) {
     if (index >= 0) savedViews.splice(index, 1);
     return json(route, {}, 204);
   }
+
+  if (method === "GET" && apiPath === "/kb/search") {
+    const q = (url.searchParams.get("q") || "").trim();
+    const visibility = url.searchParams.get("visibility");
+    const requestedLimit = Number(url.searchParams.get("limit") || 20);
+    const limit = Number.isInteger(requestedLimit)
+      ? Math.max(1, Math.min(requestedLimit, 100))
+      : 20;
+    const items = kbArticles
+      .filter((article) =>
+        article.published &&
+        (!visibility || article.visibility === visibility)
+      )
+      .map((article) => ({ article, score: kbSearchScore(article, q) }))
+      .filter((result) => result.score > 0)
+      .sort((a, b) => b.score - a.score || a.article.id - b.article.id)
+      .slice(0, limit)
+      .map(({ article, score }) => ({
+        id: article.id,
+        slug: article.slug,
+        title: article.title,
+        excerpt: kbExcerpt(article, q),
+        score: Number(score.toFixed(4)),
+      }));
+    return json(route, { items });
+  }
+
+  if (method === "GET" && apiPath === "/kb/articles") {
+    const includeUnpublished = url.searchParams.get("includeUnpublished") === "true";
+    const visibility = url.searchParams.get("visibility");
+    const items = kbArticles
+      .filter((article) =>
+        (includeUnpublished || article.published) &&
+        (!visibility || article.visibility === visibility)
+      )
+      .sort((a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime() ||
+        b.id - a.id
+      )
+      .map((article) => ({
+        id: article.id,
+        slug: article.slug,
+        title: article.title,
+        excerpt: kbExcerpt(article, ""),
+        category: article.category,
+        visibility: article.visibility,
+        published: article.published,
+        author: article.author,
+        createdAt: article.createdAt,
+        updatedAt: article.updatedAt,
+      }));
+    return json(route, { items });
+  }
+
+  if (method === "POST" && apiPath === "/kb/articles") {
+    const now = new Date().toISOString();
+    const article = {
+      id: Math.max(0, ...kbArticles.map((item) => item.id)) + 1,
+      slug: uniqueKbSlug(body.title),
+      title: body.title,
+      bodyHtml: body.bodyHtml,
+      category: body.category,
+      visibility: body.visibility ?? "internal",
+      published: body.published ?? false,
+      author: demoUser.displayName,
+      createdAt: now,
+      updatedAt: now,
+    };
+    kbArticles.push(article);
+    return json(route, article, 201);
+  }
+
+  resourceMatch = apiPath.match(/^\/kb\/articles\/(\d+)$/);
+  if (resourceMatch && method === "GET") {
+    const article = kbArticles.find((item) => item.id === Number(resourceMatch[1]));
+    return article ? json(route, article) : json(route, { error: "Article not found" }, 404);
+  }
+  if (resourceMatch && method === "PATCH") {
+    const article = kbArticles.find((item) => item.id === Number(resourceMatch[1]));
+    if (!article) return json(route, { error: "Article not found" }, 404);
+    for (const field of ["title", "bodyHtml", "category", "visibility", "published"]) {
+      if (body[field] !== undefined) article[field] = body[field];
+    }
+    // Slugs are server-owned and remain stable across title edits.
+    article.updatedAt = new Date().toISOString();
+    return json(route, article);
+  }
+  if (resourceMatch && method === "DELETE") {
+    const index = kbArticles.findIndex((item) => item.id === Number(resourceMatch[1]));
+    if (index < 0) return json(route, { error: "Article not found" }, 404);
+    kbArticles.splice(index, 1);
+    return route.fulfill({ status: 204, body: "" });
+  }
+
+  resourceMatch = apiPath.match(/^\/kb\/portal\/([a-z0-9-]+)$/);
+  if (resourceMatch && method === "GET") {
+    // Mirror the real portal boundary instead of relying on callers to filter.
+    const article = kbArticles.find((item) =>
+      item.slug === resourceMatch[1] &&
+      item.visibility === "portal" &&
+      item.published
+    );
+    return article ? json(route, article) : json(route, { error: "Article not found" }, 404);
+  }
+
   if (method === "GET" && apiPath === "/notifications") {
     return json(route, {
       unread: 2,

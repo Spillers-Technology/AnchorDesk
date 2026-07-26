@@ -32,6 +32,7 @@ jest.mock('./realtime/eventBus', () => ({ publish: jest.fn() }));
 
 import { prisma } from '../db/prisma';
 import { tryCreateTicketProviderFor } from '../providers/ticketProviderFactory';
+import * as noteRepo from '../repositories/noteRepository';
 import * as ticketRepo from '../repositories/ticketRepository';
 import { pushNoteOut, reconcileTicketWithinAccountLock } from './twoWaySync';
 
@@ -40,6 +41,7 @@ const db = prisma as unknown as {
   note: { findFirst: jest.Mock; findMany: jest.Mock; updateMany: jest.Mock };
 };
 const factory = tryCreateTicketProviderFor as jest.Mock;
+const mockedNoteRepo = jest.mocked(noteRepo);
 
 const provider = {
   name: 'jira',
@@ -127,6 +129,60 @@ describe('reconcile of a merged ticket', () => {
 
     expect(provider.getTicket).toHaveBeenCalledWith('HELP-1');
     expect(result.outcome).not.toBe('merged');
+  });
+});
+
+describe('inbound note provenance and work date', () => {
+  it('preserves remote time-entry timestamps while forcing portal visibility closed', async () => {
+    const timeStart = new Date('2026-07-24T13:00:00.000Z');
+    const timeStop = new Date('2026-07-24T13:45:00.000Z');
+    const createdAt = new Date('2026-07-25T09:00:00.000Z');
+    db.ticket.findUnique.mockResolvedValue({
+      ...mergedTicket,
+      mergedIntoId: null,
+      remoteHash: null,
+      syncState: 'synced',
+    });
+    db.note.findFirst.mockResolvedValue(null);
+    provider.getTicket.mockResolvedValue({
+      externalId: 'HELP-1',
+      title: 'Printer down',
+      status: 'Closed',
+      priority: 'Medium',
+      updatedAt: new Date(),
+    });
+    provider.fetchNotes.mockResolvedValue([{
+      externalId: 'work-77',
+      content: 'Remote labor',
+      author: 'Remote technician',
+      noteType: 'time_entry',
+      // Even a bad/stale adapter claiming public cannot expose time entries.
+      visibility: 'public',
+      timeStart,
+      timeStop,
+      createdAt,
+    }]);
+    (ticketRepo.setSyncStateIfRevision as jest.Mock).mockResolvedValue(true);
+    mockedNoteRepo.create.mockResolvedValue({ id: 77 } as never);
+
+    const result = await reconcileTicketWithinAccountLock(1, { actor: 'alice' });
+
+    expect(result).toMatchObject({ outcome: 'synced', notesUpserted: 1 });
+    expect(mockedNoteRepo.create).toHaveBeenCalledWith(
+      1,
+      {
+        content: 'Remote labor',
+        author: 'Remote technician',
+        noteType: 'time_entry',
+        timeStart,
+        timeStop,
+        createdAt,
+        externalId: 'work-77',
+        visibility: 'internal',
+        via: 'sync',
+      },
+      'system',
+    );
   });
 });
 

@@ -23,6 +23,7 @@ import { MergeLedgerFormatError } from '../services/merge/mergeLedger';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
 import { actorFor } from '../middleware/auth';
 import { buildMcpProtectedResourceMetadata } from '../services/auth/mcpOAuth';
+import { registerKbTools } from './mcpKb';
 
 const MAX_TEMPLATE_ITEMS = 100;
 const MAX_DUE_OFFSET_MINUTES = 60 * 24 * 365;
@@ -78,6 +79,7 @@ const checklistTemplateItems = z.array(z.object({
  */
 export function buildMcpServer(actor: string, userId: number, role: UserRole): McpServer {
   const server = new McpServer({ name: 'anchordesk', version: MCP_SERVER_VERSION });
+  registerKbTools(server, actor, role);
 
   server.tool(
     'list_tickets',
@@ -532,20 +534,43 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
 
   server.tool(
     'log_time',
-    'Log billable time on a ticket, either as a duration (minutes) or a start/stop window.',
+    'Log billable time on a ticket, either as a duration (minutes) or a start/stop window. workedAt records when the work happened, so past work can be entered later.',
     {
       ticketId: z.number().int(),
       minutes: z.number().int().positive().optional().describe('Duration in minutes (omit if using start/stop)'),
       start: z.string().optional().describe('ISO timestamp; with `stop`, duration is derived'),
       stop: z.string().optional().describe('ISO timestamp'),
+      workedAt: z.string().datetime({ offset: true }).optional().describe('ISO timestamp for when duration-only work occurred; a start/stop window uses start'),
       note: z.string().optional().describe('Optional note for the entry'),
       author: z.string().optional().default('MCP Agent'),
     },
-    async ({ ticketId, minutes, start, stop, note, author }) => {
+    async ({ ticketId, minutes, start, stop, workedAt, note, author }) => {
       const changedBy = actor;
       let mins = minutes ?? 0;
       let timeStart: Date | undefined;
       let timeStop: Date | undefined;
+      const recordedWorkedAt = workedAt ? new Date(workedAt) : undefined;
+      if (Boolean(start) !== Boolean(stop)) {
+        return {
+          content: [{ type: 'text', text: 'start and stop must be provided together' }],
+          isError: true,
+        };
+      }
+      if (minutes !== undefined && start) {
+        return {
+          content: [{ type: 'text', text: 'Provide minutes or start/stop, not both' }],
+          isError: true,
+        };
+      }
+      if (workedAt && start) {
+        return {
+          content: [{
+            type: 'text',
+            text: 'workedAt is only accepted for duration-only entries; start is the work date for a window',
+          }],
+          isError: true,
+        };
+      }
       if (start && stop) {
         timeStart = new Date(start);
         timeStop = new Date(stop);
@@ -562,10 +587,12 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
         {
           content: note?.trim() || `Logged ${mins} min`,
           author,
+          authorId: userId,
           noteType: 'time_entry',
           minutes: mins,
           timeStart,
           timeStop,
+          workedAt: recordedWorkedAt,
           visibility: 'internal',
           via: 'mcp',
         },

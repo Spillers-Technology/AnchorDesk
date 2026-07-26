@@ -45,12 +45,14 @@ import { startImapScheduler } from './services/imapScheduler';
 import { startSlaScheduler } from './services/slaScheduler';
 import { startSyncScheduler } from './services/syncScheduler';
 import { initWsHub } from './services/realtime/wsHub';
+import { initTicketEventSubscriber } from './services/realtime/ticketEventSubscriber';
 import { initNotificationService } from './services/notificationService';
 import { initAutomationService } from './services/automation/automationService';
 import { teamRoutes } from './routes/teams';
 import { customFieldRoutes } from './routes/customFields';
 import { automationRoutes } from './routes/automations';
 import { savedViewRoutes } from './routes/views';
+import { kbRoutes } from './routes/kb';
 import { config } from './config/config';
 import { prisma } from './db/prisma';
 import { backfillLegacyExternalRefs } from './repositories/deviceRepository';
@@ -140,6 +142,8 @@ async function start() {
   server.register(automationRoutes);
   // Saved ticket views (personal + shared filter sets)
   server.register(savedViewRoutes);
+  // Knowledge base: staff browse/authoring + published portal-safe search/read.
+  server.register(kbRoutes);
   // Time / "My Day" — the signed-in user's logged time for a day
   server.register(timeRoutes);
   // Devices (local-first asset records + ticket linking)
@@ -208,6 +212,7 @@ async function start() {
 
   // Wire the WebSocket hub + notification service to the in-process event bus.
   initWsHub();
+  initTicketEventSubscriber(server.log);
   initNotificationService();
   initAutomationService();
 

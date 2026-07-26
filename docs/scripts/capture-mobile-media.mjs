@@ -79,6 +79,34 @@ async function shoot(page, device, view) {
   console.log(`  ✓ ${view}`);
 }
 
+async function assertNoHorizontalPageScroll(page, view) {
+  const metrics = await page.evaluate(() => ({
+    viewportWidth: document.documentElement.clientWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    bodyWidth: document.body?.scrollWidth ?? 0,
+  }));
+  const pageWidth = Math.max(metrics.documentWidth, metrics.bodyWidth);
+  // A single CSS pixel can be introduced by fractional device-scale rounding.
+  if (pageWidth > metrics.viewportWidth + 1) {
+    throw new Error(
+      `${view} has horizontal page scroll: ${pageWidth}px content in a ${metrics.viewportWidth}px viewport`
+    );
+  }
+}
+
+async function assertWideArticleContentScrollable(page, view) {
+  const metrics = await page.locator("article .html-table-scroll").first().evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  if (metrics.scrollWidth <= metrics.clientWidth + 1) {
+    throw new Error(
+      `${view} wide table is clipped or collapsed instead of internally scrollable: ` +
+      `${metrics.scrollWidth}px content in a ${metrics.clientWidth}px container`
+    );
+  }
+}
+
 async function captureDevice(browser, device) {
   console.log(`\n${device.name} (${device.viewport.width}×${device.viewport.height})`);
 
@@ -306,6 +334,60 @@ async function captureDevice(browser, device) {
       await shoot(page, device, "network");
     }
 
+    const kbViews = [
+      "knowledge-base",
+      "knowledge-base-article",
+      "knowledge-base-editor",
+    ];
+    if (kbViews.some(view)) {
+      const vpnTitle = "Diagnose VPN tunnel renegotiation every 12 minutes";
+      await openDrawer(page, "Knowledge Base");
+      await page.getByRole("heading", { name: "Knowledge base", exact: true }).waitFor({ timeout: 20_000 });
+      await page.getByText(vpnTitle, { exact: true }).first().waitFor({ timeout: 20_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      if (view("knowledge-base")) await shoot(page, device, "knowledge-base");
+
+      if (view("knowledge-base-article") || view("knowledge-base-editor")) {
+        const rankedSearch = page.waitForResponse((response) => {
+          const responseUrl = new URL(response.url());
+          return responseUrl.pathname === "/api/kb/search" &&
+            responseUrl.searchParams.get("q") === "vpn tunnel renegotiation";
+        });
+        await page.getByLabel("Search articles").fill("vpn tunnel renegotiation");
+        await rankedSearch;
+        await page
+          .getByText("Reset your Microsoft 365 password and MFA", { exact: true })
+          .waitFor({ state: "hidden", timeout: 20_000 });
+
+        const bestMatch = page.getByText(vpnTitle, { exact: true }).first();
+        await bestMatch.waitFor({ timeout: 20_000 });
+        const articleRequest = page.waitForResponse((response) =>
+          new URL(response.url()).pathname === "/api/kb/articles/401"
+        );
+        await bestMatch.evaluate((element) => element.scrollIntoView({ block: "center" }));
+        await bestMatch.dispatchEvent("click");
+        await articleRequest;
+
+        const article = page.locator("article");
+        await article.getByRole("heading", { name: vpnTitle, exact: true }).waitFor({ timeout: 20_000 });
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await assertNoHorizontalPageScroll(page, "knowledge-base-article");
+        await assertWideArticleContentScrollable(page, "knowledge-base-article");
+        if (view("knowledge-base-article")) {
+          await shoot(page, device, "knowledge-base-article");
+        }
+
+        if (view("knowledge-base-editor")) {
+          await article.getByRole("button", { name: "Edit", exact: true }).click();
+          await page.getByRole("heading", { name: "Edit knowledge base article" }).waitFor({ timeout: 20_000 });
+          await page.getByRole("textbox", { name: "Title" }).waitFor({ timeout: 20_000 });
+          await shoot(page, device, "knowledge-base-editor");
+          await page.keyboard.press("Escape");
+          await page.getByRole("heading", { name: "Edit knowledge base article" }).waitFor({ state: "hidden", timeout: 5_000 });
+        }
+      }
+    }
+
     const adminViews = ["admin", "admin-teams", "admin-custom-fields", "admin-checklists", "checklist-template-editor", "admin-automations", "admin-ticket-sync", "ticket-sync-connection-editor", "ticket-sync-job-editor", "ticket-sync-run-history", "ticket-sync-run-detail", "admin-devices", "device-assets"];
     if (adminViews.some(view)) {
       await openDrawer(page, "Admin console");
@@ -392,6 +474,20 @@ async function captureDevice(browser, device) {
           await page.keyboard.press("Escape");
         }
       }
+    }
+
+    if (view("admin-knowledge-base")) {
+      const adminKnowledgeBaseUrl = new URL(baseUrl);
+      adminKnowledgeBaseUrl.searchParams.set("admin", "knowledge-base");
+      await page.goto(adminKnowledgeBaseUrl.href, { waitUntil: "domcontentloaded" });
+      await freezeAnimations(page);
+      await page.getByLabel("Filter articles").waitFor({ timeout: 20_000 });
+      await page
+        .getByText("Replace an edge firewall without downtime", { exact: true })
+        .first()
+        .waitFor({ timeout: 20_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await shoot(page, device, "admin-knowledge-base");
     }
   } catch (error) {
     if (debugCapture) {
