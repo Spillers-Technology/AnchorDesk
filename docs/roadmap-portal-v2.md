@@ -176,6 +176,59 @@ remember what a colour means to know who is about to read what they typed.
 Email notes are inherently customer-visible (we already sent them) and render
 that way automatically. Time entries are never portal-visible.
 
+### Who the customer sees: technician identity
+
+Workstream C renders every staff reply as **"Support"** with no name, and tests
+that the technician's identity is never serialized. That is the right *default*
+— it protects techs from being contacted directly, lets work rotate without the
+customer noticing, and leaks nothing about team size or who is on shift.
+
+But it is a business preference, not a security property, and it cuts both ways:
+plenty of MSPs sell exactly the opposite ("your engineer is Jess"). So it becomes
+an **admin-settable flag**, defaulting to the anonymous behaviour that ships
+today.
+
+**Two consents, not one.** The admin enables the *capability*; the technician
+controls what is *published about them*. An admin flipping one switch must not
+broadcast a technician's mobile number to every customer — in some jurisdictions
+that is a personal-data problem, and in all of them it is rude.
+
+So identity comes from a distinct **portal display profile** rather than reusing
+account fields:
+
+```prisma
+model UserPortalProfile {
+  userId       Int     @id @map("user_id")
+  displayName  String? @map("display_name") @db.VarChar(150)  // "Jess S." if they prefer
+  avatarId     Int?    @map("avatar_id")                       // Attachment storage seam
+  publicEmail  String? @map("public_email") @db.VarChar(255)
+  publicPhone  String? @map("public_phone") @db.VarChar(50)
+  optedIn      Boolean @default(false) @map("opted_in")
+}
+```
+
+`User.email` is a **login credential and may be a personal address**; it must
+never be published implicitly. `publicEmail`/`publicPhone` are separate, opt-in,
+and blank by default. Avatars reuse the existing `AttachmentStorage` strategy
+(local disk or S3) rather than adding an image path.
+
+**Recommended default when the flag is on: name and avatar, but no direct
+contact details.** That delivers essentially all of the personal-touch benefit —
+a face and a name make the conversation feel human — without the operational
+cost the direct route brings: email and phone invite customers to bypass the
+ticket, so the work stops being tracked, SLA clocks stop reflecting reality, and
+the reporting Workstream B is building quietly becomes wrong. Shops that
+genuinely want direct contact can still enable it per technician; it should just
+be the deliberate choice rather than the automatic consequence of wanting a
+friendlier portal.
+
+Resolution order for what renders: technician opted out, or flag off → "Support".
+Otherwise `displayName` (falling back to the staff display name) plus avatar,
+plus whichever public contact fields that technician filled in.
+
+Per-company overrides (named techs for premium clients, anonymous for the rest)
+are a plausible later refinement and explicitly out of scope for v1.
+
 ---
 
 ## 3. Feedback: build it, don't adopt it
