@@ -38,6 +38,17 @@ jest.mock("../repositories/checklistTemplateRepository", () => ({
   update: jest.fn(),
   remove: jest.fn(),
 }));
+jest.mock("../repositories/kbArticleRepository", () => ({
+  KbArticleValidationError: class KbArticleValidationError extends Error {},
+  searchPublishedStaff: jest.fn(),
+  getPublishedForStaffBySlug: jest.fn(),
+  getForAuthorBySlug: jest.fn(),
+  listPublishedForStaff: jest.fn(),
+  listForAuthors: jest.fn(),
+  create: jest.fn(),
+  update: jest.fn(),
+  remove: jest.fn(),
+}));
 jest.mock("../services/mail/ticketMail", () => ({
   sendTicketEmail: jest.fn(),
 }));
@@ -59,6 +70,7 @@ import * as tickets from "../repositories/ticketRepository";
 import * as notes from "../repositories/noteRepository";
 import * as checklist from "../repositories/checklistRepository";
 import * as checklistTemplates from "../repositories/checklistTemplateRepository";
+import * as kbArticles from "../repositories/kbArticleRepository";
 import { buildMcpServer, MCP_SERVER_VERSION } from "./mcp";
 
 type ToolCallResult = {
@@ -86,6 +98,17 @@ const mockedTemplates = {
   create: checklistTemplates.create as jest.Mock,
   update: checklistTemplates.update as jest.Mock,
   remove: checklistTemplates.remove as jest.Mock,
+};
+const mockedKb = {
+  searchPublishedStaff: kbArticles.searchPublishedStaff as jest.Mock,
+  getPublishedForStaffBySlug:
+    kbArticles.getPublishedForStaffBySlug as jest.Mock,
+  getForAuthorBySlug: kbArticles.getForAuthorBySlug as jest.Mock,
+  listPublishedForStaff: kbArticles.listPublishedForStaff as jest.Mock,
+  listForAuthors: kbArticles.listForAuthors as jest.Mock,
+  create: kbArticles.create as jest.Mock,
+  update: kbArticles.update as jest.Mock,
+  remove: kbArticles.remove as jest.Mock,
 };
 
 async function connect(role: UserRole = "admin") {
@@ -116,6 +139,9 @@ beforeEach(() => {
   mockedTickets.getById.mockResolvedValue({ id: 42, title: "Test ticket" });
   mockedChecklist.listForTicket.mockResolvedValue([]);
   mockedTemplates.list.mockResolvedValue([]);
+  mockedKb.searchPublishedStaff.mockResolvedValue([]);
+  mockedKb.listPublishedForStaff.mockResolvedValue([]);
+  mockedKb.listForAuthors.mockResolvedValue([]);
 });
 
 afterEach(async () => {
@@ -418,5 +444,133 @@ describe("MCP checklist protocol surface", () => {
     });
     expect(result.isError).toBe(true);
     expect(resultText(result)).toBe("A template with that name already exists");
+  });
+});
+
+describe("MCP knowledge-base parity", () => {
+  it("advertises search/read and the complete authoring workflow with truthful annotations", async () => {
+    const client = await connect();
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+    const names = [
+      "search_kb_articles",
+      "read_kb_article",
+      "list_kb_articles",
+      "create_kb_article",
+      "update_kb_article",
+      "delete_kb_article",
+    ];
+    expect([...byName.keys()]).toEqual(expect.arrayContaining(names));
+    for (const name of names) {
+      expect(byName.get(name)?.description).toEqual(expect.any(String));
+      expect(byName.get(name)?.inputSchema.type).toBe("object");
+    }
+    expect(byName.get("search_kb_articles")?.annotations?.readOnlyHint).toBe(
+      true,
+    );
+    expect(byName.get("read_kb_article")?.annotations?.readOnlyHint).toBe(true);
+    expect(
+      byName.get("delete_kb_article")?.annotations?.destructiveHint,
+    ).toBe(true);
+    expect(byName.get("update_kb_article")?.description).toMatch(/stable slug/);
+  });
+
+  it("searches, reads, and authors as a technician under the connection actor", async () => {
+    const client = await connect("technician");
+    mockedKb.searchPublishedStaff.mockResolvedValue([
+      {
+        id: 4,
+        slug: "reset-password",
+        title: "Reset password",
+        excerpt: "Use the reset page.",
+        score: 0.9,
+      },
+    ]);
+    const searched = await call(client, "search_kb_articles", {
+      q: " password reset ",
+      visibility: "internal",
+      limit: 5,
+    });
+    expect(searched.isError).toBeUndefined();
+    expect(mockedKb.searchPublishedStaff).toHaveBeenCalledWith(
+      "password reset",
+      { visibility: "internal", limit: 5 },
+    );
+
+    const published = {
+      id: 4,
+      slug: "reset-password",
+      title: "Reset password",
+      bodyHtml: "<p>Use the reset page.</p>",
+    };
+    mockedKb.getPublishedForStaffBySlug.mockResolvedValue(published);
+    const read = await call(client, "read_kb_article", {
+      slug: "reset-password",
+    });
+    expect(read.isError).toBeUndefined();
+    expect(JSON.parse(resultText(read))).toEqual(published);
+    expect(mockedKb.getPublishedForStaffBySlug).toHaveBeenCalledWith(
+      "reset-password",
+    );
+
+    mockedKb.create.mockResolvedValue({ ...published, id: 5 });
+    const created = await call(client, "create_kb_article", {
+      title: "  Reset password  ",
+      bodyHtml: " <p>Use the reset page.</p> ",
+      category: " Accounts ",
+      visibility: "portal",
+      published: true,
+    });
+    expect(created.isError).toBeUndefined();
+    expect(mockedKb.create).toHaveBeenCalledWith(
+      {
+        title: "Reset password",
+        bodyHtml: "<p>Use the reset page.</p>",
+        category: "Accounts",
+        visibility: "portal",
+        published: true,
+      },
+      actor,
+    );
+
+    mockedKb.update.mockResolvedValue({ ...published, title: "New title" });
+    await call(client, "update_kb_article", {
+      articleId: 4,
+      title: " New title ",
+    });
+    expect(mockedKb.update).toHaveBeenCalledWith(
+      4,
+      {
+        title: "New title",
+        bodyHtml: undefined,
+        category: undefined,
+        visibility: undefined,
+        published: undefined,
+      },
+      actor,
+    );
+
+    mockedKb.remove.mockResolvedValue(true);
+    const removed = await call(client, "delete_kb_article", { articleId: 4 });
+    expect(removed.isError).toBeUndefined();
+    expect(mockedKb.remove).toHaveBeenCalledWith(4, actor);
+  });
+
+  it.each([
+    ["create_kb_article", {
+      title: "Blocked",
+      bodyHtml: "<p>Body</p>",
+      category: "Test",
+    }],
+    ["update_kb_article", { articleId: 4, published: true }],
+    ["delete_kb_article", { articleId: 4 }],
+  ])("denies readonly calls to %s", async (name, args) => {
+    const client = await connect("readonly");
+    const result = await call(client, name, args);
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toContain("Requires role: admin or technician");
+    expect(mockedKb.create).not.toHaveBeenCalled();
+    expect(mockedKb.update).not.toHaveBeenCalled();
+    expect(mockedKb.remove).not.toHaveBeenCalled();
   });
 });

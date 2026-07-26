@@ -27,6 +27,7 @@ import * as userRepo from '../repositories/userRepository';
 import * as apiTokens from '../services/auth/apiTokens';
 import { isPublic } from './publicPaths';
 import { mcpWwwAuthenticateHeader } from '../services/auth/mcpOAuth';
+import { authorizePortalKbRead } from './kbPortalAccess';
 
 export { isPublic };
 
@@ -206,6 +207,17 @@ export async function registerAuthHook(server: FastifyInstance) {
       } catch (err) {
         request.log.warn({ err }, 'Bearer auth failed');
       }
+    }
+
+    // Workstream D exposes only the published+portal KB path before the
+    // Contact-backed portal principal exists. Keep this after normal staff
+    // authentication so a signed-in staff caller on /kb/search still carries
+    // their real role and can request internal results. Workstream C replaces
+    // the decision inside authorizePortalKbRead, not this auth flow.
+    if (await authorizePortalKbRead(request)) {
+      request.actorSub = 'portal';
+      request.authChannel = 'web';
+      return;
     }
 
     return unauthorized(request, reply);

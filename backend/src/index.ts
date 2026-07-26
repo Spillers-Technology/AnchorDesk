@@ -49,6 +49,7 @@ import { teamRoutes } from './routes/teams';
 import { customFieldRoutes } from './routes/customFields';
 import { automationRoutes } from './routes/automations';
 import { savedViewRoutes } from './routes/views';
+import { kbRoutes } from './routes/kb';
 import { config } from './config/config';
 import { prisma } from './db/prisma';
 import { backfillLegacyExternalRefs } from './repositories/deviceRepository';
@@ -133,6 +134,8 @@ async function start() {
   server.register(automationRoutes);
   // Saved ticket views (personal + shared filter sets)
   server.register(savedViewRoutes);
+  // Knowledge base: staff browse/authoring + published portal-safe search/read.
+  server.register(kbRoutes);
   // Time / "My Day" — the signed-in user's logged time for a day
   server.register(timeRoutes);
   // Devices (local-first asset records + ticket linking)

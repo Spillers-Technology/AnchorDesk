@@ -1525,6 +1525,96 @@ export function applyChecklistTemplate(ticketId: number, templateId: number) {
   });
 }
 
+// ---- Knowledge base (2.7.0) -------------------------------------------------
+
+export type KbVisibility = "internal" | "portal";
+
+export interface KbArticle {
+  id: number;
+  slug: string;
+  title: string;
+  bodyHtml: string;
+  category: string;
+  visibility: KbVisibility;
+  published: boolean;
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KbArticleSummary {
+  id: number;
+  slug: string;
+  title: string;
+  excerpt: string;
+  category: string;
+  visibility: KbVisibility;
+  published: boolean;
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KbSearchItem {
+  id: number;
+  slug: string;
+  title: string;
+  excerpt: string;
+  score: number;
+}
+
+export interface KbArticleInput {
+  title: string;
+  bodyHtml: string;
+  category: string;
+  visibility: KbVisibility;
+  published: boolean;
+}
+
+export function searchKbArticles(options: {
+  q: string;
+  visibility?: KbVisibility;
+  limit?: number;
+}) {
+  const params = new URLSearchParams({ q: options.q });
+  if (options.visibility) params.set("visibility", options.visibility);
+  if (options.limit != null) params.set("limit", String(options.limit));
+  return request<{ items: KbSearchItem[] }>(`/kb/search?${params}`);
+}
+
+export function listKbArticles(options: {
+  includeUnpublished?: boolean;
+  visibility?: KbVisibility;
+} = {}) {
+  const params = new URLSearchParams();
+  if (options.includeUnpublished) params.set("includeUnpublished", "true");
+  if (options.visibility) params.set("visibility", options.visibility);
+  const query = params.toString();
+  return request<{ items: KbArticleSummary[] }>(`/kb/articles${query ? `?${query}` : ""}`);
+}
+
+export function getKbArticle(id: number) {
+  return request<KbArticle>(`/kb/articles/${id}`);
+}
+
+export function createKbArticle(data: KbArticleInput) {
+  return request<KbArticle>("/kb/articles", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateKbArticle(id: number, data: Partial<KbArticleInput>) {
+  return request<KbArticle>(`/kb/articles/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteKbArticle(id: number) {
+  return request<void>(`/kb/articles/${id}`, { method: "DELETE" });
+}
+
 export interface AutomationPreview {
   sampled: number;
   sinceDays: number;

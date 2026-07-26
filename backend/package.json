@@ -5,6 +5,7 @@
   "scripts": {
     "test": "jest --runInBand",
     "test:postgres": "node scripts/run-postgres-tests.mjs",
+    "test:kb-postgres": "node scripts/runKbPostgresTest.mjs",
     "build": "tsc -p tsconfig.json --outDir dist",
     "start": "tsx watch src/index.ts",
     "start:prod": "node dist/src/index.js"

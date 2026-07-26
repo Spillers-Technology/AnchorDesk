@@ -17,8 +17,9 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import AnchorIcon from "@mui/icons-material/Anchor";
 import BusinessIcon from "@mui/icons-material/Business";
 import ViewTimelineIcon from "@mui/icons-material/ViewTimeline";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 
-type ViewMode = "cards" | "table" | "kanban" | "admin" | "network" | "companies" | "myday";
+type ViewMode = "cards" | "table" | "kanban" | "admin" | "network" | "companies" | "myday" | "knowledge";
 
 interface DashboardDrawerProps {
   drawerOpen: boolean;
@@ -48,6 +49,7 @@ const TIME_NAV: NavItem[] = [
 ];
 
 const OPS_NAV: NavItem[] = [
+  { mode: "knowledge", label: "Knowledge Base", icon: <MenuBookIcon /> },
   { mode: "companies", label: "Companies", icon: <BusinessIcon /> },
   { mode: "network", label: "Network", icon: <HubIcon /> },
 ];
