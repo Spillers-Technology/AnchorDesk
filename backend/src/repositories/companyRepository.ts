@@ -5,6 +5,7 @@
 import { Company, Contact, Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
+import * as ticketRepository from './ticketRepository';
 
 // ─── Companies ───────────────────────────────────────────────────────────────
 
@@ -65,6 +66,20 @@ export async function update(id: number, input: Partial<CompanyInput>, actor: st
 export async function remove(id: number, actor: string): Promise<Company | null> {
   const company = await prisma.company.findUnique({ where: { id } });
   if (!company) return null;
+  const tickets = await prisma.ticket.findMany({
+    where: { companyId: id },
+    select: { id: true },
+  });
+  // Ticket.company is RESTRICT, so a concurrent new reference makes the final
+  // delete fail closed instead of being silently nulled without a fact.
+  for (const ticket of tickets) {
+    await ticketRepository.update(
+      ticket.id,
+      { companyId: null },
+      actor,
+      { expectedCompanyId: id },
+    );
+  }
   await prisma.company.delete({ where: { id } });
   await audit.record({ entityType: 'company', entityId: id, action: 'delete', changedBy: actor, oldValue: { name: company.name } });
   return company;
@@ -99,7 +114,19 @@ export async function backfillFromNames(actor: string): Promise<{ companies: num
     const existing = await prisma.company.findFirst({ where: { name: { equals: name, mode: 'insensitive' } } });
     const company = existing ?? (await create({ name }, actor));
     if (!existing) companies++;
-    tickets += (await prisma.ticket.updateMany({ where: { companyId: null, companyName: name }, data: { companyId: company.id } })).count;
+    const unlinkedTickets = await prisma.ticket.findMany({
+      where: { companyId: null, companyName: name },
+      select: { id: true },
+    });
+    for (const ticket of unlinkedTickets) {
+      const updated = await ticketRepository.update(
+        ticket.id,
+        { companyId: company.id },
+        actor,
+        { expectedCompanyId: null },
+      );
+      if (updated) tickets++;
+    }
     devices += (await prisma.device.updateMany({ where: { companyId: null, companyName: name }, data: { companyId: company.id } })).count;
   }
   return { companies, tickets, devices };

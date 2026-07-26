@@ -9,6 +9,7 @@ import { FastifyBaseLogger } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 import { TICKET_PRIORITIES, TICKET_STATUSES } from '../services/ticketVocab';
+import * as ticketRepository from '../repositories/ticketRepository';
 
 /**
  * 2.7 — reconstruct the metric spine from durable audit rows. source_audit_id +
@@ -28,21 +29,33 @@ export const TICKET_EVENT_BACKFILL_SQL = `
            audit.old_value,
            audit.new_value,
            CASE
-             WHEN audit.action::text = 'create'
-               THEN coalesce(
-                 nullif(audit.new_value ->> 'createdAt', '')::timestamptz,
-                 audit.occurred_at
-               )
-             WHEN audit.action::text = 'merge'
-               THEN coalesce(
-                 nullif(audit.new_value ->> 'mergedAt', '')::timestamptz,
-                 nullif(audit.new_value ->> 'updatedAt', '')::timestamptz,
-                 audit.occurred_at
-               )
-             ELSE coalesce(
-               nullif(audit.new_value ->> 'updatedAt', '')::timestamptz,
-               audit.occurred_at
-             )
+              WHEN audit.action::text = 'create'
+                THEN coalesce(
+                  (
+                    nullif(audit.new_value ->> 'createdAt', '')::timestamptz
+                    AT TIME ZONE 'UTC'
+                  ),
+                  audit.occurred_at
+                )
+              WHEN audit.action::text = 'merge'
+                THEN coalesce(
+                  (
+                    nullif(audit.new_value ->> 'mergedAt', '')::timestamptz
+                    AT TIME ZONE 'UTC'
+                  ),
+                  (
+                    nullif(audit.new_value ->> 'updatedAt', '')::timestamptz
+                    AT TIME ZONE 'UTC'
+                  ),
+                  audit.occurred_at
+                )
+              ELSE coalesce(
+                (
+                  nullif(audit.new_value ->> 'updatedAt', '')::timestamptz
+                  AT TIME ZONE 'UTC'
+                ),
+                audit.occurred_at
+              )
            END AS occurred_at,
            audit.old_value ->> 'status' AS old_status,
            CASE
@@ -160,15 +173,21 @@ export const TICKET_EVENT_BACKFILL_SQL = `
     SELECT audit.id AS source_audit_id,
            nullif(audit.new_value ->> 'ticketId', '')::int AS ticket_id,
            coalesce(
-             nullif(audit.new_value ->> 'createdAt', '')::timestamptz,
-             audit.occurred_at
-           ) AS occurred_at,
+              (
+                nullif(audit.new_value ->> 'createdAt', '')::timestamptz
+                AT TIME ZONE 'UTC'
+              ),
+              audit.occurred_at
+            ) AS occurred_at,
            row_number() OVER (
-             PARTITION BY nullif(audit.new_value ->> 'ticketId', '')::int
-             ORDER BY coalesce(
-               nullif(audit.new_value ->> 'createdAt', '')::timestamptz,
-               audit.occurred_at
-             ), audit.id
+              PARTITION BY nullif(audit.new_value ->> 'ticketId', '')::int
+              ORDER BY coalesce(
+                (
+                  nullif(audit.new_value ->> 'createdAt', '')::timestamptz
+                  AT TIME ZONE 'UTC'
+                ),
+                audit.occurred_at
+              ), audit.id
            ) AS response_number
     FROM audit_log AS audit
     WHERE audit.entity_type = 'note'
@@ -196,7 +215,13 @@ export const TICKET_EVENT_BACKFILL_SQL = `
              ticket.priority
       FROM ticket_audits AS ticket
       WHERE ticket.ticket_id = email.ticket_id
-        AND ticket.occurred_at <= email.occurred_at
+        AND (
+          ticket.occurred_at < email.occurred_at
+          OR (
+            ticket.occurred_at = email.occurred_at
+            AND ticket.audit_id <= email.source_audit_id
+          )
+        )
       ORDER BY ticket.occurred_at DESC, ticket.audit_id DESC
       LIMIT 1
     ) AS context ON true
@@ -235,6 +260,7 @@ export const TICKET_EVENT_BACKFILL_SQL = `
          occurred_at,
          source_audit_id
   FROM candidates
+  ORDER BY occurred_at, source_audit_id, kind
   ON CONFLICT DO NOTHING
 `;
 
@@ -251,31 +277,54 @@ export async function backfillWorkedAt(): Promise<number> {
   `;
 }
 
-export async function runDataMigrations(log: FastifyBaseLogger): Promise<void> {
+/**
+ * Normalize legacy vocabulary through the normal ticket mutation boundary.
+ * That is intentionally less clever than a bulk UPDATE: each correction gets
+ * an audit row, a causal event for the boot backfill below, and (for priority)
+ * an immutable SLA re-target snapshot.
+ */
+export async function normalizeTicketVocabulary(): Promise<number> {
   let fixed = 0;
+  const actor = 'system:data-migration';
 
-  // 2.4.0 — the MCP tools historically taught agents a fictional "open"
-  // status and a numeric priority scale; the backend accepted any casing.
-  // Canonicalize local tickets so they land back in board columns, status
-  // filters, and SLA policy matches.
   for (const status of TICKET_STATUSES) {
-    const r = await prisma.$executeRaw`
-      UPDATE tickets SET status = ${status}
-      WHERE external_provider IS NULL AND status <> ${status} AND lower(status) = ${status.toLowerCase()}`;
-    fixed += r;
+    const rows = await prisma.ticket.findMany({
+      where: {
+        externalProvider: null,
+        status: { equals: status, mode: 'insensitive' },
+        NOT: { status },
+      },
+      select: { id: true },
+    });
+    for (const row of rows) {
+      if (await ticketRepository.update(row.id, { status }, actor)) fixed++;
+    }
   }
-  fixed += await prisma.$executeRaw`
-    UPDATE tickets SET status = 'New'
-    WHERE external_provider IS NULL AND lower(status) = 'open'`;
+  const openRows = await prisma.ticket.findMany({
+    where: {
+      externalProvider: null,
+      status: { equals: 'open', mode: 'insensitive' },
+    },
+    select: { id: true },
+  });
+  for (const row of openRows) {
+    if (await ticketRepository.update(row.id, { status: 'New' }, actor)) fixed++;
+  }
 
   for (const priority of TICKET_PRIORITIES) {
-    const r = await prisma.$executeRaw`
-      UPDATE tickets SET priority = ${priority}
-      WHERE external_provider IS NULL AND priority <> ${priority} AND lower(priority) = ${priority.toLowerCase()}`;
-    fixed += r;
+    const rows = await prisma.ticket.findMany({
+      where: {
+        externalProvider: null,
+        priority: { equals: priority, mode: 'insensitive' },
+        NOT: { priority },
+      },
+      select: { id: true },
+    });
+    for (const row of rows) {
+      if (await ticketRepository.update(row.id, { priority }, actor)) fixed++;
+    }
   }
-  // Legacy numeric priorities (pre-1.3 scale; '3' was the old MCP default).
-  const numericMap: [string, string][] = [
+  const numericMap: ReadonlyArray<readonly [string, string]> = [
     ['1', 'Critical'],
     ['2', 'High'],
     ['3', 'Medium'],
@@ -283,11 +332,25 @@ export async function runDataMigrations(log: FastifyBaseLogger): Promise<void> {
     ['5', 'Low'],
     ['6', 'Low'],
   ];
-  for (const [digit, priority] of numericMap) {
-    fixed += await prisma.$executeRaw`
-      UPDATE tickets SET priority = ${priority}
-      WHERE external_provider IS NULL AND priority = ${digit}`;
+  for (const [legacy, priority] of numericMap) {
+    const rows = await prisma.ticket.findMany({
+      where: { externalProvider: null, priority: legacy },
+      select: { id: true },
+    });
+    for (const row of rows) {
+      if (await ticketRepository.update(row.id, { priority }, actor)) fixed++;
+    }
   }
+
+  return fixed;
+}
+
+export async function runDataMigrations(log: FastifyBaseLogger): Promise<void> {
+  // 2.4.0 — the MCP tools historically taught agents a fictional "open"
+  // status and a numeric priority scale; the backend accepted any casing.
+  // Use repository mutations so the 2.7 event/snapshot spine converges with
+  // the normalized current row instead of preserving a stale pre-upgrade tail.
+  const fixed = await normalizeTicketVocabulary();
 
   if (fixed > 0) log.info(`Data migrations normalized ${fixed} ticket status/priority values.`);
 

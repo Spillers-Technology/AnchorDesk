@@ -4,6 +4,7 @@ module.exports = {
   setupFiles: ['<rootDir>/jest.setup.ts'],
   // Only unit-level suites that don't need a live DB run by default.
   testMatch: ['**/?(*.)+(spec|test).ts'],
+  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/integration/'],
   // @swc/jest transpiles TS for tests (ts-jest caps at TypeScript <7).
   // Type checking is `npm run build`'s job, matching CI order.
   // sanitize-html's parser tree (htmlparser2 v12 + dom* v6+) and otplib 13's

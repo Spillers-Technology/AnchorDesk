@@ -219,4 +219,181 @@ describe('frozen TicketSlaSnapshot history', () => {
     expect(db.ticketSlaSnapshot.findFirst).not.toHaveBeenCalled();
     expect(db.ticketSlaSnapshot.create).not.toHaveBeenCalled();
   });
+
+  it('establishes the terminal reprioritization target when the ticket is later reopened', async () => {
+    const established = new Date('2026-07-01T09:00:00Z');
+    const reprioritizedAt = new Date('2026-07-02T09:00:00Z');
+    const reopenedAt = new Date('2026-07-03T09:00:00Z');
+    const frozen = {
+      id: 10n,
+      ticketId: 42,
+      policyId: 1,
+      policyName: 'Standard',
+      responseMinutes: 60,
+      resolutionMinutes: 480,
+      responseDueAt: new Date('2026-07-01T10:00:00Z'),
+      resolutionDueAt: new Date('2026-07-01T17:00:00Z'),
+      establishedAt: established,
+    };
+    const urgentTarget = {
+      policyId: 2,
+      policyName: 'Urgent',
+      responseMinutes: 30,
+      resolutionMinutes: 240,
+      responseDueAt: new Date('2026-07-01T09:30:00Z'),
+      resolutionDueAt: new Date('2026-07-01T13:00:00Z'),
+    };
+    const resolved = {
+      id: 42,
+      title: 'Reopen SLA test',
+      status: 'Resolved',
+      priority: 'Medium',
+      companyId: 7,
+      companyName: 'Acme',
+      contactId: null,
+      assignee: null,
+      assigneeId: null,
+      teamId: null,
+      customFields: null,
+      slaPolicyId: 1,
+      responseDueAt: frozen.responseDueAt,
+      resolutionDueAt: frozen.resolutionDueAt,
+      createdAt: established,
+      updatedAt: established,
+      externalId: null,
+      externalProvider: null,
+      syncState: null,
+    };
+    const reprioritized = {
+      ...resolved,
+      priority: 'High',
+      slaPolicyId: 2,
+      responseDueAt: urgentTarget.responseDueAt,
+      resolutionDueAt: urgentTarget.resolutionDueAt,
+      updatedAt: reprioritizedAt,
+    };
+    const reopened = {
+      ...reprioritized,
+      status: 'In Progress',
+      updatedAt: reopenedAt,
+    };
+
+    db.ticket.findUnique
+      .mockResolvedValueOnce(resolved)
+      .mockResolvedValueOnce(reprioritized);
+    db.ticket.update
+      .mockResolvedValueOnce(reprioritized)
+      .mockResolvedValueOnce(reopened);
+    db.ticket.findUniqueOrThrow
+      .mockResolvedValueOnce(reprioritized)
+      .mockResolvedValueOnce(reopened);
+    db.ticketSlaSnapshot.findFirst.mockResolvedValue(frozen);
+    db.ticketSlaSnapshot.create.mockImplementation(async ({ data }) => ({ id: 11n, ...data }));
+    computeSla.mockResolvedValue({
+      slaPolicyId: 2,
+      responseDueAt: urgentTarget.responseDueAt,
+      resolutionDueAt: urgentTarget.resolutionDueAt,
+      snapshot: urgentTarget,
+    });
+
+    await updateTicket(42, { priority: 'High' }, 'alice');
+    expect(db.ticketSlaSnapshot.create).not.toHaveBeenCalled();
+
+    await updateTicket(42, { status: 'In Progress' }, 'alice');
+
+    expect(computeSla).toHaveBeenCalledTimes(2);
+    expect(computeSla).toHaveBeenLastCalledWith('High', 7, established);
+    expect(db.ticketSlaSnapshot.create).toHaveBeenCalledTimes(1);
+    expect(db.ticketSlaSnapshot.create).toHaveBeenCalledWith({
+      data: {
+        ticketId: 42,
+        ...urgentTarget,
+        establishedAt: reopenedAt,
+      },
+    });
+  });
+
+  it('treats companyId null as a real clear and appends the replacement target', async () => {
+    const established = new Date('2026-07-01T09:00:00Z');
+    const clearedAt = new Date('2026-07-02T09:00:00Z');
+    const companyTarget = {
+      id: 10n,
+      ticketId: 42,
+      policyId: 1,
+      policyName: 'Acme standard',
+      responseMinutes: 60,
+      resolutionMinutes: 480,
+      responseDueAt: new Date('2026-07-01T10:00:00Z'),
+      resolutionDueAt: new Date('2026-07-01T17:00:00Z'),
+      establishedAt: established,
+    };
+    const globalTarget = {
+      policyId: 3,
+      policyName: 'Global standard',
+      responseMinutes: 120,
+      resolutionMinutes: 960,
+      responseDueAt: new Date('2026-07-01T11:00:00Z'),
+      resolutionDueAt: new Date('2026-07-02T01:00:00Z'),
+    };
+    const before = {
+      id: 42,
+      title: 'Company clear SLA test',
+      status: 'In Progress',
+      priority: 'Medium',
+      companyId: 7,
+      companyName: 'Acme',
+      contactId: null,
+      assignee: null,
+      assigneeId: null,
+      teamId: null,
+      customFields: null,
+      slaPolicyId: 1,
+      responseDueAt: companyTarget.responseDueAt,
+      resolutionDueAt: companyTarget.resolutionDueAt,
+      createdAt: established,
+      updatedAt: established,
+      externalId: null,
+      externalProvider: null,
+      syncState: null,
+    };
+    const after = {
+      ...before,
+      companyId: null,
+      slaPolicyId: 3,
+      responseDueAt: globalTarget.responseDueAt,
+      resolutionDueAt: globalTarget.resolutionDueAt,
+      updatedAt: clearedAt,
+    };
+    db.ticket.findUnique.mockResolvedValue(before);
+    db.ticket.update.mockResolvedValue(after);
+    db.ticket.findUniqueOrThrow.mockResolvedValue(after);
+    db.ticketSlaSnapshot.findFirst.mockResolvedValue(companyTarget);
+    db.ticketSlaSnapshot.create.mockImplementation(async ({ data }) => ({ id: 11n, ...data }));
+    computeSla.mockResolvedValue({
+      slaPolicyId: 3,
+      responseDueAt: globalTarget.responseDueAt,
+      resolutionDueAt: globalTarget.resolutionDueAt,
+      snapshot: globalTarget,
+    });
+
+    await updateTicket(42, { companyId: null }, 'admin');
+
+    expect(computeSla).toHaveBeenCalledWith('Medium', null, established);
+    expect(db.ticket.update).toHaveBeenCalledWith({
+      where: { id: 42 },
+      data: expect.objectContaining({
+        companyId: null,
+        slaPolicyId: 3,
+        responseDueAt: globalTarget.responseDueAt,
+        resolutionDueAt: globalTarget.resolutionDueAt,
+      }),
+    });
+    expect(db.ticketSlaSnapshot.create).toHaveBeenCalledWith({
+      data: {
+        ticketId: 42,
+        ...globalTarget,
+        establishedAt: clearedAt,
+      },
+    });
+  });
 });

@@ -82,6 +82,9 @@ const OPTIONAL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_ticket_events_company_occurred ON ticket_events (company_id, occurred_at)`,
   `CREATE INDEX IF NOT EXISTS idx_ticket_events_team_occurred ON ticket_events (team_id, occurred_at)`,
   `CREATE INDEX IF NOT EXISTS idx_ticket_events_assignee_occurred ON ticket_events (assignee_id, occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ticket_events_backfill_occurred
+     ON ticket_events (occurred_at)
+     WHERE actor = 'backfill'`,
   `CREATE INDEX IF NOT EXISTS idx_ticket_sla_snapshots_ticket_established ON ticket_sla_snapshots (ticket_id, established_at)`,
   `CREATE INDEX IF NOT EXISTS idx_ticket_sla_snapshots_response_due ON ticket_sla_snapshots (response_due_at)`,
   `CREATE INDEX IF NOT EXISTS idx_ticket_sla_snapshots_resolution_due ON ticket_sla_snapshots (resolution_due_at)`,

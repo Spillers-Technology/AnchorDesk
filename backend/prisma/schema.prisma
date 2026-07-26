@@ -319,8 +319,11 @@ model Ticket {
   updatedAt        DateTime     @updatedAt @map("updated_at")
 
   assigneeUser  User?           @relation("AssignedTickets", fields: [assigneeId], references: [id])
-  team          Team?           @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  company       Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  // Deletion is routed through repositories so each affected ticket gets an
+  // audited metric-context transition. Restrict prevents a direct delete from
+  // silently nulling dimensions behind the reporting spine.
+  team          Team?           @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  company       Company?        @relation(fields: [companyId], references: [id], onDelete: Restrict)
   contact       Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
   slaPolicy     SlaPolicy?      @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
   notes         Note[]

@@ -186,6 +186,10 @@ export interface UpdateTicketOptions {
   origin?: 'local' | 'remote';
   /** Remote writes are compare-and-set against the revision read before HTTP. */
   expectedSyncRevision?: number;
+  /** Internal compare-and-set guards for bulk dimension maintenance. They keep
+   * an admin delete/backfill from overwriting a concurrent reassignment. */
+  expectedCompanyId?: number | null;
+  expectedTeamId?: number | null;
   /** Bookkeeping committed atomically with a successful remote-field apply. */
   syncResult?: {
     state: SyncState;
@@ -467,9 +471,12 @@ export async function update(
   actorSub: string,
   options: UpdateTicketOptions = {}
 ) {
-  // Company resolution can create the internal fallback Company and has its own
-  // audit path, so do it before taking the ticket row lock.
-  const resolvedCompany = input.companyId !== undefined
+  // Resolve a positive company id before taking the ticket row lock.
+  // `undefined` means "leave company alone"; an explicit null is a real clear
+  // used when a Company is being removed. Do not feed null through
+  // resolveTicketCompany(), whose create-time contract deliberately falls back
+  // to the internal company.
+  const resolvedCompany = input.companyId != null
     ? await resolveTicketCompany({ companyId: input.companyId }, actorSub)
     : null;
 
@@ -479,6 +486,18 @@ export async function update(
     await tx.$queryRaw(Prisma.sql`SELECT id FROM tickets WHERE id = ${id} FOR UPDATE`);
     const before = await tx.ticket.findUnique({ where: { id } });
     if (!before) return null;
+    if (
+      options.expectedCompanyId !== undefined &&
+      before.companyId !== options.expectedCompanyId
+    ) {
+      return null;
+    }
+    if (
+      options.expectedTeamId !== undefined &&
+      before.teamId !== options.expectedTeamId
+    ) {
+      return null;
+    }
 
     const data: Prisma.TicketUncheckedUpdateInput = {
       // Explicitly pick writable fields. Request bodies are runtime data, so
@@ -509,7 +528,14 @@ export async function update(
     }
 
     const priorityChanged = input.priority !== undefined && input.priority !== before.priority;
-    const companyChanged = resolvedCompany !== null && resolvedCompany.id !== before.companyId;
+    const companyCleared = input.companyId === null && before.companyId !== null;
+    const companyChanged =
+      companyCleared ||
+      (resolvedCompany !== null && resolvedCompany.id !== before.companyId);
+    const requestedStatus = input.status ?? before.status;
+    const reopensTicket =
+      reportingTerminalStatuses.has(before.status) &&
+      !reportingTerminalStatuses.has(requestedStatus);
     let retarget:
       | {
           policyId: number | null;
@@ -520,10 +546,12 @@ export async function update(
           resolutionDueAt: Date | null;
         }
       | null = null;
-    if (priorityChanged || companyChanged) {
+    if (priorityChanged || companyChanged || reopensTicket) {
       const sla = await computeSlaFields(
         input.priority ?? before.priority,
-        resolvedCompany?.id ?? before.companyId,
+        input.companyId === null
+          ? null
+          : resolvedCompany?.id ?? before.companyId,
         before.createdAt,
       );
       data.slaPolicyId = sla.slaPolicyId;

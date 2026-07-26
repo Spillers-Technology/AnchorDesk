@@ -1,5 +1,13 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
+import type { TicketMetricContext } from '../services/realtime/eventBus';
+
+/** Prisma maps PostgreSQL DateTime to UTC-naive TIMESTAMP(3), while raw-query
+ * Date parameters are instants. Normalize parameters to the column's UTC-naive
+ * representation so comparisons do not depend on the session TimeZone. */
+function utcNaiveTimestamp(value: Date): Prisma.Sql {
+  return Prisma.sql`(${value}::timestamptz AT TIME ZONE 'UTC')`;
+}
 
 export type TicketEventKind =
   | 'created'
@@ -53,6 +61,86 @@ export async function append(events: AppendTicketEvent[]): Promise<number> {
   return result.count;
 }
 
+interface MetricContextRow {
+  companyId: number | null;
+  teamId: number | null;
+  assigneeId: number | null;
+  priority: string | null;
+  status: string;
+}
+
+/**
+ * Recover ticket context at an immutable historical instant without consulting
+ * the mutable Ticket row. Dimension-bearing lifecycle facts and status-bearing
+ * facts are selected independently because assignment/context events do not
+ * overload fromValue/toValue with a status.
+ */
+export async function metricContextAt(
+  ticketId: number,
+  at: Date,
+): Promise<TicketMetricContext | null> {
+  if (!Number.isInteger(ticketId) || ticketId <= 0) {
+    throw new TypeError('ticketId must be a positive integer');
+  }
+  if (Number.isNaN(at.getTime())) {
+    throw new TypeError('at must be a valid date');
+  }
+  const atUtc = utcNaiveTimestamp(at);
+  const [row] = await prisma.$queryRaw<MetricContextRow[]>(Prisma.sql`
+    WITH dimension_context AS (
+      SELECT event.company_id,
+             event.team_id,
+             event.assignee_id,
+             event.priority
+      FROM ticket_events AS event
+      WHERE event.ticket_id = ${ticketId}
+        AND event.occurred_at <= ${atUtc}
+        AND event.kind IN (
+          'created',
+          'status_changed',
+          'assigned',
+          'context_changed',
+          'resolved',
+          'reopened',
+          'merged'
+        )
+      ORDER BY event.occurred_at DESC,
+               event.source_audit_id DESC NULLS LAST,
+               event.id DESC
+      LIMIT 1
+    ),
+    status_context AS (
+      SELECT CASE
+               WHEN event.kind = 'merged' THEN 'Closed'
+               ELSE event.to_value
+             END AS status
+      FROM ticket_events AS event
+      WHERE event.ticket_id = ${ticketId}
+        AND event.occurred_at <= ${atUtc}
+        AND event.kind IN (
+          'created',
+          'status_changed',
+          'resolved',
+          'reopened',
+          'merged'
+        )
+        AND (event.kind = 'merged' OR event.to_value IS NOT NULL)
+      ORDER BY event.occurred_at DESC,
+               event.source_audit_id DESC NULLS LAST,
+               event.id DESC
+      LIMIT 1
+    )
+    SELECT dimensions.company_id AS "companyId",
+           dimensions.team_id AS "teamId",
+           dimensions.assignee_id AS "assigneeId",
+           dimensions.priority,
+           status.status
+    FROM dimension_context AS dimensions
+    CROSS JOIN status_context AS status
+  `);
+  return row ? { ...row, occurredAt: new Date(at) } : null;
+}
+
 export interface ReportFilters {
   /** Inclusive UTC instant. */
   from: Date;
@@ -71,9 +159,9 @@ export interface ReportMeta {
   reconstructedThrough: Date | null;
 }
 
-export interface ReportResult<T> {
+export interface ReportResult<T, M extends ReportMeta = ReportMeta> {
   data: T;
-  meta: ReportMeta;
+  meta: M;
 }
 
 export class InvalidReportRangeError extends Error {
@@ -162,21 +250,29 @@ export interface VolumeBucket {
 export function volumeByDay(filters: ReportFilters): Promise<ReportResult<VolumeBucket[]>> {
   validateFilters(filters);
   const dim = dimensions('event', filters);
+  const fromUtc = utcNaiveTimestamp(filters.from);
+  const toUtc = utcNaiveTimestamp(filters.to);
   const query = prisma.$queryRaw<VolumeBucket[]>(Prisma.sql`
     WITH days AS (
       SELECT generate_series(
-        date_trunc('day', ${filters.from}::timestamptz AT TIME ZONE 'UTC'),
-        date_trunc('day', (${filters.to}::timestamptz - interval '1 microsecond') AT TIME ZONE 'UTC'),
+        date_trunc('day', ${fromUtc}),
+        date_trunc(
+          'day',
+          ${toUtc} - interval '1 microsecond'
+        ),
         interval '1 day'
       )::date AS day
     ),
     counts AS (
-      SELECT (event.occurred_at AT TIME ZONE 'UTC')::date AS day,
+      -- Prisma stores DateTime as a UTC-naive TIMESTAMP(3). Casting it directly
+      -- is stable in every PostgreSQL session timezone; AT TIME ZONE followed
+      -- by ::date would convert the instant back through the session timezone.
+      SELECT event.occurred_at::date AS day,
              count(*) FILTER (WHERE event.kind = 'created')::int AS created,
              count(*) FILTER (WHERE event.kind = 'resolved')::int AS resolved
       FROM ticket_events AS event
-      WHERE event.occurred_at >= ${filters.from}
-        AND event.occurred_at < ${filters.to}
+      WHERE event.occurred_at >= ${fromUtc}
+        AND event.occurred_at < ${toUtc}
         AND event.kind IN ('created', 'resolved')
         ${dim}
       GROUP BY 1
@@ -215,12 +311,14 @@ export async function durationPercentiles(
 ): Promise<ReportResult<DurationPercentiles>> {
   validateFilters(filters);
   const dim = dimensions('outcome', filters);
+  const fromUtc = utcNaiveTimestamp(filters.from);
+  const toUtc = utcNaiveTimestamp(filters.to);
   const rowsPromise = prisma.$queryRaw<DurationRow[]>(Prisma.sql`
     WITH created AS (
       SELECT DISTINCT ON (ticket_id) ticket_id, occurred_at
       FROM ticket_events
       WHERE kind = 'created'
-      ORDER BY ticket_id, occurred_at, id
+      ORDER BY ticket_id, occurred_at, source_audit_id NULLS LAST, id
     ),
     first_outcomes AS (
       SELECT DISTINCT ON (event.ticket_id, event.kind)
@@ -232,15 +330,16 @@ export async function durationPercentiles(
              event.assignee_id
       FROM ticket_events AS event
       WHERE event.kind IN ('first_response', 'resolved')
-      ORDER BY event.ticket_id, event.kind, event.occurred_at, event.id
+      ORDER BY event.ticket_id, event.kind, event.occurred_at,
+               event.source_audit_id NULLS LAST, event.id
     ),
     durations AS (
       SELECT outcome.kind,
              extract(epoch FROM (outcome.occurred_at - created.occurred_at)) / 60.0 AS minutes
       FROM first_outcomes AS outcome
       JOIN created USING (ticket_id)
-      WHERE outcome.occurred_at >= ${filters.from}
-        AND outcome.occurred_at < ${filters.to}
+      WHERE outcome.occurred_at >= ${fromUtc}
+        AND outcome.occurred_at < ${toUtc}
         AND outcome.occurred_at >= created.occurred_at
         ${dim}
     )
@@ -303,16 +402,32 @@ export interface SlaComplianceRow {
   onTrack: number;
 }
 
+export interface SlaComplianceMeta extends ReportMeta {
+  /** Earliest immutable SLA promise recorded by the 2.7 snapshot spine. */
+  slaSnapshotCoverageFrom: Date | null;
+  /** True when part of the requested window predates recorded SLA promises. */
+  includesUnrecordedSlaHistory: boolean;
+}
+
+interface SlaCoverageRow {
+  sla_snapshot_coverage_from: Date | null;
+}
+
 /**
  * SLA promises due in the requested window. An uncompleted promise superseded
  * before its deadline is excluded; a completion while that promise was active
  * remains countable. Completion is compared with the frozen due timestamp.
  * `onTrack` is explicit because met/breached/at-risk are not exhaustive.
  */
-export function slaCompliance(filters: ReportFilters): Promise<ReportResult<SlaComplianceRow[]>> {
+export async function slaCompliance(
+  filters: ReportFilters,
+): Promise<ReportResult<SlaComplianceRow[], SlaComplianceMeta>> {
   validateFilters(filters);
   const dim = dimensions('context', filters);
   const cutoff = new Date(Math.min(filters.to.getTime(), Date.now()));
+  const fromUtc = utcNaiveTimestamp(filters.from);
+  const toUtc = utcNaiveTimestamp(filters.to);
+  const cutoffUtc = utcNaiveTimestamp(cutoff);
   const query = prisma.$queryRaw<SlaComplianceRow[]>(Prisma.sql`
     WITH snapshot_order AS (
       SELECT snapshot.*,
@@ -331,8 +446,8 @@ export function slaCompliance(filters: ReportFilters): Promise<ReportResult<SlaC
              snapshot.response_due_at AS due_at,
              snapshot.response_minutes AS target_minutes
       FROM snapshot_order AS snapshot
-      WHERE snapshot.response_due_at >= ${filters.from}
-        AND snapshot.response_due_at < ${filters.to}
+      WHERE snapshot.response_due_at >= ${fromUtc}
+        AND snapshot.response_due_at < ${toUtc}
         AND NOT EXISTS (
           SELECT 1 FROM ticket_events AS prior_response
           WHERE prior_response.ticket_id = snapshot.ticket_id
@@ -348,8 +463,8 @@ export function slaCompliance(filters: ReportFilters): Promise<ReportResult<SlaC
              snapshot.resolution_due_at AS due_at,
              snapshot.resolution_minutes AS target_minutes
       FROM snapshot_order AS snapshot
-      WHERE snapshot.resolution_due_at >= ${filters.from}
-        AND snapshot.resolution_due_at < ${filters.to}
+      WHERE snapshot.resolution_due_at >= ${fromUtc}
+        AND snapshot.resolution_due_at < ${toUtc}
     ),
     measured AS (
       SELECT target.kind,
@@ -363,7 +478,9 @@ export function slaCompliance(filters: ReportFilters): Promise<ReportResult<SlaC
         FROM ticket_events AS event
         WHERE event.ticket_id = target.ticket_id
           AND event.occurred_at <= target.established_at
-        ORDER BY event.occurred_at DESC, event.id DESC
+        ORDER BY event.occurred_at DESC,
+                 event.source_audit_id DESC NULLS LAST,
+                 event.id DESC
         LIMIT 1
       ) AS context ON true
       LEFT JOIN LATERAL (
@@ -376,8 +493,10 @@ export function slaCompliance(filters: ReportFilters): Promise<ReportResult<SlaC
             target.superseded_at IS NULL
             OR event.occurred_at < target.superseded_at
           )
-          AND event.occurred_at <= ${cutoff}
-        ORDER BY event.occurred_at, event.id
+          AND event.occurred_at <= ${cutoffUtc}
+        ORDER BY event.occurred_at,
+                 event.source_audit_id NULLS LAST,
+                 event.id
         LIMIT 1
       ) AS outcome ON true
       WHERE true ${dim}
@@ -386,8 +505,8 @@ export function slaCompliance(filters: ReportFilters): Promise<ReportResult<SlaC
       SELECT kind,
              CASE
                WHEN completed_at IS NOT NULL AND completed_at <= due_at THEN 'met'
-               WHEN completed_at > due_at OR ${cutoff} >= due_at THEN 'breached'
-               WHEN ${cutoff} >= due_at -
+               WHEN completed_at > due_at OR ${cutoffUtc} >= due_at THEN 'breached'
+               WHEN ${cutoffUtc} >= due_at -
                  make_interval(mins => least(greatest(target_minutes * 0.25, 5), 120)::int)
                  THEN 'at_risk'
                ELSE 'on_track'
@@ -411,7 +530,28 @@ export function slaCompliance(filters: ReportFilters): Promise<ReportResult<SlaC
     GROUP BY clocks.kind
     ORDER BY clocks.kind
   `);
-  return withMeta(filters, query);
+  const coverageQuery = prisma.$queryRaw<SlaCoverageRow[]>(Prisma.sql`
+    SELECT min(established_at) AS sla_snapshot_coverage_from
+    FROM ticket_sla_snapshots
+  `);
+  const [result, coverageRows] = await Promise.all([
+    withMeta(filters, query),
+    coverageQuery,
+  ]);
+  const slaSnapshotCoverageFrom =
+    coverageRows[0]?.sla_snapshot_coverage_from ?? null;
+  return {
+    data: result.data,
+    meta: {
+      ...result.meta,
+      slaSnapshotCoverageFrom,
+      // No historical snapshots were fabricated on upgrade. A null boundary
+      // therefore means SLA history has not started being recorded at all.
+      includesUnrecordedSlaHistory:
+        slaSnapshotCoverageFrom === null ||
+        filters.from < slaSnapshotCoverageFrom,
+    },
+  };
 }
 
 export interface BacklogAgeBucket {
@@ -425,12 +565,13 @@ export function backlogAgeBuckets(
 ): Promise<ReportResult<BacklogAgeBucket[]>> {
   validateFilters(filters);
   const dim = dimensions('context', filters);
+  const toUtc = utcNaiveTimestamp(filters.to);
   const query = prisma.$queryRaw<BacklogAgeBucket[]>(Prisma.sql`
     WITH created AS (
       SELECT DISTINCT ON (ticket_id) ticket_id, occurred_at
       FROM ticket_events
-      WHERE kind = 'created' AND occurred_at < ${filters.to}
-      ORDER BY ticket_id, occurred_at, id
+      WHERE kind = 'created' AND occurred_at < ${toUtc}
+      ORDER BY ticket_id, occurred_at, source_audit_id NULLS LAST, id
     ),
     latest_state AS (
       SELECT DISTINCT ON (event.ticket_id)
@@ -440,21 +581,29 @@ export function backlogAgeBuckets(
                ELSE event.to_value
              END AS status
       FROM ticket_events AS event
-      WHERE event.occurred_at < ${filters.to}
+      WHERE event.occurred_at < ${toUtc}
         AND event.kind IN ('created', 'status_changed', 'resolved', 'reopened', 'merged')
-      ORDER BY event.ticket_id, event.occurred_at DESC, event.id DESC
+      ORDER BY event.ticket_id, event.occurred_at DESC,
+               event.source_audit_id DESC NULLS LAST, event.id DESC
     ),
     open_tickets AS (
       SELECT created.ticket_id,
-             extract(epoch FROM (${filters.to}::timestamptz - created.occurred_at)) / 86400.0 AS age_days
+             extract(
+               epoch FROM (
+                 ${toUtc} -
+                 created.occurred_at
+               )
+             ) / 86400.0 AS age_days
       FROM created
       JOIN latest_state USING (ticket_id)
       LEFT JOIN LATERAL (
         SELECT event.company_id, event.team_id, event.assignee_id
         FROM ticket_events AS event
         WHERE event.ticket_id = created.ticket_id
-          AND event.occurred_at < ${filters.to}
-        ORDER BY event.occurred_at DESC, event.id DESC
+          AND event.occurred_at < ${toUtc}
+        ORDER BY event.occurred_at DESC,
+                 event.source_audit_id DESC NULLS LAST,
+                 event.id DESC
         LIMIT 1
       ) AS context ON true
       WHERE latest_state.status NOT IN ('Resolved', 'Closed', 'Deleted')
@@ -495,6 +644,8 @@ export function throughputByAssignee(
 ): Promise<ReportResult<AssigneeThroughput[]>> {
   validateFilters(filters);
   const dim = dimensions('event', filters);
+  const fromUtc = utcNaiveTimestamp(filters.from);
+  const toUtc = utcNaiveTimestamp(filters.to);
   const query = prisma.$queryRaw<AssigneeThroughput[]>(Prisma.sql`
     SELECT event.assignee_id AS "assigneeId",
            coalesce(app_user.display_name, app_user.username) AS "assigneeName",
@@ -502,8 +653,8 @@ export function throughputByAssignee(
     FROM ticket_events AS event
     LEFT JOIN users AS app_user ON app_user.id = event.assignee_id
     WHERE event.kind = 'resolved'
-      AND event.occurred_at >= ${filters.from}
-      AND event.occurred_at < ${filters.to}
+      AND event.occurred_at >= ${fromUtc}
+      AND event.occurred_at < ${toUtc}
       ${dim}
     GROUP BY event.assignee_id, app_user.display_name, app_user.username
     ORDER BY resolved DESC, event.assignee_id NULLS LAST
@@ -522,6 +673,8 @@ export function throughputByTeam(
 ): Promise<ReportResult<TeamThroughput[]>> {
   validateFilters(filters);
   const dim = dimensions('event', filters);
+  const fromUtc = utcNaiveTimestamp(filters.from);
+  const toUtc = utcNaiveTimestamp(filters.to);
   const query = prisma.$queryRaw<TeamThroughput[]>(Prisma.sql`
     SELECT event.team_id AS "teamId",
            team.name AS "teamName",
@@ -529,8 +682,8 @@ export function throughputByTeam(
     FROM ticket_events AS event
     LEFT JOIN teams AS team ON team.id = event.team_id
     WHERE event.kind = 'resolved'
-      AND event.occurred_at >= ${filters.from}
-      AND event.occurred_at < ${filters.to}
+      AND event.occurred_at >= ${fromUtc}
+      AND event.occurred_at < ${toUtc}
       ${dim}
     GROUP BY event.team_id, team.name
     ORDER BY resolved DESC, event.team_id NULLS LAST
@@ -562,6 +715,8 @@ export function timeLoggedByCompany(
   const authorFilter = filters.assigneeId !== undefined
     ? Prisma.sql`AND note.author_id = ${filters.assigneeId}`
     : Prisma.empty;
+  const fromUtc = utcNaiveTimestamp(filters.from);
+  const toUtc = utcNaiveTimestamp(filters.to);
   const query = prisma.$queryRaw<CompanyTimeLogged[]>(Prisma.sql`
     WITH entries AS (
       SELECT note.id,
@@ -580,12 +735,14 @@ export function timeLoggedByCompany(
         FROM ticket_events AS event
         WHERE event.ticket_id = coalesce(note.origin_ticket_id, note.ticket_id)
           AND event.occurred_at <= note.worked_at
-        ORDER BY event.occurred_at DESC, event.id DESC
+        ORDER BY event.occurred_at DESC,
+                 event.source_audit_id DESC NULLS LAST,
+                 event.id DESC
         LIMIT 1
       ) AS context ON true
       WHERE note.note_type = 'time_entry'
-        AND note.worked_at >= ${filters.from}
-        AND note.worked_at < ${filters.to}
+        AND note.worked_at >= ${fromUtc}
+        AND note.worked_at < ${toUtc}
         ${contextDimensions}
         ${authorFilter}
     )

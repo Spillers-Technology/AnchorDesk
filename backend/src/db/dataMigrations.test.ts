@@ -5,14 +5,21 @@ jest.mock('./prisma', () => ({
     $transaction: jest.fn(),
     connection: { findMany: jest.fn() },
     setting: { findUnique: jest.fn() },
+    ticket: { findMany: jest.fn() },
   },
 }));
 
+jest.mock('../repositories/ticketRepository', () => ({
+  update: jest.fn(),
+}));
+
 import { prisma } from './prisma';
+import * as ticketRepository from '../repositories/ticketRepository';
 import {
   backfillTicketEvents,
   backfillWorkedAt,
   legacyJiraScope,
+  normalizeTicketVocabulary,
   runDataMigrations,
   TICKET_EVENT_BACKFILL_SQL,
 } from './dataMigrations';
@@ -23,7 +30,9 @@ const db = prisma as unknown as {
   $transaction: jest.Mock;
   connection: { findMany: jest.Mock };
   setting: { findUnique: jest.Mock };
+  ticket: { findMany: jest.Mock };
 };
+const ticketUpdate = ticketRepository.update as jest.Mock;
 
 describe('legacyJiraScope', () => {
   it('reads projectKey and jql off a pre-2.5 settings row', () => {
@@ -69,6 +78,12 @@ describe('2.7 reporting-spine data backfills', () => {
     expect([...durableSourceRows]).toEqual(idsAfterFirstRun);
     expect(TICKET_EVENT_BACKFILL_SQL).toContain('source_audit_id');
     expect(TICKET_EVENT_BACKFILL_SQL).toContain("'backfill'");
+    expect(TICKET_EVENT_BACKFILL_SQL).toMatch(
+      /::timestamptz\s+AT TIME ZONE 'UTC'/,
+    );
+    expect(TICKET_EVENT_BACKFILL_SQL).toContain(
+      'ORDER BY occurred_at, source_audit_id, kind',
+    );
     expect(TICKET_EVENT_BACKFILL_SQL).toContain('ON CONFLICT DO NOTHING');
   });
 
@@ -80,6 +95,49 @@ describe('2.7 reporting-spine data backfills', () => {
     expect(sql).toContain('worked_at = coalesce(time_start, created_at)');
     expect(sql).toContain('worked_at IS NULL');
   });
+
+  it('normalizes legacy vocabulary through audited ticket mutations', async () => {
+    db.ticket.findMany
+      // Six canonical status casing scans.
+      .mockResolvedValueOnce([{ id: 10 }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      // "open", four priority casing scans, then six numeric scans.
+      .mockResolvedValueOnce([{ id: 11 }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 12 }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    ticketUpdate.mockResolvedValue({ id: 1 });
+
+    await expect(normalizeTicketVocabulary()).resolves.toBe(3);
+
+    expect(ticketUpdate).toHaveBeenCalledWith(
+      10,
+      { status: 'New' },
+      'system:data-migration',
+    );
+    expect(ticketUpdate).toHaveBeenCalledWith(
+      11,
+      { status: 'New' },
+      'system:data-migration',
+    );
+    expect(ticketUpdate).toHaveBeenCalledWith(
+      12,
+      { priority: 'High' },
+      'system:data-migration',
+    );
+    expect(db.$executeRaw).not.toHaveBeenCalled();
+  });
 });
 
 describe('2.5 connection data migration', () => {
@@ -88,6 +146,7 @@ describe('2.5 connection data migration', () => {
     db.$executeRaw.mockResolvedValue(0);
     db.$executeRawUnsafe.mockResolvedValue(0);
     db.setting.findUnique.mockResolvedValue(null);
+    db.ticket.findMany.mockResolvedValue([]);
   });
 
   it('unlinks jobs and tickets in the same transaction before deleting an illegal ConnectWise connection', async () => {

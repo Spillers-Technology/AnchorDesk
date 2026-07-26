@@ -366,6 +366,11 @@ describe('optional Postgres extras', () => {
       LEGACY_EXTERNAL_IDENTITY_INDEX_SQL,
     );
     expect(db.$executeRawUnsafe.mock.calls.length).toBeGreaterThan(14);
+    expect(
+      db.$executeRawUnsafe.mock.calls.map(([sql]) => sql).join('\n'),
+    ).toContain(
+      "idx_ticket_events_backfill_occurred\n     ON ticket_events (occurred_at)\n     WHERE actor = 'backfill'",
+    );
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         err: expect.any(Error),

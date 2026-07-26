@@ -20,6 +20,7 @@ import { FastifyBaseLogger } from 'fastify';
 import { prisma } from '../db/prisma';
 import { publish } from './realtime/eventBus';
 import { effectiveResolutionDueAt } from './sla';
+import * as ticketEvents from '../repositories/ticketEventRepository';
 
 const POLL_INTERVAL_MS = 60_000;
 const TERMINAL_STATUSES = ['Closed', 'Resolved', 'Completed', 'Cancelled', 'Deleted'];
@@ -43,7 +44,7 @@ function evaluate(createdAt: Date, dueAt: Date, now: number): Level | null {
   return null;
 }
 
-function fire(
+async function fire(
   ticket: {
     id: number;
     companyId: number | null;
@@ -56,8 +57,10 @@ function fire(
   level: Level,
   dueAt: Date,
   targetSource: 'sla' | 'manual',
-  occurredAt: Date,
+  polledAt: Date,
   targetIdentity: string,
+  metricOccurredAt: Date,
+  log: FastifyBaseLogger,
 ) {
   // A breach supersedes a prior warning for the same clock.
   // The target is part of the key: a legitimate re-target may warn/breach
@@ -65,6 +68,25 @@ function fire(
   const targetKey = `${ticket.id}:${kind}:${targetIdentity}`;
   const key = `${targetKey}:${level}`;
   if (alerted.has(key)) return;
+  const metricContext =
+    level === 'breached' && targetSource === 'sla'
+      ? await ticketEvents.metricContextAt(ticket.id, metricOccurredAt)
+      : {
+          companyId: ticket.companyId,
+          teamId: ticket.teamId,
+          assigneeId: ticket.assigneeId,
+          priority: ticket.priority,
+          status: ticket.status,
+          occurredAt: polledAt,
+        };
+  if (level === 'breached' && targetSource === 'sla' && !metricContext) {
+    // Notifications may still fire, but the metric subscriber must not guess
+    // historical ownership from the mutable ticket row.
+    log.error(
+      { ticketId: ticket.id, kind, dueAt, metricOccurredAt },
+      'Cannot record SLA breach without event context when the promise became breached',
+    );
+  }
   if (level === 'breached') alerted.add(`${targetKey}:warning`); // suppress late warnings
   alerted.add(key);
   publish({
@@ -75,14 +97,7 @@ function fire(
     dueAt,
     targetSource,
     targetIdentity,
-    metricContext: {
-      companyId: ticket.companyId,
-      teamId: ticket.teamId,
-      assigneeId: ticket.assigneeId,
-      priority: ticket.priority,
-      status: ticket.status,
-      occurredAt,
-    },
+    metricContext: metricContext ?? undefined,
   });
 }
 
@@ -123,6 +138,7 @@ async function tick(log: FastifyBaseLogger) {
           select: {
             id: true,
             ticketId: true,
+            establishedAt: true,
             responseDueAt: true,
             resolutionDueAt: true,
           },
@@ -140,11 +156,13 @@ async function tick(log: FastifyBaseLogger) {
       if (!t.firstRespondedAt && t.responseDueAt) {
         const level = evaluate(t.createdAt, t.responseDueAt, now);
         if (level) {
+          const snapshotMatches =
+            snapshot?.responseDueAt?.getTime() === t.responseDueAt.getTime();
           const targetIdentity =
-            snapshot?.responseDueAt?.getTime() === t.responseDueAt.getTime()
+            snapshotMatches
               ? `snapshot:${snapshot.id}`
               : `due:${t.responseDueAt.toISOString()}`;
-          fire(
+          await fire(
             t,
             'response',
             level,
@@ -152,6 +170,10 @@ async function tick(log: FastifyBaseLogger) {
             'sla',
             new Date(now),
             targetIdentity,
+            snapshotMatches && snapshot.establishedAt > t.responseDueAt
+              ? snapshot.establishedAt
+              : t.responseDueAt,
+            log,
           );
         }
       }
@@ -159,7 +181,10 @@ async function tick(log: FastifyBaseLogger) {
       if (resolutionDue) {
         const level = evaluate(t.createdAt, resolutionDue, now);
         if (level) {
-          fire(
+          const snapshotMatches =
+            !t.dueAt &&
+            snapshot?.resolutionDueAt?.getTime() === resolutionDue.getTime();
+          await fire(
             t,
             'resolution',
             level,
@@ -168,9 +193,13 @@ async function tick(log: FastifyBaseLogger) {
             new Date(now),
             t.dueAt
               ? `manual:${resolutionDue.toISOString()}`
-              : snapshot?.resolutionDueAt?.getTime() === resolutionDue.getTime()
+              : snapshotMatches
                 ? `snapshot:${snapshot.id}`
                 : `due:${resolutionDue.toISOString()}`,
+            snapshotMatches && snapshot.establishedAt > resolutionDue
+              ? snapshot.establishedAt
+              : resolutionDue,
+            log,
           );
         }
       }
