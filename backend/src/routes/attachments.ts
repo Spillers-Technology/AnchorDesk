@@ -38,6 +38,7 @@ export async function attachmentRoutes(server: FastifyInstance) {
             storageBackend: storage.backend,
             storageKey: key,
             createdBy: req.actorSub,
+            portalVisible: false,
           },
           req.actorSub,
         );

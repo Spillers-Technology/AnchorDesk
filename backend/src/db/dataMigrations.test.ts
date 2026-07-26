@@ -2,6 +2,7 @@ jest.mock('./prisma', () => ({
   prisma: {
     $executeRaw: jest.fn(),
     $executeRawUnsafe: jest.fn(),
+    $queryRaw: jest.fn(),
     $transaction: jest.fn(),
     connection: { findMany: jest.fn() },
     setting: { findUnique: jest.fn() },
@@ -18,6 +19,7 @@ import * as ticketRepository from '../repositories/ticketRepository';
 import {
   backfillTicketEvents,
   backfillWorkedAt,
+  classifyLegacyEmailCorrespondence,
   legacyJiraScope,
   normalizeTicketVocabulary,
   runDataMigrations,
@@ -27,6 +29,7 @@ import {
 const db = prisma as unknown as {
   $executeRaw: jest.Mock;
   $executeRawUnsafe: jest.Mock;
+  $queryRaw: jest.Mock;
   $transaction: jest.Mock;
   connection: { findMany: jest.Mock };
   setting: { findUnique: jest.Mock };
@@ -145,6 +148,7 @@ describe('2.5 connection data migration', () => {
     jest.clearAllMocks();
     db.$executeRaw.mockResolvedValue(0);
     db.$executeRawUnsafe.mockResolvedValue(0);
+    db.$queryRaw.mockResolvedValue([{ attachments: 0, notes: 0 }]);
     db.setting.findUnique.mockResolvedValue(null);
     db.ticket.findMany.mockResolvedValue([]);
   });
@@ -195,6 +199,36 @@ describe('2.5 connection data migration', () => {
     );
     expect(log.warn).toHaveBeenCalledWith(
       expect.stringContaining('Disabled 2 ConnectWise sync job(s)')
+    );
+  });
+});
+
+describe('2.7 portal correspondence data migration', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    db.$executeRaw.mockResolvedValue(0);
+    db.$queryRaw.mockResolvedValue([{ attachments: 0, notes: 0 }]);
+  });
+
+  it('classifies only unclassified legacy email notes and their attachments', async () => {
+    db.$queryRaw.mockResolvedValueOnce([{ attachments: 2, notes: 3 }]);
+    const log = { info: jest.fn(), warn: jest.fn() };
+
+    await classifyLegacyEmailCorrespondence(log as never);
+
+    expect(db.$queryRaw).toHaveBeenCalledTimes(1);
+    const sql = String(
+      (db.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join(''),
+    );
+    expect(sql).toContain("note_type = 'email'");
+    expect(sql).toContain('via IS NULL');
+    expect(sql).toContain('portal_visible = true');
+    expect(sql).toContain("visibility = 'public'");
+    expect(sql).toContain('legacy_email_notes AS MATERIALIZED');
+    expect(log.info).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'classified 3 legacy email note(s) and 2 attachment(s)',
+      ),
     );
   });
 });

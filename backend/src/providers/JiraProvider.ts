@@ -202,6 +202,10 @@ export class JiraProvider implements TicketProvider {
       content: jira.fromADF(c.body),
       author: c.author?.displayName ?? 'Unknown',
       noteType: 'note' as const,
+      // This platform endpoint lacks JSM's explicit `public` bit. A platform
+      // visibility object proves restriction, but absence does not prove a
+      // service-desk comment is requester-visible, so v1 fails closed.
+      visibility: 'internal' as const,
       createdAt: c.created ? new Date(c.created) : undefined,
     }));
   }

@@ -18,4 +18,8 @@ describe("syncProvidersForTicket", () => {
       "api",
     ]);
   });
+
+  it("keeps customer-portal provenance visible on ordinary tickets", () => {
+    expect(syncProvidersForTicket({ source: "portal" })).toEqual(["portal"]);
+  });
 });

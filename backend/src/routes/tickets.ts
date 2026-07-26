@@ -557,6 +557,8 @@ export async function ticketRoutes(server: FastifyInstance) {
         author: req.user?.displayName ?? req.actorSub,
         authorId: req.user?.id ?? undefined,
         queueForTicketSync: (body.noteType ?? 'note') === 'note',
+        visibility: (body.noteType ?? 'note') === 'note' ? 'public' : 'internal',
+        via: req.authChannel,
       },
       req.actorSub
     );
@@ -710,6 +712,9 @@ export async function ticketRoutes(server: FastifyInstance) {
         timeStart,
         timeStop,
         workedAt,
+        // Time entries are never customer-visible, whatever the channel.
+        visibility: 'internal',
+        via: req.authChannel,
       },
       req.actorSub
     );

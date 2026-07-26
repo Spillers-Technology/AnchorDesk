@@ -43,7 +43,15 @@ function wanted(envVar, name) {
   return filter.split(",").map((s) => s.trim()).includes(name);
 }
 
-async function newDeviceContext(browser, device, { authenticated = true } = {}) {
+async function newDeviceContext(
+  browser,
+  device,
+  {
+    authenticated = true,
+    portalAuthenticated = true,
+    startPath = "/",
+  } = {}
+) {
   const context = await browser.newContext({
     viewport: device.viewport,
     deviceScaleFactor: 2,
@@ -55,8 +63,8 @@ async function newDeviceContext(browser, device, { authenticated = true } = {}) 
     page.on("console", (message) => console.log(`BROWSER ${message.type()}: ${message.text()}`));
     page.on("pageerror", (error) => console.log(`BROWSER pageerror: ${error.message}`));
   }
-  await installApiMock(page, { authenticated });
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+  await installApiMock(page, { authenticated, portalAuthenticated });
+  await page.goto(`${baseUrl}${startPath}`, { waitUntil: "domcontentloaded" });
   await freezeAnimations(page);
   return { context, page };
 }
@@ -101,6 +109,86 @@ async function assertWideArticleContentScrollable(page, view) {
 
 async function captureDevice(browser, device) {
   console.log(`\n${device.name} (${device.viewport.width}×${device.viewport.height})`);
+
+  // The customer portal is a separate HTML entry and bundle. Exercise it in
+  // its own contexts so a staff session can never mask requester-only states.
+  if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-login")) {
+    const { context, page } = await newDeviceContext(browser, device, {
+      portalAuthenticated: false,
+      startPath: "/portal/login",
+    });
+    await page
+      .getByRole("button", { name: "Email me a sign-in link" })
+      .waitFor({ timeout: 20_000 });
+    await shoot(page, device, "portal-login");
+    await context.close();
+  }
+
+  const portalViews = [
+    "portal-tickets",
+    "portal-new-ticket",
+    "portal-ticket",
+    "portal-comment",
+    "portal-attachment",
+  ];
+  if (portalViews.some((name) => wanted("ANCHORDESK_CAPTURE_VIEWS", name))) {
+    const { context, page } = await newDeviceContext(browser, device, {
+      startPath: "/portal/tickets",
+    });
+    try {
+      await page.getByRole("heading", { name: "My tickets" }).waitFor({ timeout: 20_000 });
+      if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-tickets")) {
+        await shoot(page, device, "portal-tickets");
+      }
+
+      if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-new-ticket")) {
+        await page.goto(`${baseUrl}/portal/tickets/new`, { waitUntil: "domcontentloaded" });
+        const summary = page.getByLabel("Summary");
+        await summary.fill("Conference room display will not connect");
+        await page
+          .getByText("Does this answer it?", { exact: true })
+          .waitFor({ timeout: 20_000 });
+        await shoot(page, device, "portal-new-ticket");
+      }
+
+      if (
+        wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-ticket")
+        || wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-comment")
+        || wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-attachment")
+      ) {
+        await page.goto(`${baseUrl}/portal/tickets/801`, { waitUntil: "domcontentloaded" });
+        await page
+          .getByRole("heading", { name: "Conference room display will not connect" })
+          .waitFor({ timeout: 20_000 });
+        if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-ticket")) {
+          await shoot(page, device, "portal-ticket");
+        }
+
+        if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-comment")) {
+          const comment = page.getByLabel("Comment");
+          await comment.fill("The display controller is now blinking amber.");
+          await comment.evaluate((element) => element.scrollIntoView({ block: "center" }));
+          await shoot(page, device, "portal-comment");
+        }
+
+        if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-attachment")) {
+          const input = page.getByLabel("Upload attachments");
+          await input.setInputFiles({
+            name: "room-controller.jpg",
+            mimeType: "image/jpeg",
+            buffer: Buffer.from("mock portal attachment"),
+          });
+          await page.getByText("File uploaded.", { exact: true }).waitFor({ timeout: 20_000 });
+          await page
+            .getByText("room-controller.jpg", { exact: true })
+            .evaluate((element) => element.scrollIntoView({ block: "center" }));
+          await shoot(page, device, "portal-attachment");
+        }
+      }
+    } finally {
+      await context.close();
+    }
+  }
 
   // Login renders only for an unauthenticated user, so it gets its own context.
   if (wanted("ANCHORDESK_CAPTURE_VIEWS", "login")) {

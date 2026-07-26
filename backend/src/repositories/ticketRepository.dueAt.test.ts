@@ -54,6 +54,7 @@ function existingTicket(overrides: Record<string, unknown> = {}) {
     status: 'Open',
     priority: 'Medium',
     companyId: 7,
+    contactId: 9,
     companyName: 'Acme',
     customFields: null,
     createdAt: new Date('2026-07-15T08:00:00Z'),
@@ -119,5 +120,15 @@ describe('ticketRepository.update dueAt handling', () => {
     ticketFindUnique.mockResolvedValue(existingTicket());
     await update(42, { dueAt: new Date('2026-07-21T09:00:00Z') }, 'alice');
     expect(computeSla).not.toHaveBeenCalled();
+  });
+
+  it('quarantines prior requester history when ticket ownership changes', async () => {
+    ticketFindUnique.mockResolvedValue(existingTicket());
+
+    await update(42, { contactId: 10 }, 'alice');
+
+    const data = ticketUpdate.mock.calls[0][0].data;
+    expect(data.contactId).toBe(10);
+    expect(data.portalAccessRevokedAt).toBeInstanceOf(Date);
   });
 });

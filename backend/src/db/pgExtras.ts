@@ -51,6 +51,32 @@ export const TICKET_NUMBER_SEQUENCE_SQL =
   `CREATE SEQUENCE IF NOT EXISTS ticket_number_seq AS bigint ` +
   `START WITH ${10 ** (config.ticketNumberDigits - 1)} ` +
   `MINVALUE ${10 ** (config.ticketNumberDigits - 1)}`;
+export const SESSION_PRINCIPAL_CHECK_NAME = 'sessions_scope_principal_check';
+export const SESSION_PRINCIPAL_CHECK_SQL = `
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_constraint AS constraint_meta
+      JOIN pg_catalog.pg_class AS table_meta
+        ON table_meta.oid = constraint_meta.conrelid
+      JOIN pg_catalog.pg_namespace AS schema_meta
+        ON schema_meta.oid = table_meta.relnamespace
+      WHERE schema_meta.nspname = current_schema()
+        AND table_meta.relname = 'sessions'
+        AND constraint_meta.conname = '${SESSION_PRINCIPAL_CHECK_NAME}'
+    ) THEN
+      ALTER TABLE sessions
+        ADD CONSTRAINT ${SESSION_PRINCIPAL_CHECK_NAME}
+        CHECK (
+          (scope = 'staff' AND user_id IS NOT NULL AND contact_id IS NULL)
+          OR
+          (scope = 'portal' AND user_id IS NULL AND contact_id IS NOT NULL)
+        ) NOT VALID;
+    END IF;
+  END
+  $$;
+`;
 
 const EXPECTED_LEGACY_IDENTITY_PREDICATE =
   'sync_connection_idisnullandexternal_idisnotnullandexternal_providerisnotnull';
@@ -119,6 +145,13 @@ const OPTIONAL_STATEMENTS = [
 
 function normalizePredicate(predicate: string | null): string {
   return (predicate ?? '').toLowerCase().replace(/["()\s]/g, '');
+}
+
+function normalizeCheckDefinition(definition: string | null): string {
+  return (definition ?? '')
+    .toLowerCase()
+    .replace(/::"?sessionscope"?/g, '')
+    .replace(/["()\s]/g, '');
 }
 
 /**
@@ -217,6 +250,49 @@ export async function ensureLegacyExternalIdentityInvariant(): Promise<void> {
   if (!valid) {
     throw new CriticalPgInvariantError(
       `Critical PostgreSQL invariant "${LEGACY_EXTERNAL_IDENTITY_INDEX_NAME}" is missing or has an unexpected definition`,
+    );
+  }
+}
+
+/**
+ * A Session is deliberately polymorphic, but never ambiguous: staff rows bind
+ * to one User and portal rows bind to one Contact. Prisma cannot express this
+ * cross-column CHECK, so create and catalog-validate it before listening.
+ *
+ * Application resolution repeats the same positive checks. This constraint is
+ * the structural backstop for direct SQL, Prisma Studio, and future write paths.
+ */
+export async function ensureSessionPrincipalInvariant(): Promise<void> {
+  await prisma.$executeRawUnsafe(SESSION_PRINCIPAL_CHECK_SQL);
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE sessions VALIDATE CONSTRAINT ${SESSION_PRINCIPAL_CHECK_NAME}`,
+  );
+
+  const rows = await prisma.$queryRawUnsafe<
+    Array<{ is_validated: boolean; definition: string | null }>
+  >(`
+    SELECT constraint_meta.convalidated AS is_validated,
+           pg_catalog.pg_get_constraintdef(constraint_meta.oid, true) AS definition
+    FROM pg_catalog.pg_constraint AS constraint_meta
+    JOIN pg_catalog.pg_class AS table_meta
+      ON table_meta.oid = constraint_meta.conrelid
+    JOIN pg_catalog.pg_namespace AS schema_meta
+      ON schema_meta.oid = table_meta.relnamespace
+    WHERE schema_meta.nspname = current_schema()
+      AND table_meta.relname = 'sessions'
+      AND constraint_meta.conname = '${SESSION_PRINCIPAL_CHECK_NAME}'
+      AND constraint_meta.contype = 'c'
+  `);
+
+  const expected =
+    "checkscope='staff'anduser_idisnotnullandcontact_idisnullorscope='portal'anduser_idisnullandcontact_idisnotnull";
+  if (
+    rows.length !== 1 ||
+    rows[0].is_validated !== true ||
+    normalizeCheckDefinition(rows[0].definition) !== expected
+  ) {
+    throw new CriticalPgInvariantError(
+      `Critical PostgreSQL invariant "${SESSION_PRINCIPAL_CHECK_NAME}" is missing or has an unexpected definition`,
     );
   }
 }
@@ -528,6 +604,7 @@ export async function ensurePgExtras(log: FastifyBaseLogger): Promise<void> {
   // has been proven.
   await ensureRuntimeDependencies();
   await ensureLegacyExternalIdentityInvariant();
+  await ensureSessionPrincipalInvariant();
   await ensureTicketHierarchyInvariant();
   await ensureLiveMergeLedgerInvariant();
   await ensureReportingSpineInvariants();

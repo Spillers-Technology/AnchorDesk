@@ -1,4 +1,4 @@
-import { NoteType } from '@prisma/client';
+import { Note, NoteType, Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
 import { publish, TicketMetricContext } from '../services/realtime/eventBus';
@@ -30,6 +30,10 @@ export interface CreateNoteInput {
   emailBcc?: string;
   subject?: string;
   inReplyTo?: string;
+  /** Customer-facing classification. Defaults to internal at the schema layer. */
+  visibility?: 'internal' | 'public';
+  /** Authored/ingested channel, e.g. web, email, mcp, portal, automation, rmm. */
+  via?: string;
 }
 
 export interface UpdateNoteInput {
@@ -98,7 +102,12 @@ export async function listForTicket(ticketId: number) {
   });
 }
 
-export async function create(ticketId: number, input: CreateNoteInput, actorSub: string) {
+export async function create(
+  ticketId: number,
+  input: CreateNoteInput,
+  actorSub: string,
+  transaction?: Prisma.TransactionClient,
+) {
   const recordedAt = input.createdAt ?? new Date();
   const isTimeEntry = input.noteType === 'time_entry';
   if (isTimeEntry && input.timeStart && input.workedAt) {
@@ -110,13 +119,16 @@ export async function create(ticketId: number, input: CreateNoteInput, actorSub:
     ? input.timeStart ?? input.workedAt ?? recordedAt
     : undefined;
 
-  const result = await prisma.$transaction(async (tx) => {
+  const write = async (tx: Prisma.TransactionClient) => {
     // Serialize with ticket updates before capturing report dimensions. Without
     // this lock, a concurrent company/assignee change could make a note fact
     // describe a state that was never actually in force at its occurrence.
     await tx.$queryRaw<Array<{ id: number }>>`
       SELECT id FROM tickets WHERE id = ${ticketId} FOR UPDATE
     `;
+    // Read unconditionally, not just when queueForTicketSync: the reporting
+    // spine needs the dimensions on every note, and the old conditional read
+    // existed only to skip work the sync path didn't need.
     const ticket = await tx.ticket.findUnique({
       where: { id: ticketId },
       select: {
@@ -135,8 +147,7 @@ export async function create(ticketId: number, input: CreateNoteInput, actorSub:
       (ticket.externalProvider === 'jira' || ticket.externalProvider === 'connectwise')
     );
 
-    const row = await tx.note.create({
-      data: {
+    const data = {
         ticketId,
         content: input.content,
         author: clamp(input.author, 150),
@@ -159,8 +170,10 @@ export async function create(ticketId: number, input: CreateNoteInput, actorSub:
         emailBcc: input.emailBcc,
         subject: clamp(input.subject, 255),
         inReplyTo: clamp(input.inReplyTo, 255),
-      },
-    });
+        visibility: input.visibility,
+        via: clamp(input.via, 20),
+      } as Prisma.NoteUncheckedCreateInput;
+    const row = await tx.note.create({ data });
 
     const auditRow = await audit.record({
       entityType: 'note',
@@ -196,19 +209,54 @@ export async function create(ticketId: number, input: CreateNoteInput, actorSub:
       firstResponseRecorded,
       context,
     };
-  });
+  };
+
+  const result = transaction ? await write(transaction) : await prisma.$transaction(write);
   const { note, auditId, firstResponseRecorded, context } = result;
 
+  // A caller-supplied transaction has not committed yet. That caller must
+  // publish explicitly after its outer transaction succeeds, passing the
+  // reporting payload through — a deferred publish that dropped metricContext
+  // would leave the fact row without the dimensions captured under the lock.
+  if (!transaction) {
+    publishCreatedNote(ticketId, note, actorSub, {
+      auditId,
+      firstResponseRecorded,
+      metricContext: context,
+    });
+  }
+  return note;
+}
+
+/**
+ * Emit `note.added` for a created note.
+ *
+ * `reporting` carries what the write transaction captured under the ticket row
+ * lock. A caller that supplied its own transaction publishes after committing
+ * and must pass it through: the reporting spine derives a note fact's
+ * company/team/assignee/priority from `metricContext`, and without it the fact
+ * would either be dropped or — worse — be rebuilt from the mutable ticket row
+ * as it looks later, which is exactly what the lock exists to prevent.
+ */
+export function publishCreatedNote(
+  ticketId: number,
+  note: Note,
+  actorSub: string,
+  reporting?: {
+    auditId?: string;
+    firstResponseRecorded?: boolean;
+    metricContext?: TicketMetricContext;
+  },
+): void {
   publish({
     type: 'note.added',
     ticketId,
     note,
     actor: actorSub,
-    auditId,
-    firstResponseRecorded,
-    metricContext: context,
+    auditId: reporting?.auditId,
+    firstResponseRecorded: reporting?.firstResponseRecorded,
+    metricContext: reporting?.metricContext,
   });
-  return note;
 }
 
 export async function update(id: number, ticketId: number, input: UpdateNoteInput, actorSub: string) {

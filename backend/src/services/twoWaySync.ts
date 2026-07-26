@@ -20,7 +20,11 @@
 import crypto from 'crypto';
 import { Ticket } from '@prisma/client';
 import { prisma } from '../db/prisma';
-import { ExternalTicket, TicketProvider } from '../providers/TicketProvider';
+import {
+  ExternalTicket,
+  localVisibilityForExternalNote,
+  TicketProvider,
+} from '../providers/TicketProvider';
 import { tryCreateTicketProviderFor } from '../providers/ticketProviderFactory';
 import * as ticketRepo from '../repositories/ticketRepository';
 import * as noteRepo from '../repositories/noteRepository';
@@ -449,6 +453,8 @@ async function pullNotes(ticket: Ticket, provider: TicketProvider): Promise<numb
         timeStop: n.timeStop,
         createdAt: n.createdAt,
         externalId: n.externalId,
+        visibility: localVisibilityForExternalNote(n),
+        via: 'sync',
       },
       'system'
     );

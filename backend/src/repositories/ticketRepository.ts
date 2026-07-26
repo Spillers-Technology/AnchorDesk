@@ -199,6 +199,25 @@ export interface UpdateTicketOptions {
   };
 }
 
+export interface CreateTicketOptions {
+  /**
+   * Optional Contact identity guard for requester-originated creation. The
+   * Contact row is locked and revalidated in the insert/audit transaction.
+   */
+  requester?: {
+    contactId: number;
+    companyId: number;
+    email: string;
+  };
+}
+
+export class RequesterIdentityChangedError extends Error {
+  constructor() {
+    super('requester identity changed');
+    this.name = 'RequesterIdentityChangedError';
+  }
+}
+
 export class TicketSyncRevisionConflictError extends Error {
   constructor(readonly ticketId: number) {
     super('ticket changed locally while reconciliation was in progress');
@@ -382,7 +401,11 @@ async function nextTicketNumber(): Promise<string> {
   return String(nextval).padStart(numberDigits, '0');
 }
 
-export async function create(input: CreateTicketInput, actorSub: string) {
+export async function create(
+  input: CreateTicketInput,
+  actorSub: string,
+  options: CreateTicketOptions = {},
+) {
   // Every ticket belongs to a real Company row. Named legacy/sync inputs are
   // promoted, while genuinely unclassified work falls back to the internal
   // company so downstream company views, SLA rules, and contacts stay usable.
@@ -400,6 +423,23 @@ export async function create(input: CreateTicketInput, actorSub: string) {
     ? await mergeCustomFields(null, input.customFields)
     : null;
   const { ticket, auditId } = await prisma.$transaction(async (tx) => {
+    if (options.requester) {
+      // Portal-originated create: prove the requester still owns this contact
+      // and company before the ticket exists. FOR SHARE holds that identity
+      // steady for the life of the transaction, so a concurrent contact
+      // reassignment cannot land the ticket under the wrong owner.
+      const expectedEmail = options.requester.email.trim().toLowerCase();
+      const locked = await tx.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+        SELECT id
+        FROM contacts
+        WHERE id = ${options.requester.contactId}
+          AND company_id = ${options.requester.companyId}
+          AND lower(btrim(email)) = ${expectedEmail}
+        FOR SHARE
+      `);
+      if (locked.length !== 1) throw new RequesterIdentityChangedError();
+    }
+
     const row = await tx.ticket.create({
       data: {
         // Clamp bounded VarChar columns so wild inbound email subjects/Message-IDs
@@ -532,6 +572,17 @@ export async function update(
     const companyChanged =
       companyCleared ||
       (resolvedCompany !== null && resolvedCompany.id !== before.companyId);
+    // Ownership transfer does not carry proof that the recipient may read the
+    // previous requester's conversation, and attachments hold no per-item
+    // audience data to reconstruct it from. Preserve staff access, but
+    // quarantine the whole ticket from portal reads until a reviewed-transfer
+    // flow exists. A second reassignment must not silently clear this.
+    const contactChanged =
+      input.contactId !== undefined && input.contactId !== before.contactId;
+    if (companyChanged || contactChanged) {
+      data.portalAccessRevokedAt = new Date();
+    }
+
     const requestedStatus = input.status ?? before.status;
     const reopensTicket =
       reportingTerminalStatuses.has(before.status) &&

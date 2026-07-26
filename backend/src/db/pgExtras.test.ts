@@ -18,10 +18,13 @@ import {
   ensurePgExtras,
   ensureReportingSpineInvariants,
   ensureRuntimeDependencies,
+  ensureSessionPrincipalInvariant,
   ensureTicketHierarchyInvariant,
   LEGACY_EXTERNAL_IDENTITY_INDEX_NAME,
   LEGACY_EXTERNAL_IDENTITY_INDEX_SQL,
   PG_TRGM_EXTENSION_SQL,
+  SESSION_PRINCIPAL_CHECK_NAME,
+  SESSION_PRINCIPAL_CHECK_SQL,
   TICKET_NUMBER_SEQUENCE_SQL,
 } from './pgExtras';
 
@@ -101,6 +104,17 @@ function validReportingTriggers() {
       definition: 'EXECUTE FUNCTION anchordesk_reject_reporting_fact_mutation()',
     },
   ];
+}
+
+function validSessionConstraint(overrides: Record<string, unknown> = {}) {
+  return {
+    is_validated: true,
+    definition:
+      `CHECK (((scope = 'staff'::"SessionScope") AND (user_id IS NOT NULL) ` +
+      `AND (contact_id IS NULL)) OR ((scope = 'portal'::"SessionScope") ` +
+      `AND (user_id IS NULL) AND (contact_id IS NOT NULL)))`,
+    ...overrides,
+  };
 }
 
 function logger() {
@@ -201,6 +215,46 @@ describe('critical runtime dependencies', () => {
     db.$queryRawUnsafe.mockResolvedValue([validRuntime(overrides)]);
     await expect(ensureRuntimeDependencies()).rejects.toBeInstanceOf(
       CriticalPgInvariantError
+    );
+  });
+});
+
+describe('critical scoped-session principal invariant', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    db.$executeRawUnsafe.mockResolvedValue(0);
+    db.$queryRawUnsafe.mockResolvedValue([validSessionConstraint()]);
+  });
+
+  it('creates, validates, and catalog-checks the exact principal pairing', async () => {
+    await expect(ensureSessionPrincipalInvariant()).resolves.toBeUndefined();
+    expect(db.$executeRawUnsafe).toHaveBeenNthCalledWith(
+      1,
+      SESSION_PRINCIPAL_CHECK_SQL,
+    );
+    expect(db.$executeRawUnsafe.mock.calls[1][0]).toContain(
+      `VALIDATE CONSTRAINT ${SESSION_PRINCIPAL_CHECK_NAME}`,
+    );
+    expect(db.$queryRawUnsafe.mock.calls[0][0]).toContain(
+      SESSION_PRINCIPAL_CHECK_NAME,
+    );
+  });
+
+  it.each([
+    ['absent', []],
+    ['not validated', [validSessionConstraint({ is_validated: false })]],
+    [
+      'weaker/wrong definition',
+      [
+        validSessionConstraint({
+          definition: `CHECK (user_id IS NOT NULL OR contact_id IS NOT NULL)`,
+        }),
+      ],
+    ],
+  ])('fails closed when the constraint is %s', async (_case, rows) => {
+    db.$queryRawUnsafe.mockResolvedValue(rows);
+    await expect(ensureSessionPrincipalInvariant()).rejects.toBeInstanceOf(
+      CriticalPgInvariantError,
     );
   });
 });
@@ -329,6 +383,7 @@ describe('optional Postgres extras', () => {
     db.$queryRawUnsafe
       .mockResolvedValueOnce([validRuntime()])
       .mockResolvedValueOnce([validIndex()])
+      .mockResolvedValueOnce([validSessionConstraint()])
       .mockResolvedValueOnce([{ enabled: 'O' }])
       // The live-merge-ledger partial unique index, verified after the trigger.
       .mockResolvedValueOnce([validLiveMergeIndex()])
@@ -337,27 +392,19 @@ describe('optional Postgres extras', () => {
   });
 
   it('logs an optional failure and continues through the remaining statements', async () => {
-    // Fourteen required statements run before the optional ones: the prior
-    // seven plus source-identity indexes and append-only trigger setup. The
-    // rejection below is therefore the FIRST optional
-    // statement — a required one failing must abort startup, not warn.
-    db.$executeRawUnsafe
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockRejectedValueOnce(new Error('optional index unavailable'))
-      .mockResolvedValue(0);
+    // Fail the statement by WHAT IT IS, not by how many ran before it.
+    // Counting positions couples this test to the number of required
+    // invariants, so it broke twice in one release as workstreams added their
+    // own — and each time the fix was to re-count, which teaches nothing. The
+    // behaviour under test is "an OPTIONAL statement failing is a warning; a
+    // required one failing aborts startup", so target an optional statement
+    // directly and let the required set grow freely.
+    db.$executeRawUnsafe.mockImplementation(async (sql: string) => {
+      if (sql.includes('idx_tickets_fts')) {
+        throw new Error('optional index unavailable');
+      }
+      return 0;
+    });
     const log = logger();
 
     await expect(ensurePgExtras(log)).resolves.toBeUndefined();
@@ -371,6 +418,7 @@ describe('optional Postgres extras', () => {
     ).toContain(
       "idx_ticket_events_backfill_occurred\n     ON ticket_events (occurred_at)\n     WHERE actor = 'backfill'",
     );
+    expect(db.$executeRawUnsafe.mock.calls.length).toBeGreaterThan(9);
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         err: expect.any(Error),
