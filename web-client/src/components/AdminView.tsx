@@ -53,6 +53,7 @@ import GroupsIcon from "@mui/icons-material/Groups";
 import DynamicFormIcon from "@mui/icons-material/DynamicForm";
 import BoltIcon from "@mui/icons-material/Bolt";
 import ChecklistIcon from "@mui/icons-material/Checklist";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 import AlternateEmailIcon from "@mui/icons-material/AlternateEmail";
 import SyncIcon from "@mui/icons-material/Sync";
 import EditIcon from "@mui/icons-material/Edit";
@@ -61,6 +62,7 @@ import * as api from "../api/client";
 import { TICKET_PRIORITIES } from "../ticketVocab";
 import { useIsPhone } from "../theme/useIsPhone";
 import ChecklistTemplatesPanel from "./admin/ChecklistTemplatesPanel";
+import KbArticlesPanel from "./admin/KbArticlesPanel";
 import TicketSyncPanel from "./admin/TicketSyncPanel";
 import ConfirmDialog from "./admin/ConfirmDialog";
 import PanelSearch, { rowMatches } from "./admin/PanelSearch";
@@ -78,7 +80,7 @@ import {
 
 type AdminSection =
   | "overview" | "users" | "auth" | "integrations" | "interface" | "sla" | "mailboxes" | "mail" | "labels"
-  | "teams" | "custom-fields" | "checklists" | "automations" | "ticket-sync" | "probes" | "devices" | "audit";
+  | "teams" | "custom-fields" | "checklists" | "knowledge-base" | "automations" | "ticket-sync" | "probes" | "devices" | "audit";
 
 /** Rail sections grouped the way admins think about them. */
 const NAV_GROUPS: { heading: string | null; items: { id: AdminSection; label: string; icon: React.ReactNode }[] }[] = [
@@ -101,6 +103,7 @@ const NAV_GROUPS: { heading: string | null; items: { id: AdminSection; label: st
       { id: "labels", label: "Labels", icon: <LabelIcon /> },
       { id: "custom-fields", label: "Custom Fields", icon: <DynamicFormIcon /> },
       { id: "checklists", label: "Checklists", icon: <ChecklistIcon /> },
+      { id: "knowledge-base", label: "Knowledge Base", icon: <MenuBookIcon /> },
       { id: "automations", label: "Automations", icon: <BoltIcon /> },
       { id: "interface", label: "Interface", icon: <TuneIcon /> },
     ],
@@ -180,6 +183,7 @@ export default function AdminView({ onOpenTickets }: { onOpenTickets?: () => voi
         {section === "teams" && <TeamsPanel />}
         {section === "custom-fields" && <CustomFieldsPanel />}
         {section === "checklists" && <ChecklistTemplatesPanel />}
+        {section === "knowledge-base" && <KbArticlesPanel />}
         {section === "automations" && <AutomationsPanel />}
         {section === "ticket-sync" && <TicketSyncPanel />}
         {section === "probes" && <ProbesPanel />}
