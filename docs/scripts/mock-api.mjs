@@ -1789,7 +1789,15 @@ export async function handleApi(route) {
   if (method === "POST" && apiPath === "/portal/auth/logout") {
     return json(route, { ok: true });
   }
-  if (method === "GET" && apiPath === "/kb/search") {
+  // Portal deflection only. Scoped to visibility=portal so it does not shadow
+  // the ranked staff KB search defined further down — both workstreams added a
+  // /kb/search handler, and an unscoped one here silently made every staff
+  // search return the portal fixtures.
+  if (
+    method === "GET" &&
+    apiPath === "/kb/search" &&
+    url.searchParams.get("visibility") === "portal"
+  ) {
     return json(route, { items: portalKbItems });
   }
   if (method === "GET" && apiPath === "/portal/tickets") {
