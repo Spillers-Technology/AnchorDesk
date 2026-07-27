@@ -552,6 +552,20 @@ async function captureDevice(browser, device) {
       }
     }
 
+    if (view("admin-customer-portal")) {
+      const portalSettingsUrl = new URL(baseUrl);
+      portalSettingsUrl.searchParams.set("admin", "customer-portal");
+      await page.goto(portalSettingsUrl.href, { waitUntil: "domcontentloaded" });
+      await freezeAnimations(page);
+      // MUI 9's Switch exposes role="switch", not checkbox.
+      await page
+        .getByRole("switch", { name: "Enable the customer portal" })
+        .waitFor({ timeout: 20_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await assertNoHorizontalPageScroll(page, "admin-customer-portal");
+      await shoot(page, device, "admin-customer-portal");
+    }
+
     if (view("admin-knowledge-base")) {
       const adminKnowledgeBaseUrl = new URL(baseUrl);
       adminKnowledgeBaseUrl.searchParams.set("admin", "knowledge-base");

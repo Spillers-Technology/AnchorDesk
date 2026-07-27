@@ -1889,6 +1889,10 @@ export async function handleApi(route) {
   if (method === "GET" && apiPath === "/auth/setup-status") return json(route, { needed: false });
   if (method === "GET" && apiPath === "/auth/config") return json(route, { local: true, oidc: true, saml: false });
   if (method === "GET" && apiPath === "/ui-settings") return json(route, { legacyTableView: false });
+  // Captured in its default state: off is what a fresh install actually looks
+  // like, and the panel's warning copy differs between the two.
+  if (method === "GET" && apiPath === "/portal-settings") return json(route, { enabled: false });
+  if (method === "PATCH" && apiPath === "/portal-settings") return json(route, { enabled: true });
 
   const reportPaths = new Set([
     "/reports/volume",

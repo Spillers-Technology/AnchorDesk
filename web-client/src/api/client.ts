@@ -482,6 +482,24 @@ export function updateUiSettings(data: Partial<UiSettings>) {
   return request<UiSettings>("/ui-settings", { method: "PATCH", body: JSON.stringify(data) });
 }
 
+// ─── Customer portal switch ──────────────────────────────────────────────────
+
+export interface PortalSettings {
+  enabled: boolean;
+}
+
+/** Admin-only in both directions, unlike ui-settings. */
+export function getPortalSettings() {
+  return request<PortalSettings>("/portal-settings");
+}
+
+export function updatePortalSettings(data: Partial<PortalSettings>) {
+  return request<PortalSettings>("/portal-settings", {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
 // ─── Mailboxes (IMAP email-to-ticket) ─────────────────────────────────────────
 
 export interface Mailbox {
