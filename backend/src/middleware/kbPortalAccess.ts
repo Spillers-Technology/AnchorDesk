@@ -8,6 +8,7 @@
  * visibility boundary do not need to change.
  */
 import type { FastifyRequest } from 'fastify';
+import { isPortalEnabled } from '../services/settingsService';
 
 export function isPortalKbReadRequest(request: Pick<FastifyRequest, 'method' | 'url'>): boolean {
   if (request.method.toUpperCase() !== 'GET') return false;
@@ -28,9 +29,16 @@ export async function authorizePortalKbRead(
 ): Promise<boolean> {
   if (!isPortalKbReadRequest(request)) return false;
 
-  // PORTAL PRINCIPAL SEAM (Workstream C):
-  // Replace this `true` with portal-session resolution/authorization when the
-  // Contact-backed principal is merged. Do not move visibility decisions here:
-  // the called repository methods remain hard-coded to published+portal.
-  return true;
+  // The portal switch is the authorization. While it is off — the default —
+  // these reads require ordinary staff auth like everything else, so upgrading
+  // never turns AnchorDesk's first anonymous data-returning endpoint on by
+  // itself. While it is on, the shop has decided to publish a customer-facing
+  // portal, and published `portal`-visibility articles are exactly the content
+  // that decision covers.
+  //
+  // Visibility is NOT decided here: the repository functions this reaches are
+  // hard-coded to deleted_at IS NULL AND published AND visibility = 'portal',
+  // and re-check that before serializing. This gate only answers "may anyone
+  // ask?", never "what may they see?".
+  return isPortalEnabled();
 }

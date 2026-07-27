@@ -1,3 +1,10 @@
+// The 2.7 release gate defaults the portal OFF. These suites exercise the
+// portal working, so they run with it switched on; portalEnabled.test.ts owns
+// the default-off behaviour.
+jest.mock('../services/settingsService', () => ({
+  isPortalEnabled: jest.fn().mockResolvedValue(true),
+}));
+
 jest.mock('../services/auth/portalMagicLinks', () => ({
   requestMagicLink: jest.fn(),
   redeemMagicLink: jest.fn(),

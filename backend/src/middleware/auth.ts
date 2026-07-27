@@ -29,6 +29,7 @@ import { isPortalSessionAllowed, isPublic } from './publicPaths';
 import { mcpWwwAuthenticateHeader } from '../services/auth/mcpOAuth';
 import { authorizePortalKbRead } from './kbPortalAccess';
 import type { RequesterPrincipal } from '../types/principal';
+import { isPortalEnabled } from '../services/settingsService';
 
 export { isPublic };
 
@@ -162,11 +163,17 @@ function unauthorized(request: FastifyRequest, reply: FastifyReply) {
   return reply.status(401).send({ error: 'Authentication required' });
 }
 
-function applyRequesterSession(
+async function applyRequesterSession(
   request: FastifyRequest,
   reply: FastifyReply,
   principal: RequesterPrincipal,
 ) {
+  // Re-checked per request, not at sign-in: switching the portal off must take
+  // effect on the next request rather than whenever existing cookies happen to
+  // expire. An admin turning it off is usually reacting to something.
+  if (!(await isPortalEnabled())) {
+    return reply.status(403).send({ error: 'The customer portal is not enabled' });
+  }
   request.principal = principal;
   request.actorSub = actorFor(
     `requester:${principal.contactId}`,
@@ -197,7 +204,7 @@ export async function registerAuthHook(server: FastifyInstance) {
       if (sessionToken) {
         const principal = await resolveScopedSession(sessionToken);
         if (principal?.kind === 'requester') {
-          return applyRequesterSession(request, reply, principal);
+          return await applyRequesterSession(request, reply, principal);
         }
       }
       request.user = DEV_ADMIN;
@@ -219,7 +226,7 @@ export async function registerAuthHook(server: FastifyInstance) {
       ? await resolveScopedSession(sessionToken)
       : null;
     if (sessionPrincipal?.kind === 'requester') {
-      return applyRequesterSession(request, reply, sessionPrincipal);
+      return await applyRequesterSession(request, reply, sessionPrincipal);
     }
 
     if (isPublic(request.url, request.method)) return;

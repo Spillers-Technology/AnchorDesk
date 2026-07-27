@@ -21,6 +21,7 @@ import { isPlainRecord } from '../util/objects';
 import * as twoWaySync from '../services/twoWaySync';
 import { sanitizeSyncError } from '../repositories/syncRunRepository';
 import { RequesterIdentityChangedError } from '../repositories/ticketRepository';
+import { isPortalEnabled } from '../services/settingsService';
 
 interface IdParam {
   id: string;
@@ -92,6 +93,17 @@ function commentBody(value: unknown): { content: string } | string {
 }
 
 export async function portalRoutes(server: FastifyInstance) {
+  // Release gate: while the customer portal is switched off (the default) these
+  // routes do not exist. 404 rather than 403 on purpose — an anonymous prober
+  // should not learn that a shop has a portal at all, and the magic-link
+  // endpoint is deliberately non-disclosing everywhere else too.
+  server.addHook('onRequest', async (_request, reply) => {
+    if (!(await isPortalEnabled())) {
+      return reply.status(404).send({ error: 'Not found' });
+    }
+  });
+
+
   // This hook is encapsulated with the registered portal plugin, so every
   // requester business response (including errors and file downloads) is
   // non-cacheable without changing staff/API caching behavior.

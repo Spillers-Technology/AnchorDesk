@@ -19,6 +19,7 @@ import {
 } from '../services/auth/sessions';
 import { revokePortalSession } from '../repositories/portalAuthRepository';
 import { actorFor } from '../middleware/auth';
+import { isPortalEnabled } from '../services/settingsService';
 
 export const MAGIC_LINK_GENERIC_RESPONSE = {
   ok: true,
@@ -103,6 +104,17 @@ function requireJson(request: FastifyRequest, reply: FastifyReply): boolean {
 }
 
 export async function portalAuthRoutes(server: FastifyInstance) {
+  // Release gate: while the customer portal is switched off (the default) these
+  // routes do not exist. 404 rather than 403 on purpose — an anonymous prober
+  // should not learn that a shop has a portal at all, and the magic-link
+  // endpoint is deliberately non-disclosing everywhere else too.
+  server.addHook('onRequest', async (_request, reply) => {
+    if (!(await isPortalEnabled())) {
+      return reply.status(404).send({ error: 'Not found' });
+    }
+  });
+
+
   /**
    * Return before contact lookup or SMTP. Besides keeping the response generic,
    * this keeps known/unknown/ambiguous addresses off observably different DB and
