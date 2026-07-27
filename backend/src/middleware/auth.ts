@@ -295,7 +295,16 @@ export async function registerAuthHook(server: FastifyInstance) {
 function enforceBaseline(request: FastifyRequest, reply: FastifyReply) {
   const method = request.method.toUpperCase();
   const isWrite = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
-  if (isWrite && request.user.role === 'readonly') {
+  // MCP multiplexes read and mutation tools through one POST endpoint. Its
+  // parsed-body handler binds the transport to this user and allows readonly
+  // callers only an explicit set of read tools. No other POST is exempt.
+  const isMcpMessageTransport =
+    request.url.split('?')[0] === '/mcp/messages';
+  if (
+    isWrite &&
+    request.user.role === 'readonly' &&
+    !isMcpMessageTransport
+  ) {
     return reply.status(403).send({ error: 'Read-only role cannot modify data' });
   }
 }

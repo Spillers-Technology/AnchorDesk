@@ -208,7 +208,9 @@ function dimensions(alias: string, filters: ReportFilters): Prisma.Sql {
     : Prisma.empty;
 }
 
-async function reportMeta(filters: ReportFilters): Promise<ReportMeta> {
+/** Provenance shared by REST, MCP, and TIME drill-down responses. */
+export async function reportProvenance(filters: ReportFilters): Promise<ReportMeta> {
+  validateFilters(filters);
   const [bounds] = await prisma.$queryRaw<
     Array<{ reconstructed_from: Date | null; reconstructed_through: Date | null }>
   >(Prisma.sql`
@@ -236,7 +238,7 @@ async function reportMeta(filters: ReportFilters): Promise<ReportMeta> {
 
 async function withMeta<T>(filters: ReportFilters, query: Promise<T>): Promise<ReportResult<T>> {
   validateFilters(filters);
-  const [data, meta] = await Promise.all([query, reportMeta(filters)]);
+  const [data, meta] = await Promise.all([query, reportProvenance(filters)]);
   return { data, meta };
 }
 
@@ -554,6 +556,192 @@ export async function slaCompliance(
   };
 }
 
+export interface TicketSlaTimelineTicket {
+  id: number;
+  ticketNumber: string | null;
+  title: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TicketSlaTimelineEvent {
+  id: string;
+  kind: TicketEventKind;
+  fromValue: string | null;
+  toValue: string | null;
+  actor: string | null;
+  companyId: number | null;
+  teamId: number | null;
+  assigneeId: number | null;
+  priority: string | null;
+  occurredAt: Date;
+  sourceAuditId: string | null;
+}
+
+export interface TicketSlaTimelineTarget {
+  id: string;
+  policyId: number | null;
+  policyName: string | null;
+  responseMinutes: number | null;
+  resolutionMinutes: number | null;
+  responseDueAt: Date | null;
+  resolutionDueAt: Date | null;
+  establishedAt: Date;
+  /** The next frozen target establishment, or null while this target remains current. */
+  supersededAt: Date | null;
+}
+
+export interface TicketSlaTimelineData {
+  ticket: TicketSlaTimelineTicket;
+  events: TicketSlaTimelineEvent[];
+  targets: TicketSlaTimelineTarget[];
+}
+
+export interface TicketSlaTimelineMeta extends ReportMeta {
+  /** True when the caller omitted a range and the repository used the recorded ticket life. */
+  rangeDerived: boolean;
+}
+
+interface TimelineBoundsRow {
+  earliest: Date | null;
+  latest: Date | null;
+}
+
+/**
+ * One ticket's recorded lifecycle and the immutable SLA targets that overlapped
+ * it. The current SlaPolicy relation is intentionally absent: a policy edit or
+ * deletion must never repaint this track.
+ *
+ * When no range is supplied, use the complete recorded life, extending through
+ * a future frozen due point when one exists. The +1ms upper edge preserves the
+ * repository-wide [from,to) contract for a fact exactly on the last timestamp.
+ */
+export async function ticketSlaTimeline(
+  ticketId: number,
+  requestedRange?: Pick<ReportFilters, 'from' | 'to'>,
+): Promise<ReportResult<TicketSlaTimelineData, TicketSlaTimelineMeta> | null> {
+  if (!Number.isInteger(ticketId) || ticketId <= 0) {
+    throw new InvalidReportRangeError('ticketId must be a positive integer');
+  }
+  if (requestedRange) validateFilters(requestedRange);
+
+  const [ticket, boundsRows] = await Promise.all([
+    prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: {
+        id: true,
+        ticketNumber: true,
+        title: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }),
+    prisma.$queryRaw<TimelineBoundsRow[]>(Prisma.sql`
+      SELECT least(
+               (SELECT min(event.occurred_at)
+                FROM ticket_events AS event
+                WHERE event.ticket_id = ${ticketId}),
+               (SELECT min(snapshot.established_at)
+                FROM ticket_sla_snapshots AS snapshot
+                WHERE snapshot.ticket_id = ${ticketId})
+             ) AS earliest,
+             greatest(
+               (SELECT max(event.occurred_at)
+                FROM ticket_events AS event
+                WHERE event.ticket_id = ${ticketId}),
+               (SELECT max(snapshot.established_at)
+                FROM ticket_sla_snapshots AS snapshot
+                WHERE snapshot.ticket_id = ${ticketId}),
+               (SELECT max(snapshot.response_due_at)
+                FROM ticket_sla_snapshots AS snapshot
+                WHERE snapshot.ticket_id = ${ticketId}),
+               (SELECT max(snapshot.resolution_due_at)
+                FROM ticket_sla_snapshots AS snapshot
+                WHERE snapshot.ticket_id = ${ticketId})
+             ) AS latest
+    `),
+  ]);
+  if (!ticket) return null;
+
+  const bounds = boundsRows[0];
+  const range: ReportFilters = requestedRange
+    ? { from: requestedRange.from, to: requestedRange.to }
+    : {
+        from: new Date(Math.min(
+          ticket.createdAt.getTime(),
+          bounds?.earliest?.getTime() ?? ticket.createdAt.getTime(),
+        )),
+        to: new Date(Math.max(
+          Date.now(),
+          ticket.updatedAt.getTime(),
+          bounds?.latest?.getTime() ?? ticket.updatedAt.getTime(),
+        ) + 1),
+      };
+  validateFilters(range);
+
+  const fromUtc = utcNaiveTimestamp(range.from);
+  const toUtc = utcNaiveTimestamp(range.to);
+  const eventsQuery = prisma.$queryRaw<TicketSlaTimelineEvent[]>(Prisma.sql`
+    SELECT event.id::text AS id,
+           event.kind,
+           event.from_value AS "fromValue",
+           event.to_value AS "toValue",
+           event.actor,
+           event.company_id AS "companyId",
+           event.team_id AS "teamId",
+           event.assignee_id AS "assigneeId",
+           event.priority,
+           event.occurred_at AS "occurredAt",
+           event.source_audit_id::text AS "sourceAuditId"
+    FROM ticket_events AS event
+    WHERE event.ticket_id = ${ticketId}
+      AND event.occurred_at >= ${fromUtc}
+      AND event.occurred_at < ${toUtc}
+    ORDER BY event.occurred_at,
+             event.source_audit_id NULLS LAST,
+             event.id
+  `);
+  const targetsQuery = prisma.$queryRaw<TicketSlaTimelineTarget[]>(Prisma.sql`
+    WITH ordered AS (
+      SELECT snapshot.*,
+             lead(snapshot.established_at) OVER (
+               PARTITION BY snapshot.ticket_id
+               ORDER BY snapshot.established_at, snapshot.id
+             ) AS superseded_at
+      FROM ticket_sla_snapshots AS snapshot
+      WHERE snapshot.ticket_id = ${ticketId}
+    )
+    SELECT target.id::text AS id,
+           target.policy_id AS "policyId",
+           target.policy_name AS "policyName",
+           target.response_minutes AS "responseMinutes",
+           target.resolution_minutes AS "resolutionMinutes",
+           target.response_due_at AS "responseDueAt",
+           target.resolution_due_at AS "resolutionDueAt",
+           target.established_at AS "establishedAt",
+           target.superseded_at AS "supersededAt"
+    FROM ordered AS target
+    WHERE target.established_at < ${toUtc}
+      AND (target.superseded_at IS NULL OR target.superseded_at > ${fromUtc})
+    ORDER BY target.established_at, target.id
+  `);
+
+  const [events, targets, meta] = await Promise.all([
+    eventsQuery,
+    targetsQuery,
+    reportProvenance(range),
+  ]);
+  return {
+    data: { ticket, events, targets },
+    meta: {
+      ...meta,
+      rangeDerived: requestedRange === undefined,
+    },
+  };
+}
+
 export interface BacklogAgeBucket {
   bucket: '<1d' | '1-3d' | '3-7d' | '7-30d' | '30d+';
   count: number;
@@ -697,12 +885,25 @@ export interface CompanyTimeLogged {
   minutes: number;
 }
 
+interface CompanyTimeLoggedQueryRow extends CompanyTimeLogged {
+  invalidEntries: number;
+}
+
+export class UnreportableTimeEntryError extends Error {
+  constructor(count: number) {
+    super(
+      `${count} time ${count === 1 ? 'entry has' : 'entries have'} no truthful positive duration`,
+    );
+    this.name = 'UnreportableTimeEntryError';
+  }
+}
+
 /**
  * Time grouped by the ticket company at `workedAt`. The lateral event lookup is
  * deliberate: joining notes to the current Ticket row would retroactively move
  * old billable work when a ticket changes company.
  */
-export function timeLoggedByCompany(
+export async function timeLoggedByCompany(
   filters: ReportFilters,
 ): Promise<ReportResult<CompanyTimeLogged[]>> {
   validateFilters(filters);
@@ -717,18 +918,24 @@ export function timeLoggedByCompany(
     : Prisma.empty;
   const fromUtc = utcNaiveTimestamp(filters.from);
   const toUtc = utcNaiveTimestamp(filters.to);
-  const query = prisma.$queryRaw<CompanyTimeLogged[]>(Prisma.sql`
+  const query = prisma.$queryRaw<CompanyTimeLoggedQueryRow[]>(Prisma.sql`
     WITH entries AS (
       SELECT note.id,
              context.company_id,
-             coalesce(
-               note.minutes,
-               CASE
-                 WHEN note.time_start IS NOT NULL AND note.time_stop IS NOT NULL
-                   THEN greatest(0, round(extract(epoch FROM (note.time_stop - note.time_start)) / 60.0))::int
-                 ELSE 0
-               END
-             )::int AS minutes
+             CASE
+               -- A placed window is the recorded clock truth. Prefer it over a
+               -- stale canonical minutes value left by an older edit path.
+               WHEN note.time_start IS NOT NULL
+                AND note.time_stop IS NOT NULL
+                AND note.time_stop > note.time_start
+                 THEN greatest(
+                   0,
+                   round(extract(epoch FROM (note.time_stop - note.time_start)) / 60.0)
+                 )::int
+               WHEN note.minutes IS NOT NULL AND note.minutes > 0
+                 THEN note.minutes
+               ELSE NULL
+             END AS minutes
       FROM notes AS note
       LEFT JOIN LATERAL (
         SELECT event.company_id, event.team_id, event.assignee_id
@@ -748,11 +955,21 @@ export function timeLoggedByCompany(
     )
     SELECT entries.company_id AS "companyId",
            company.name AS "companyName",
-           coalesce(sum(entries.minutes), 0)::int AS minutes
+           coalesce(sum(entries.minutes), 0)::int AS minutes,
+           count(*) FILTER (WHERE entries.minutes IS NULL)::int AS "invalidEntries"
     FROM entries
     LEFT JOIN companies AS company ON company.id = entries.company_id
     GROUP BY entries.company_id, company.name
     ORDER BY minutes DESC, entries.company_id NULLS LAST
   `);
-  return withMeta(filters, query);
+  const result = await withMeta(filters, query);
+  const invalidEntries = result.data.reduce(
+    (count, row) => count + (row.invalidEntries ?? 0),
+    0,
+  );
+  if (invalidEntries > 0) throw new UnreportableTimeEntryError(invalidEntries);
+  return {
+    data: result.data.map(({ invalidEntries: _invalidEntries, ...row }) => row),
+    meta: result.meta,
+  };
 }

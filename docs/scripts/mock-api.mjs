@@ -56,6 +56,14 @@ function daysFromNow(days, hour, minute = 0) {
   return d.toISOString();
 }
 
+// Report provenance is stable for the lifetime of one capture run. The default
+// 30-day window overlaps reconstructed event history, while immutable SLA
+// snapshots begin later. That lets the UI prove both warnings without claiming
+// an inferred historical promise was recorded.
+const REPORT_RECONSTRUCTED_FROM = daysFromNow(-365, 0);
+const REPORT_RECONSTRUCTED_THROUGH = daysFromNow(-10, 23, 59);
+const REPORT_SLA_COVERAGE_FROM = daysFromNow(-14, 9);
+
 const demoUser = {
   id: 1,
   username: "jess",
@@ -1243,11 +1251,506 @@ function myDayData(searchParams) {
   };
 }
 
+function reportRequestContext(searchParams) {
+  const defaultTo = new Date();
+  defaultTo.setUTCHours(0, 0, 0, 0);
+  defaultTo.setUTCDate(defaultTo.getUTCDate() + 1);
+  const defaultFrom = new Date(defaultTo);
+  defaultFrom.setUTCDate(defaultFrom.getUTCDate() - 30);
+
+  const from = new Date(searchParams.get("from") || defaultFrom);
+  const to = new Date(searchParams.get("to") || defaultTo);
+  if (
+    Number.isNaN(from.getTime()) ||
+    Number.isNaN(to.getTime()) ||
+    from >= to
+  ) {
+    return { error: "report range must be valid and from must be before to" };
+  }
+
+  const context = { from, to };
+  for (const name of ["companyId", "teamId", "assigneeId"]) {
+    const raw = searchParams.get(name);
+    if (raw === null || raw === "") continue;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value <= 0) {
+      return { error: `${name} must be a positive integer` };
+    }
+    context[name] = value;
+  }
+
+  const reconstructedFrom = new Date(REPORT_RECONSTRUCTED_FROM);
+  const reconstructedThrough = new Date(REPORT_RECONSTRUCTED_THROUGH);
+  context.meta = {
+    from: from.toISOString(),
+    to: to.toISOString(),
+    includesReconstructed:
+      to > reconstructedFrom && from <= reconstructedThrough,
+    reconstructedFrom: reconstructedFrom.toISOString(),
+    reconstructedThrough: reconstructedThrough.toISOString(),
+  };
+  return context;
+}
+
+const REPORT_DIMENSION_WEIGHTS = {
+  companyId: new Map([[1, 0.62], [2, 0.28]]),
+  teamId: new Map([[1, 0.57], [2, 0.34]]),
+  assigneeId: new Map([[1, 0.37], [2, 0.31], [3, 0.24]]),
+};
+
+function reportScale(context, ignoredDimensions = []) {
+  const ignored = new Set(ignoredDimensions);
+  let scale = 1;
+  for (const name of ["companyId", "teamId", "assigneeId"]) {
+    if (ignored.has(name) || context[name] === undefined) continue;
+    scale *= REPORT_DIMENSION_WEIGHTS[name].get(context[name]) ?? 0;
+  }
+  return scale;
+}
+
+function scaledCount(value, scale) {
+  if (value === 0 || scale <= 0) return 0;
+  return Math.max(1, Math.round(value * scale));
+}
+
+function volumeReportData(context) {
+  const createdByWeekday = [5, 19, 21, 18, 20, 16, 7];
+  const resolvedByWeekday = [2, 15, 18, 17, 16, 14, 4];
+  const scale = reportScale(context);
+  const rows = [];
+  const cursor = new Date(Date.UTC(
+    context.from.getUTCFullYear(),
+    context.from.getUTCMonth(),
+    context.from.getUTCDate(),
+  ));
+  let index = 0;
+  while (cursor < context.to) {
+    const weekday = cursor.getUTCDay();
+    const created = createdByWeekday[weekday] +
+      (index % 9 === 4 ? 7 : (index * 3) % 4);
+    const resolved = resolvedByWeekday[weekday] +
+      (index % 11 === 7 ? 5 : (index * 5) % 3);
+    rows.push({
+      day: cursor.toISOString().slice(0, 10),
+      created: scaledCount(created, scale),
+      resolved: scaledCount(resolved, scale),
+    });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    index += 1;
+  }
+  return rows;
+}
+
+function durationReportData(context) {
+  const scale = reportScale(context);
+  if (scale <= 0) {
+    return {
+      firstResponse: { count: 0, p50Minutes: null, p90Minutes: null },
+      resolution: { count: 0, p50Minutes: null, p90Minutes: null },
+    };
+  }
+  const latencyFactor =
+    (context.companyId === 2 ? 1.18 : 1) *
+    (context.teamId === 1 ? 0.92 : 1) *
+    (context.assigneeId === 3 ? 1.24 : 1);
+  return {
+    firstResponse: {
+      count: scaledCount(284, scale),
+      p50Minutes: Math.round(24 * latencyFactor),
+      // Deliberately long-tailed: the p90 is the management signal a mean
+      // would blur, not a cosmetically nearby companion to the median.
+      p90Minutes: Math.round(214 * latencyFactor),
+    },
+    resolution: {
+      count: scaledCount(237, scale),
+      p50Minutes: Math.round(318 * latencyFactor),
+      p90Minutes: Math.round(2_946 * latencyFactor),
+    },
+  };
+}
+
+function slaComplianceReport(context) {
+  const scale = reportScale(context);
+  return [
+    {
+      kind: "response",
+      met: scaledCount(211, scale),
+      breached: scaledCount(31, scale),
+      atRisk: scaledCount(14, scale),
+      onTrack: scaledCount(28, scale),
+    },
+    {
+      kind: "resolution",
+      met: scaledCount(163, scale),
+      breached: scaledCount(47, scale),
+      atRisk: scaledCount(19, scale),
+      onTrack: scaledCount(36, scale),
+    },
+  ];
+}
+
+function backlogReportData(context) {
+  const scale = reportScale(context);
+  return [
+    { bucket: "<1d", count: scaledCount(18, scale) },
+    { bucket: "1-3d", count: scaledCount(26, scale) },
+    { bucket: "3-7d", count: scaledCount(21, scale) },
+    { bucket: "7-30d", count: scaledCount(34, scale) },
+    // A visible rotten tail is intentional: a spotless demo fixture would not
+    // exercise the report's actual management question.
+    { bucket: "30d+", count: scaledCount(17, scale) },
+  ];
+}
+
+function teamThroughputReport(context) {
+  const scale = reportScale(context, ["teamId"]);
+  const rows = [
+    { teamId: 1, teamName: "Network Operations", resolved: 96 },
+    { teamId: 2, teamName: "Service Desk", resolved: 72 },
+    { teamId: null, teamName: null, resolved: 11 },
+  ];
+  return rows
+    .filter((row) => context.teamId === undefined || row.teamId === context.teamId)
+    .map((row) => ({ ...row, resolved: scaledCount(row.resolved, scale) }));
+}
+
+function assigneeThroughputReport(context) {
+  const scale = reportScale(context, ["assigneeId"]);
+  const rows = [
+    { assigneeId: 1, assigneeName: "Jess Spillers", resolved: 68 },
+    { assigneeId: 2, assigneeName: "Priya Shah", resolved: 61 },
+    { assigneeId: 3, assigneeName: "Sam Rivera", resolved: 43 },
+    { assigneeId: null, assigneeName: null, resolved: 7 },
+  ];
+  return rows
+    .filter((row) =>
+      context.assigneeId === undefined || row.assigneeId === context.assigneeId
+    )
+    .map((row) => ({ ...row, resolved: scaledCount(row.resolved, scale) }));
+}
+
+function companyTimeReport(context) {
+  const scale = reportScale(context, ["companyId"]);
+  const rows = [
+    { companyId: 1, companyName: "ACME Manufacturing", minutes: 6_840 },
+    { companyId: 2, companyName: "Northwind Clinic", minutes: 3_270 },
+    { companyId: null, companyName: null, minutes: 480 },
+  ];
+  return rows
+    .filter((row) =>
+      context.companyId === undefined || row.companyId === context.companyId
+    )
+    .map((row) => ({
+      ...row,
+      minutes: scaledCount(row.minutes, scale),
+    }));
+}
+
+function daySpreadReport(context) {
+  const technician = assignees.find((user) =>
+    user.id === (context.assigneeId ?? demoUser.id)
+  );
+  if (!technician) {
+    return {
+      data: {
+        assigneeId: context.assigneeId ?? demoUser.id,
+        entries: [],
+        target: {
+          minutes: 480,
+          source: "default_8h",
+          label: "Default 8-hour day (no staff schedule is configured)",
+        },
+        summary: {
+          count: 0,
+          loggedMinutes: 0,
+          placedMinutes: 0,
+          coveredMinutes: 0,
+          unplacedMinutes: 0,
+          unloggedMinutes: 480,
+          uncoveredMinutes: 480,
+          firstStart: null,
+          lastStop: null,
+        },
+      },
+      meta: context.meta,
+    };
+  }
+
+  const at = (minutesAfterMidnight) =>
+    new Date(context.from.getTime() + minutesAfterMidnight * 60_000).toISOString();
+  const firstStart = at(10 * 60);
+  const firstStop = at(12 * 60);
+  const secondStart = at(13 * 60);
+  const secondStop = at(15 * 60);
+  return {
+    data: {
+      assigneeId: technician.id,
+      entries: [
+        {
+          id: 2_701,
+          ticketId: 101,
+          ticketNumber: "10482",
+          ticketTitle: "VPN drops every 12 minutes on ACME-FW-01",
+          content: "Packet capture, tunnel-lifetime comparison, and vendor review",
+          minutes: 120,
+          timeStart: firstStart,
+          timeStop: firstStop,
+          workedAt: firstStart,
+          placed: true,
+        },
+        {
+          id: 2_702,
+          ticketId: 103,
+          ticketNumber: "10484",
+          ticketTitle: "Jira change request waiting on approval",
+          content: "Change-plan review and customer coordination",
+          minutes: 120,
+          timeStart: secondStart,
+          timeStop: secondStop,
+          workedAt: secondStart,
+          placed: true,
+        },
+      ],
+      target: {
+        minutes: 480,
+        source: "default_8h",
+        label: "Default 8-hour day (no staff schedule is configured)",
+      },
+      summary: {
+        count: 2,
+        loggedMinutes: 240,
+        placedMinutes: 240,
+        coveredMinutes: 240,
+        unplacedMinutes: 0,
+        unloggedMinutes: 240,
+        uncoveredMinutes: 240,
+        firstStart,
+        lastStop: secondStop,
+      },
+    },
+    meta: context.meta,
+  };
+}
+
+function ticketSlaTimelineReport() {
+  const createdAt = new Date();
+  createdAt.setDate(createdAt.getDate() - 2);
+  createdAt.setHours(8, 20, 0, 0);
+  const at = (minutesAfterCreation) =>
+    new Date(createdAt.getTime() + minutesAfterCreation * 60_000).toISOString();
+  const now = new Date();
+
+  return {
+    data: {
+      ticket: {
+        id: 101,
+        ticketNumber: "10482",
+        title: "VPN drops every 12 minutes on ACME-FW-01",
+        status: "In Progress",
+        createdAt: createdAt.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      events: [
+        {
+          id: "8101",
+          ticketId: 101,
+          kind: "created",
+          fromValue: null,
+          toValue: "New",
+          actor: "Maya Chen (email)",
+          companyId: 1,
+          teamId: 2,
+          assigneeId: null,
+          priority: "High",
+          occurredAt: at(0),
+          sourceAuditId: "9101",
+        },
+        {
+          id: "8102",
+          ticketId: 101,
+          kind: "assigned",
+          fromValue: null,
+          toValue: "Jess Spillers",
+          actor: "Priya Shah",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "High",
+          occurredAt: at(12),
+          sourceAuditId: "9102",
+        },
+        {
+          id: "8103",
+          ticketId: 101,
+          kind: "first_response",
+          fromValue: null,
+          toValue: null,
+          actor: "Jess Spillers",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "High",
+          occurredAt: at(45),
+          sourceAuditId: "9103",
+        },
+        {
+          id: "8104",
+          ticketId: 101,
+          kind: "status_changed",
+          fromValue: "New",
+          toValue: "In Progress",
+          actor: "Jess Spillers",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "High",
+          occurredAt: at(50),
+          sourceAuditId: "9104",
+        },
+        {
+          id: "8105",
+          ticketId: 101,
+          kind: "status_changed",
+          fromValue: "In Progress",
+          toValue: "Waiting",
+          actor: "Jess Spillers",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "High",
+          occurredAt: at(280),
+          sourceAuditId: "9105",
+        },
+        {
+          id: "8106",
+          ticketId: 101,
+          kind: "sla_breached",
+          fromValue: null,
+          toValue: "resolution",
+          actor: "sla-scheduler",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "High",
+          occurredAt: at(480),
+          sourceAuditId: null,
+        },
+        {
+          id: "8107",
+          ticketId: 101,
+          kind: "resolved",
+          fromValue: "Waiting",
+          toValue: "Resolved",
+          actor: "Jess Spillers",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "High",
+          occurredAt: at(1_495),
+          sourceAuditId: "9107",
+        },
+        {
+          id: "8108",
+          ticketId: 101,
+          kind: "reopened",
+          fromValue: "Resolved",
+          toValue: "In Progress",
+          actor: "Maya Chen (email)",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "Critical",
+          occurredAt: at(1_570),
+          sourceAuditId: "9108",
+        },
+        {
+          id: "8109",
+          ticketId: 101,
+          kind: "sla_breached",
+          fromValue: null,
+          toValue: "resolution",
+          actor: "sla-scheduler",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "Critical",
+          occurredAt: at(1_810),
+          sourceAuditId: null,
+        },
+      ],
+      targets: [
+        {
+          id: "5101",
+          ticketId: 101,
+          policyId: 12,
+          policyName: "ACME priority support — High",
+          responseMinutes: 60,
+          resolutionMinutes: 480,
+          responseDueAt: at(60),
+          resolutionDueAt: at(480),
+          establishedAt: at(0),
+          supersededAt: at(1_570),
+        },
+        {
+          id: "5102",
+          ticketId: 101,
+          policyId: 4,
+          policyName: "Production incident — Critical",
+          responseMinutes: 30,
+          resolutionMinutes: 240,
+          responseDueAt: at(1_600),
+          resolutionDueAt: at(1_810),
+          establishedAt: at(1_570),
+          supersededAt: null,
+        },
+      ],
+    },
+    meta: {
+      from: createdAt.toISOString(),
+      to: now.toISOString(),
+      includesReconstructed: false,
+      reconstructedFrom: REPORT_RECONSTRUCTED_FROM,
+      reconstructedThrough: REPORT_RECONSTRUCTED_THROUGH,
+      rangeDerived: true,
+    },
+  };
+}
+
 function json(route, body, status = 200) {
   return route.fulfill({
     status,
     contentType: "application/json",
     body: JSON.stringify(body),
+  });
+}
+
+function csvCell(value) {
+  const text = value == null ? "" : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function companyTimeCsv(route, context) {
+  const rows = companyTimeReport(context);
+  const body = [
+    ["company_id", "company_name", "minutes", "hours"],
+    ...rows.map((row) => [
+      row.companyId,
+      row.companyName ?? "Unattributed",
+      row.minutes,
+      (row.minutes / 60).toFixed(2),
+    ]),
+  ].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
+  return route.fulfill({
+    status: 200,
+    contentType: "text/csv; charset=utf-8",
+    headers: {
+      "Content-Disposition": 'attachment; filename="anchordesk-time-by-company.csv"',
+      "X-AnchorDesk-Report-From": context.meta.from,
+      "X-AnchorDesk-Report-To": context.meta.to,
+      "X-AnchorDesk-Includes-Reconstructed":
+        String(context.meta.includesReconstructed),
+    },
+    body,
   });
 }
 
@@ -1378,6 +1881,63 @@ export async function handleApi(route) {
   if (method === "GET" && apiPath === "/auth/setup-status") return json(route, { needed: false });
   if (method === "GET" && apiPath === "/auth/config") return json(route, { local: true, oidc: true, saml: false });
   if (method === "GET" && apiPath === "/ui-settings") return json(route, { legacyTableView: false });
+
+  const reportPaths = new Set([
+    "/reports/volume",
+    "/reports/durations",
+    "/reports/sla-compliance",
+    "/reports/backlog-age",
+    "/reports/throughput/team",
+    "/reports/throughput/assignee",
+    "/reports/time-by-company",
+    "/reports/time-by-company.csv",
+  ]);
+  if (method === "GET" && reportPaths.has(apiPath)) {
+    const context = reportRequestContext(url.searchParams);
+    if (context.error) return json(route, { error: context.error }, 400);
+    if (apiPath === "/reports/volume") {
+      return json(route, { data: volumeReportData(context), meta: context.meta });
+    }
+    if (apiPath === "/reports/durations") {
+      return json(route, { data: durationReportData(context), meta: context.meta });
+    }
+    if (apiPath === "/reports/sla-compliance") {
+      const coverageFrom = new Date(REPORT_SLA_COVERAGE_FROM);
+      return json(route, {
+        data: slaComplianceReport(context),
+        meta: {
+          ...context.meta,
+          slaSnapshotCoverageFrom: coverageFrom.toISOString(),
+          includesUnrecordedSlaHistory: context.from < coverageFrom,
+        },
+      });
+    }
+    if (apiPath === "/reports/backlog-age") {
+      return json(route, { data: backlogReportData(context), meta: context.meta });
+    }
+    if (apiPath === "/reports/throughput/team") {
+      return json(route, { data: teamThroughputReport(context), meta: context.meta });
+    }
+    if (apiPath === "/reports/throughput/assignee") {
+      return json(route, { data: assigneeThroughputReport(context), meta: context.meta });
+    }
+    if (apiPath === "/reports/time-by-company") {
+      return json(route, { data: companyTimeReport(context), meta: context.meta });
+    }
+    return companyTimeCsv(route, context);
+  }
+
+  if (method === "GET" && apiPath === "/time/day-spread") {
+    const context = reportRequestContext(url.searchParams);
+    return context.error
+      ? json(route, { error: context.error }, 400)
+      : json(route, daySpreadReport(context));
+  }
+
+  if (method === "GET" && apiPath === "/tickets/101/sla-timeline") {
+    return json(route, ticketSlaTimelineReport());
+  }
+
   if (method === "GET" && apiPath === "/assignees") return json(route, assignees);
   if (method === "GET" && apiPath === "/users") return json(route, managedUsers);
   if (method === "GET" && apiPath === "/labels") return json(route, labels);

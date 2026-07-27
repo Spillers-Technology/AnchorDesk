@@ -1080,6 +1080,10 @@ enum AuditAction {
   update
   delete
   sync
+  // Read paths normally do not audit. A downloaded reporting extract is the
+  // exception: it is a durable disclosure of billing/performance data and must
+  // say who exported which filtered window.
+  export
   // A merge is not an update: it moves rows between two tickets and is
   // reversible through its own ledger. Recording it as `update` would make the
   // ticket history unable to explain where a conversation went.
