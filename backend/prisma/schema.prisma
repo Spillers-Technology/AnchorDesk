@@ -125,17 +125,24 @@ model OAuthAuthCode {
 // store only its SHA-256 hash, so a DB read never yields a usable session.
 // Enables instant revocation (delete the row) which JWTs can't do.
 model Session {
-  id        String   @id @default(cuid())
-  userId    Int      @map("user_id")
-  tokenHash String   @unique @map("token_hash") @db.VarChar(64)
-  userAgent String?  @map("user_agent") @db.VarChar(255)
-  ip        String?  @db.VarChar(45)
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  id        String       @id @default(cuid())
+  // Existing rows and all staff login paths default to staff. Portal sessions
+  // bind to a Contact instead; the pgExtras CHECK requires exactly one
+  // principal for the selected scope.
+  scope     SessionScope @default(staff)
+  userId    Int?         @map("user_id")
+  contactId Int?         @map("contact_id")
+  tokenHash String       @unique @map("token_hash") @db.VarChar(64)
+  userAgent String?      @map("user_agent") @db.VarChar(255)
+  ip        String?      @db.VarChar(45)
+  expiresAt DateTime     @map("expires_at")
+  createdAt DateTime     @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([contactId])
   @@index([expiresAt])
   @@map("sessions")
 }
@@ -237,67 +244,72 @@ model Contact {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  tickets Ticket[]
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tickets          Ticket[]
+  portalSessions   Session[]
+  portalMagicLinks PortalMagicLink[]
 
   @@index([companyId])
   @@map("contacts")
 }
 
 model Ticket {
-  id               Int          @id @default(autoincrement())
-  ticketNumber     String?      @map("ticket_number") @db.VarChar(50)
-  title            String       @db.VarChar(255)
-  summary          String?      @db.VarChar(500)
-  description      String?      @db.Text
-  status           String       @default("New") @db.VarChar(100)
-  priority         String?      @db.VarChar(50)
+  id                    Int          @id @default(autoincrement())
+  ticketNumber          String?      @map("ticket_number") @db.VarChar(50)
+  title                 String       @db.VarChar(255)
+  summary               String?      @db.VarChar(500)
+  description           String?      @db.Text
+  status                String       @default("New") @db.VarChar(100)
+  priority              String?      @db.VarChar(50)
   // companyName is kept denormalized (sync/back-compat); companyId links the
   // ticket to the Company record once associated.
-  companyName      String?      @map("company_name") @db.VarChar(150)
-  companyId        Int?         @map("company_id")
-  contactId        Int?         @map("contact_id")
-  assignee         String?      @db.VarChar(100)
-  assigneeId       Int?         @map("assignee_id")
+  companyName           String?      @map("company_name") @db.VarChar(150)
+  companyId             Int?         @map("company_id")
+  contactId             Int?         @map("contact_id")
+  assignee              String?      @db.VarChar(100)
+  assigneeId            Int?         @map("assignee_id")
   // Queue/group routing: the team responsible for the ticket (independent of
   // the individual assignee — a ticket can sit in a team queue unassigned).
-  teamId           Int?         @map("team_id")
+  teamId                Int?         @map("team_id")
   // Admin-defined extra fields, keyed by CustomFieldDef.key. Validated against
   // the definitions on write; unknown/archived keys are rejected.
-  customFields     Json?        @map("custom_fields")
-  source           TicketSource @default(local)
+  customFields          Json?        @map("custom_fields")
+  source                TicketSource @default(local)
   // external_id holds the RFC 5322 Message-ID for imap-sourced tickets, which
   // can exceed 100 chars — keep at 255 so long Message-IDs don't overflow.
-  externalId       String?      @map("external_id") @db.VarChar(255)
-  externalProvider String?      @map("external_provider") @db.VarChar(50)
+  externalId            String?      @map("external_id") @db.VarChar(255)
+  externalProvider      String?      @map("external_provider") @db.VarChar(50)
   // Two-way sync bookkeeping (external tickets only). syncState is null for local
   // tickets. remoteHash fingerprints the remote field set at last reconcile so a
   // later reconcile can tell whether the remote changed; remoteUpdatedAt mirrors
   // the provider's own last-updated stamp. syncedAt is the last clean reconcile.
-  syncState        SyncState?   @map("sync_state")
-  syncedAt         DateTime?    @map("synced_at")
-  remoteHash       String?      @map("remote_hash") @db.VarChar(64)
-  remoteUpdatedAt  DateTime?    @map("remote_updated_at")
+  syncState             SyncState?   @map("sync_state")
+  syncedAt              DateTime?    @map("synced_at")
+  remoteHash            String?      @map("remote_hash") @db.VarChar(64)
+  remoteUpdatedAt       DateTime?    @map("remote_updated_at")
   // Monotonic version for sync-relevant local mutations. A reconcile may only
   // overwrite fields or clear pending state when this still matches the
   // version it read before performing remote I/O.
-  syncRevision     Int          @default(0) @map("sync_revision")
+  syncRevision          Int          @default(0) @map("sync_revision")
   // Which external account this ticket came from. Required once more than one
   // connection of the same type can exist: without it, reconcile would resolve
   // credentials by provider type alone and could push a ticket back to the wrong
   // tenant. Null means "the legacy single account" (env/settings-seeded).
-  syncConnectionId Int?         @map("sync_connection_id")
+  syncConnectionId      Int?         @map("sync_connection_id")
   // SLA tracking. The resolved policy (slaPolicyId) yields response/resolution
   // deadlines, recomputed when priority or company changes. firstRespondedAt is
   // stamped on the first outbound tech note/email and freezes the response clock.
-  slaPolicyId      Int?         @map("sla_policy_id")
-  responseDueAt    DateTime?    @map("response_due_at")
-  resolutionDueAt  DateTime?    @map("resolution_due_at")
-  firstRespondedAt DateTime?    @map("first_responded_at")
+  slaPolicyId           Int?         @map("sla_policy_id")
+  responseDueAt         DateTime?    @map("response_due_at")
+  resolutionDueAt       DateTime?    @map("resolution_due_at")
+  firstRespondedAt      DateTime?    @map("first_responded_at")
   // Manual deadline. When set it replaces the SLA resolution target everywhere
   // (chips, at-risk/breach evaluation, automations); clearing it falls back to
   // resolutionDueAt. The response clock is a separate promise and is unaffected.
-  dueAt            DateTime?    @map("due_at")
+  dueAt                 DateTime?    @map("due_at")
+  // A Contact/company transfer does not prove that the new requester may read
+  // the old conversation. V1 quarantines transferred history from the portal.
+  portalAccessRevokedAt DateTime?    @map("portal_access_revoked_at")
   // Hierarchy. Deliberately a scalar rather than a link table: cardinality and
   // acyclicity are constraints a generic graph table cannot cheaply enforce, and
   // "children of #123" must be one indexed lookup. 2.6 invariant: exactly one
@@ -305,22 +317,25 @@ model Ticket {
   // cycle detection entirely. Enforced in ticketRepository AND by a trigger in
   // db/pgExtras.ts, because direct psql access is how this actually gets broken.
   // Never pushed or pulled: provider hierarchy mapping is a 3.0 item.
-  parentId         Int?         @map("parent_id")
+  parentId              Int?         @map("parent_id")
   // Merge. The source is never deleted — its ticket number is already loose in
   // email subject tokens and external references, and each of those must still
   // resolve. Source status becomes plain `Closed` (no new vocabulary value, so
   // Kanban/saved views/automations are untouched); `mergedIntoId != null` is the
   // predicate that drives merge rendering. A merged ticket stops reconciling
   // unconditionally — see twoWaySync's guard and docs/roadmap-relations-2.6.md.
-  mergedIntoId     Int?         @map("merged_into_id")
-  mergedAt         DateTime?    @map("merged_at")
-  closedAt         DateTime?    @map("closed_at")
-  createdAt        DateTime     @default(now()) @map("created_at")
-  updatedAt        DateTime     @updatedAt @map("updated_at")
+  mergedIntoId          Int?         @map("merged_into_id")
+  mergedAt              DateTime?    @map("merged_at")
+  closedAt              DateTime?    @map("closed_at")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
 
   assigneeUser  User?           @relation("AssignedTickets", fields: [assigneeId], references: [id])
-  team          Team?           @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  company       Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  // Deletion is routed through repositories so each affected ticket gets an
+  // audited metric-context transition. Restrict prevents a direct delete from
+  // silently nulling dimensions behind the reporting spine.
+  team          Team?           @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  company       Company?        @relation(fields: [companyId], references: [id], onDelete: Restrict)
   contact       Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
   slaPolicy     SlaPolicy?      @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
   notes         Note[]
@@ -355,6 +370,7 @@ model Ticket {
   @@index([responseDueAt])
   @@index([resolutionDueAt])
   @@index([dueAt])
+  @@index([portalAccessRevokedAt])
   @@index([parentId])
   @@index([mergedIntoId])
   @@map("tickets")
@@ -392,40 +408,50 @@ model TicketMerge {
 }
 
 model Note {
-  id             Int       @id @default(autoincrement())
-  ticketId       Int       @map("ticket_id")
-  content        String    @db.Text
-  author         String    @db.VarChar(150)
-  authorId       Int?      @map("author_id")
-  noteType       NoteType  @default(note) @map("note_type")
-  timeStart      DateTime? @map("time_start")
-  timeStop       DateTime? @map("time_stop")
+  id             Int            @id @default(autoincrement())
+  ticketId       Int            @map("ticket_id")
+  content        String         @db.Text
+  author         String         @db.VarChar(150)
+  authorId       Int?           @map("author_id")
+  noteType       NoteType       @default(note) @map("note_type")
+  timeStart      DateTime?      @map("time_start")
+  timeStop       DateTime?      @map("time_stop")
+  // Recorded work date for time entries. This is deliberately stored rather
+  // than inferred at read time so a duration logged on Monday can still belong
+  // to work performed on Friday.
+  workedAt       DateTime?      @map("worked_at")
   // Canonical billable duration for time_entry notes (minutes). Lets users log
   // "30m" directly without start/stop; totals sum this field.
   minutes        Int?
-  externalId     String?   @map("external_id") @db.VarChar(255)
+  externalId     String?        @map("external_id") @db.VarChar(255)
   // Durable outbound-comment outbox marker. Only explicitly customer-visible
   // local notes set this; internal/RMM/provider-ingested notes stay false even
   // when their noteType is `note`.
-  syncPending    Boolean   @default(false) @map("sync_pending")
+  syncPending    Boolean        @default(false) @map("sync_pending")
+  // Portal serialization includes only explicitly-public conversation rows.
+  // Existing/internal automation, RMM, time, and provider notes remain closed
+  // by default. `via` records portal provenance without pretending a Contact is
+  // a staff-note author.
+  visibility     NoteVisibility @default(internal)
+  via            String?        @db.VarChar(20)
   // Set when a merge moved this note off another ticket. Kept so the timeline
   // can attribute it ("from #1042") and so the merge ledger's restore is
   // verifiable against the rows themselves, not only against its own JSON.
-  originTicketId Int?      @map("origin_ticket_id")
+  originTicketId Int?           @map("origin_ticket_id")
   // Email correspondence metadata (noteType = email). `content` holds the plain-text
   // body (search/preview); `htmlContent` holds the sanitized HTML rendered in the
   // conversation view. `direction` is "inbound" | "outbound". `inReplyTo` is the
   // Message-ID this email replied to, for thread rendering.
-  direction      String?   @db.VarChar(10)
-  htmlContent    String?   @map("html_content") @db.Text
-  emailFrom      String?   @map("email_from") @db.VarChar(320)
-  emailTo        String?   @map("email_to") @db.Text
-  emailCc        String?   @map("email_cc") @db.Text
-  emailBcc       String?   @map("email_bcc") @db.Text
-  subject        String?   @db.VarChar(255)
-  inReplyTo      String?   @map("in_reply_to") @db.VarChar(255)
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  direction      String?        @db.VarChar(10)
+  htmlContent    String?        @map("html_content") @db.Text
+  emailFrom      String?        @map("email_from") @db.VarChar(320)
+  emailTo        String?        @map("email_to") @db.Text
+  emailCc        String?        @map("email_cc") @db.Text
+  emailBcc       String?        @map("email_bcc") @db.Text
+  subject        String?        @db.VarChar(255)
+  inReplyTo      String?        @map("in_reply_to") @db.VarChar(255)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
 
   ticket      Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   authorUser  User?        @relation("AuthoredNotes", fields: [authorId], references: [id])
@@ -448,6 +474,7 @@ model Attachment {
   storageBackend String   @default("local") @map("storage_backend") @db.VarChar(20)
   storageKey     String   @map("storage_key") @db.VarChar(500)
   createdBy      String?  @map("created_by") @db.VarChar(255)
+  portalVisible  Boolean  @default(false) @map("portal_visible")
   createdAt      DateTime @default(now()) @map("created_at")
 
   ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
@@ -1020,6 +1047,7 @@ enum AuthProvider {
 
 enum TicketSource {
   local
+  portal
   connectwise
   jira
   imap
@@ -1052,6 +1080,10 @@ enum AuditAction {
   update
   delete
   sync
+  // Read paths normally do not audit. A downloaded reporting extract is the
+  // exception: it is a durable disclosure of billing/performance data and must
+  // say who exported which filtered window.
+  export
   // A merge is not an update: it moves rows between two tickets and is
   // reversible through its own ledger. Recording it as `update` would make the
   // ticket history unable to explain where a conversation went.
@@ -1115,4 +1147,125 @@ enum SyncRunStatus {
   success
   degraded
   error
+}
+
+// ─── AnchorDesk 2.7 Workstream A: reporting fact spine ───────────────────────
+
+/// Append-only, machine-readable ticket lifecycle facts.
+///
+/// The dimensions are copied at occurrence time. Historical reports must never
+/// join the mutable Ticket row to decide which company/team/assignee owned an
+/// event. sourceAuditId lets the live event-bus subscriber and the audit-log
+/// boot backfill converge idempotently; sourceKey covers non-audit scheduler
+/// facts such as an SLA breach.
+model TicketEvent {
+  id            BigInt   @id @default(autoincrement())
+  ticketId      Int      @map("ticket_id")
+  /// created | status_changed | assigned | context_changed | first_response
+  /// | resolved | reopened | merged | sla_breached
+  kind          String   @db.VarChar(40)
+  fromValue     String?  @map("from_value") @db.VarChar(100)
+  toValue       String?  @map("to_value") @db.VarChar(100)
+  actor         String?  @db.VarChar(255)
+  companyId     Int?     @map("company_id")
+  teamId        Int?     @map("team_id")
+  assigneeId    Int?     @map("assignee_id")
+  priority      String?  @db.VarChar(50)
+  occurredAt    DateTime @default(now()) @map("occurred_at")
+  sourceAuditId BigInt?  @map("source_audit_id")
+  sourceKey     String?  @unique(map: "ticket_events_source_key_key") @map("source_key") @db.VarChar(255)
+
+  @@unique([sourceAuditId, kind], map: "ticket_events_source_audit_kind_key")
+  @@index([occurredAt], map: "idx_ticket_events_occurred")
+  @@index([ticketId, occurredAt], map: "idx_ticket_events_ticket_occurred")
+  @@index([kind, occurredAt], map: "idx_ticket_events_kind_occurred")
+  @@index([companyId, occurredAt], map: "idx_ticket_events_company_occurred")
+  @@map("ticket_events")
+}
+
+/// A frozen copy of the SLA target in force for a ticket.
+///
+/// policyId is provenance, intentionally not a foreign key: deleting or editing
+/// a policy must never rewrite an old promise. Nullable target fields represent
+/// a legitimate re-target to "no SLA" without mutating the prior snapshot.
+model TicketSlaSnapshot {
+  id                BigInt    @id @default(autoincrement())
+  ticketId          Int       @map("ticket_id")
+  policyId          Int?      @map("policy_id")
+  policyName        String?   @map("policy_name") @db.VarChar(150)
+  responseMinutes   Int?      @map("response_minutes")
+  resolutionMinutes Int?      @map("resolution_minutes")
+  responseDueAt     DateTime? @map("response_due_at")
+  resolutionDueAt   DateTime? @map("resolution_due_at")
+  establishedAt     DateTime  @default(now()) @map("established_at")
+
+  @@index([ticketId, establishedAt], map: "idx_ticket_sla_snapshots_ticket_established")
+  @@index([responseDueAt], map: "idx_ticket_sla_snapshots_response_due")
+  @@index([resolutionDueAt], map: "idx_ticket_sla_snapshots_resolution_due")
+  @@map("ticket_sla_snapshots")
+}
+
+// ---- 2.7 Workstream D: knowledge base --------------------------------------
+//
+// `author` is an attribution snapshot rather than a User relation. User rows
+// can be renamed or deleted, while an article must retain the name under which
+// it was written (the audit log records every later editor separately).
+// `bodyText` is derived from the sanitized HTML on every write and exists only
+// to give Postgres search and excerpts clean text instead of HTML markup.
+model KbArticle {
+  id         Int          @id @default(autoincrement())
+  slug       String       @unique @db.VarChar(200)
+  title      String       @db.VarChar(255)
+  bodyHtml   String       @map("body_html") @db.Text
+  bodyText   String       @map("body_text") @db.Text
+  category   String       @db.VarChar(100)
+  visibility KbVisibility @default(internal)
+  published  Boolean      @default(false)
+  author     String       @db.VarChar(255)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  // Soft deletion keeps the globally unique slug reserved, so a stale public
+  // URL can never resolve to a different article created later.
+  deletedAt  DateTime?    @map("deleted_at")
+
+  @@index([deletedAt, visibility, published])
+  @@index([category])
+  @@map("kb_articles")
+}
+
+enum KbVisibility {
+  internal
+  portal
+}
+
+// ─── Workstream C: requester portal auth + visibility boundary ──────────────
+
+enum SessionScope {
+  staff
+  portal
+}
+
+enum NoteVisibility {
+  internal
+  public
+}
+
+// A magic-link verifier is a short-lived, one-time bearer credential for a
+// Contact requester. The emailed token contains a random selector and verifier;
+// only independent SHA-256 digests are stored here. The selector digest locates
+// a candidate row, then the verifier digest is compared in constant time.
+model PortalMagicLink {
+  id           Int       @id @default(autoincrement())
+  contactId    Int       @map("contact_id")
+  selectorHash String    @unique @map("selector_hash") @db.VarChar(64)
+  verifierHash String    @map("verifier_hash") @db.VarChar(64)
+  expiresAt    DateTime  @map("expires_at")
+  usedAt       DateTime? @map("used_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, createdAt])
+  @@index([expiresAt])
+  @@map("portal_magic_links")
 }

@@ -56,6 +56,14 @@ function daysFromNow(days, hour, minute = 0) {
   return d.toISOString();
 }
 
+// Report provenance is stable for the lifetime of one capture run. The default
+// 30-day window overlaps reconstructed event history, while immutable SLA
+// snapshots begin later. That lets the UI prove both warnings without claiming
+// an inferred historical promise was recorded.
+const REPORT_RECONSTRUCTED_FROM = daysFromNow(-365, 0);
+const REPORT_RECONSTRUCTED_THROUGH = daysFromNow(-10, 23, 59);
+const REPORT_SLA_COVERAGE_FROM = daysFromNow(-14, 9);
+
 const demoUser = {
   id: 1,
   username: "jess",
@@ -66,6 +74,101 @@ const demoUser = {
   themePref: "default-light",
   kanbanColumns: ["New", "Assigned", "In Progress", "Waiting", "Resolved"],
 };
+
+const portalRequester = {
+  displayName: "Morgan Lee",
+  email: "morgan@acme.example",
+};
+
+const portalTickets = [
+  {
+    id: 801,
+    ticketNumber: "10501",
+    title: "Conference room display will not connect",
+    summary: "Conference room display will not connect",
+    description:
+      "The display in Cedar Room says “No signal” when I connect my laptop over USB-C.",
+    status: "In Progress",
+    priority: "Medium",
+    createdAt: daysFromNow(-2, 9, 20),
+    updatedAt: daysFromNow(0, 10, 35),
+    closedAt: null,
+    notes: [
+      {
+        id: 8101,
+        content: "I tried both USB-C cables from the cabinet.",
+        htmlContent: null,
+        direction: null,
+        authorKind: "you",
+        createdAt: daysFromNow(-2, 9, 22),
+      },
+      {
+        id: 8102,
+        content:
+          "Thanks, Morgan. We are checking the room controller and will update you shortly.",
+        htmlContent: null,
+        direction: "outbound",
+        authorKind: "support",
+        createdAt: daysFromNow(0, 10, 35),
+      },
+    ],
+    attachments: [
+      {
+        id: 8201,
+        filename: "display-error.jpg",
+        contentType: "image/jpeg",
+        size: 184320,
+        createdAt: daysFromNow(-2, 9, 23),
+        downloadUrl: "/api/portal/attachments/8201/download",
+      },
+    ],
+  },
+  {
+    id: 802,
+    ticketNumber: "10476",
+    title: "Access to the quarterly planning folder",
+    summary: "Access to the quarterly planning folder",
+    description: "Please add me to the Finance planning folder before Thursday.",
+    status: "Waiting",
+    priority: null,
+    createdAt: daysFromNow(-8, 14, 5),
+    updatedAt: daysFromNow(-1, 16, 10),
+    closedAt: null,
+    notes: [],
+    attachments: [],
+  },
+  {
+    id: 803,
+    ticketNumber: "10421",
+    title: "Replace damaged laptop charger",
+    summary: "Replace damaged laptop charger",
+    description: null,
+    status: "Closed",
+    priority: "Low",
+    createdAt: daysFromNow(-24, 11, 30),
+    updatedAt: daysFromNow(-20, 15, 45),
+    closedAt: daysFromNow(-20, 15, 45),
+    notes: [],
+    attachments: [],
+  },
+];
+
+const portalKbItems = [
+  {
+    id: 901,
+    slug: "conference-room-display-usb-c",
+    title: "Connect a laptop to a conference-room display",
+    excerpt: "Check the room input, reconnect USB-C, and wake the display controller.",
+    score: 0.94,
+  },
+  {
+    id: 902,
+    slug: "usb-c-display-no-signal",
+    title: "Troubleshoot a USB-C “No signal” message",
+    excerpt: "A quick checklist for cables, adapters, display input, and laptop permissions.",
+    score: 0.87,
+  },
+];
 
 const labels = [
   { id: 1, name: "help@", color: "#2563eb" },
@@ -657,6 +760,171 @@ const savedViews = [
   { id: 2, userId: null, name: "Unassigned work", filters: { assignee: "" }, shared: true, sortOrder: 10, createdAt: daysFromNow(-10, 9) },
 ];
 
+// Knowledge-base fixtures deliberately cover both visibility values, a draft,
+// ranked-search relevance, and hostile-width article content. The long VPN
+// runbook is selected by the mobile reader capture to exercise table/pre/image
+// containment without needing a database.
+const kbArticles = [
+  {
+    id: 401,
+    slug: "diagnose-vpn-tunnel-renegotiation",
+    title: "Diagnose VPN tunnel renegotiation every 12 minutes",
+    bodyHtml: [
+      "<p><strong>Use this runbook when a site-to-site VPN stays online but renegotiates on a predictable interval.</strong> The usual cause is a phase-one lifetime mismatch after an ISP or firewall change.</p>",
+      "<h2>Before you change anything</h2>",
+      "<ol><li>Confirm which WAN path is active.</li><li>Export the current phase-one and phase-two settings from both peers.</li><li>Schedule a five-minute validation window with the requester.</li></ol>",
+      "<blockquote>Do not clear every tunnel on a production firewall. Reset only the affected security association after the values match.</blockquote>",
+      "<h2>Compare both peers</h2>",
+      '<table style="min-width: 940px"><thead><tr><th>Peer</th><th>IKE version</th><th>Phase-one lifetime</th><th>Phase-two lifetime</th><th>DPD interval</th><th>Observed symptom</th></tr></thead><tbody><tr><td>ACME-FW-01 / WAN1</td><td>IKEv2</td><td>28,800 seconds</td><td>3,600 seconds</td><td>10 seconds, retry 3</td><td>Stable during the primary circuit test</td></tr><tr><td>Upstream managed peer / WAN2</td><td>IKEv2</td><td>720 seconds</td><td>3,600 seconds</td><td>10 seconds, retry 3</td><td>Deletes and rebuilds the phase-one SA every 12 minutes</td></tr></tbody></table>',
+      "<h2>Collect a narrow diagnostic</h2>",
+      "<p>Capture the active peer, negotiated lifetime, byte counters, and the final two rekey events. This intentionally wide command is part of the phone-layout regression fixture:</p>",
+      "<pre><code>Get-NetIPsecMainModeSA | Select-Object LocalEndpoint,RemoteEndpoint,KeyModule,AuthenticationMethod,EncryptionAlgorithm,HashAlgorithm,DHGroup,LifeTimeSeconds,QuickModeLimit | ConvertTo-Json -Depth 8 -Compress</code></pre>",
+      "<h2>Expected topology</h2>",
+      `<img loading="lazy" width="1280" height="260" alt="Wide VPN topology showing users, ACME firewall, two WAN paths, and the managed peer" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1280' height='260' viewBox='0 0 1280 260'%3E%3Crect width='1280' height='260' rx='24' fill='%23e8eef7'/%3E%3Cg fill='%231d4ed8'%3E%3Crect x='40' y='82' width='190' height='96' rx='16'/%3E%3Crect x='420' y='82' width='210' height='96' rx='16'/%3E%3Crect x='1030' y='82' width='210' height='96' rx='16'/%3E%3C/g%3E%3Cg stroke='%23475569' stroke-width='8'%3E%3Cpath d='M230 112 H420'/%3E%3Cpath d='M630 112 C780 112 870 45 1030 100'/%3E%3Cpath d='M630 150 C780 150 870 220 1030 160'/%3E%3C/g%3E%3Cg fill='white' font-family='Arial,sans-serif' font-size='24' text-anchor='middle'%3E%3Ctext x='135' y='138'%3EPlant users%3C/text%3E%3Ctext x='525' y='138'%3EACME-FW-01%3C/text%3E%3Ctext x='1135' y='138'%3EManaged peer%3C/text%3E%3C/g%3E%3Cg fill='%23334155' font-family='Arial,sans-serif' font-size='20'%3E%3Ctext x='770' y='73'%3EWAN1 primary%3C/text%3E%3Ctext x='770' y='219'%3EWAN2 failover%3C/text%3E%3C/g%3E%3C/svg%3E">`,
+      "<h2>Resolution</h2>",
+      "<p>Match the phase-one lifetime on both peers, save each side, and clear only the affected SA. Watch through two full lifetime windows. A healthy result has no delete/recreate pair, increasing byte counters, and no fresh disconnect report.</p>",
+      "<h2>Close-out evidence</h2>",
+      "<ul><li>Attach the before/after peer configuration.</li><li>Record the exact SA cleared and the validation window.</li><li>Ask the requester to keep one ERP session open through the second interval.</li></ul>",
+    ].join(""),
+    category: "Network",
+    visibility: "internal",
+    published: true,
+    author: "Jess Spillers",
+    createdAt: daysFromNow(-24, 9),
+    updatedAt: daysFromNow(0, 10, 30),
+  },
+  {
+    id: 402,
+    slug: "reset-microsoft-365-password-and-mfa",
+    title: "Reset your Microsoft 365 password and MFA",
+    bodyHtml:
+      "<p>If your password or authenticator phone changed, start at the company sign-in page and choose <strong>Forgot my password</strong>.</p><ol><li>Verify your identity with the recovery method shown.</li><li>Create a unique password.</li><li>Open Security info and register the new authenticator.</li></ol><p>If no recovery method is available, contact the service desk. We will verify your identity before resetting MFA.</p>",
+    category: "Accounts",
+    visibility: "portal",
+    published: true,
+    author: "Priya Shah",
+    createdAt: daysFromNow(-18, 11),
+    updatedAt: daysFromNow(0, 9, 45),
+  },
+  {
+    id: 403,
+    slug: "reconnect-wifi-after-password-change",
+    title: "Reconnect to company Wi-Fi after a password change",
+    bodyHtml:
+      "<p>Forget the saved company network, reconnect, and enter your new password. On Windows, open Settings → Network &amp; internet → Wi-Fi → Manage known networks. On iPhone or Android, tap the network details and choose Forget.</p><p>If the device still offers the old credentials, restart it once before contacting support.</p>",
+    category: "Getting connected",
+    visibility: "portal",
+    published: true,
+    author: "Sam Rivera",
+    createdAt: daysFromNow(-12, 14),
+    updatedAt: daysFromNow(-1, 16),
+  },
+  {
+    id: 404,
+    slug: "replace-edge-firewall-without-downtime",
+    title: "Replace an edge firewall without downtime",
+    bodyHtml:
+      "<p>Draft cutover sequence for the next hardware refresh.</p><ul><li>Pre-stage firmware and configuration.</li><li>Verify HA heartbeat on an isolated switch.</li><li>Move the standby unit first.</li></ul>",
+    category: "Network",
+    visibility: "internal",
+    published: false,
+    author: "Jess Spillers",
+    createdAt: daysFromNow(-2, 15),
+    updatedAt: daysFromNow(0, 10, 45),
+  },
+  {
+    id: 405,
+    slug: "triage-a-shared-mailbox-delivery-delay",
+    title: "Triage a shared mailbox delivery delay",
+    bodyHtml:
+      "<p>Check message trace before changing mailbox permissions. Compare the transport timestamp with the client sync timestamp, then test in Outlook on the web to separate delivery from desktop caching.</p>",
+    category: "Email",
+    visibility: "internal",
+    published: true,
+    author: "Priya Shah",
+    createdAt: daysFromNow(-9, 10),
+    updatedAt: daysFromNow(-2, 13),
+  },
+];
+
+function plainKbText(html) {
+  return String(html)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&(?:nbsp|amp|lt|gt|quot|#39);/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function kbSearchScore(article, rawQuery) {
+  const query = rawQuery.trim().toLowerCase();
+  if (!query) return 0;
+  const title = article.title.toLowerCase();
+  const category = article.category.toLowerCase();
+  const body = plainKbText(article.bodyHtml).toLowerCase();
+  const tokens = [...new Set(query.split(/\s+/).filter((token) => token.length > 1))];
+  let score = 0;
+  if (title === query) score += 150;
+  else if (title.includes(query)) score += 90;
+  if (body.includes(query)) score += 35;
+  for (const token of tokens) {
+    if (title.includes(token)) score += 14;
+    if (category.includes(token)) score += 5;
+    const occurrences = body.split(token).length - 1;
+    score += Math.min(occurrences, 4) * 2.5;
+  }
+  return score;
+}
+
+function kbExcerpt(article, rawQuery, maxLength = 220) {
+  const text = plainKbText(article.bodyHtml);
+  if (text.length <= maxLength) return text;
+  const query = rawQuery.trim().toLowerCase();
+  const lowered = text.toLowerCase();
+  const tokens = query.split(/\s+/).filter((token) => token.length > 1);
+  let matchAt = lowered.indexOf(query);
+  if (matchAt < 0) {
+    const positions = tokens.map((token) => lowered.indexOf(token)).filter((index) => index >= 0);
+    matchAt = positions.length ? Math.min(...positions) : 0;
+  }
+  let start = Math.max(0, matchAt - 65);
+  let end = Math.min(text.length, start + maxLength);
+  if (end === text.length) start = Math.max(0, end - maxLength);
+  if (start > 0) {
+    const nextSpace = text.indexOf(" ", start);
+    if (nextSpace >= 0 && nextSpace < matchAt) start = nextSpace + 1;
+  }
+  if (end < text.length) {
+    const previousSpace = text.lastIndexOf(" ", end);
+    if (previousSpace > start) end = previousSpace;
+  }
+  return `${start > 0 ? "…" : ""}${text.slice(start, end).trim()}${end < text.length ? "…" : ""}`;
+}
+
+function kbSlugBase(title) {
+  return String(title)
+    .normalize("NFKD")
+    .replace(/\p{Mark}/gu, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 200) || "article";
+}
+
+function uniqueKbSlug(title) {
+  const base = kbSlugBase(title);
+  const used = new Set(kbArticles.map((article) => article.slug));
+  if (!used.has(base)) return base;
+  for (let suffix = 2; suffix < 1_000; suffix += 1) {
+    const marker = `-${suffix}`;
+    const candidate = `${base.slice(0, 200 - marker.length).replace(/-+$/g, "")}${marker}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  throw new Error("Mock KB slug space exhausted");
+}
+
 const connections = [
   {
     id: 1,
@@ -983,6 +1251,471 @@ function myDayData(searchParams) {
   };
 }
 
+function reportRequestContext(searchParams) {
+  const defaultTo = new Date();
+  defaultTo.setUTCHours(0, 0, 0, 0);
+  defaultTo.setUTCDate(defaultTo.getUTCDate() + 1);
+  const defaultFrom = new Date(defaultTo);
+  defaultFrom.setUTCDate(defaultFrom.getUTCDate() - 30);
+
+  const from = new Date(searchParams.get("from") || defaultFrom);
+  const to = new Date(searchParams.get("to") || defaultTo);
+  if (
+    Number.isNaN(from.getTime()) ||
+    Number.isNaN(to.getTime()) ||
+    from >= to
+  ) {
+    return { error: "report range must be valid and from must be before to" };
+  }
+
+  const context = { from, to };
+  for (const name of ["companyId", "teamId", "assigneeId"]) {
+    const raw = searchParams.get(name);
+    if (raw === null || raw === "") continue;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value <= 0) {
+      return { error: `${name} must be a positive integer` };
+    }
+    context[name] = value;
+  }
+
+  const reconstructedFrom = new Date(REPORT_RECONSTRUCTED_FROM);
+  const reconstructedThrough = new Date(REPORT_RECONSTRUCTED_THROUGH);
+  context.meta = {
+    from: from.toISOString(),
+    to: to.toISOString(),
+    includesReconstructed:
+      to > reconstructedFrom && from <= reconstructedThrough,
+    reconstructedFrom: reconstructedFrom.toISOString(),
+    reconstructedThrough: reconstructedThrough.toISOString(),
+  };
+  return context;
+}
+
+const REPORT_DIMENSION_WEIGHTS = {
+  companyId: new Map([[1, 0.62], [2, 0.28]]),
+  teamId: new Map([[1, 0.57], [2, 0.34]]),
+  assigneeId: new Map([[1, 0.37], [2, 0.31], [3, 0.24]]),
+};
+
+function reportScale(context, ignoredDimensions = []) {
+  const ignored = new Set(ignoredDimensions);
+  let scale = 1;
+  for (const name of ["companyId", "teamId", "assigneeId"]) {
+    if (ignored.has(name) || context[name] === undefined) continue;
+    scale *= REPORT_DIMENSION_WEIGHTS[name].get(context[name]) ?? 0;
+  }
+  return scale;
+}
+
+function scaledCount(value, scale) {
+  if (value === 0 || scale <= 0) return 0;
+  return Math.max(1, Math.round(value * scale));
+}
+
+function volumeReportData(context) {
+  const createdByWeekday = [5, 19, 21, 18, 20, 16, 7];
+  const resolvedByWeekday = [2, 15, 18, 17, 16, 14, 4];
+  const scale = reportScale(context);
+  const rows = [];
+  const cursor = new Date(Date.UTC(
+    context.from.getUTCFullYear(),
+    context.from.getUTCMonth(),
+    context.from.getUTCDate(),
+  ));
+  let index = 0;
+  while (cursor < context.to) {
+    const weekday = cursor.getUTCDay();
+    const created = createdByWeekday[weekday] +
+      (index % 9 === 4 ? 7 : (index * 3) % 4);
+    const resolved = resolvedByWeekday[weekday] +
+      (index % 11 === 7 ? 5 : (index * 5) % 3);
+    rows.push({
+      day: cursor.toISOString().slice(0, 10),
+      created: scaledCount(created, scale),
+      resolved: scaledCount(resolved, scale),
+    });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    index += 1;
+  }
+  return rows;
+}
+
+function durationReportData(context) {
+  const scale = reportScale(context);
+  if (scale <= 0) {
+    return {
+      firstResponse: { count: 0, p50Minutes: null, p90Minutes: null },
+      resolution: { count: 0, p50Minutes: null, p90Minutes: null },
+    };
+  }
+  const latencyFactor =
+    (context.companyId === 2 ? 1.18 : 1) *
+    (context.teamId === 1 ? 0.92 : 1) *
+    (context.assigneeId === 3 ? 1.24 : 1);
+  return {
+    firstResponse: {
+      count: scaledCount(284, scale),
+      p50Minutes: Math.round(24 * latencyFactor),
+      // Deliberately long-tailed: the p90 is the management signal a mean
+      // would blur, not a cosmetically nearby companion to the median.
+      p90Minutes: Math.round(214 * latencyFactor),
+    },
+    resolution: {
+      count: scaledCount(237, scale),
+      p50Minutes: Math.round(318 * latencyFactor),
+      p90Minutes: Math.round(2_946 * latencyFactor),
+    },
+  };
+}
+
+function slaComplianceReport(context) {
+  const scale = reportScale(context);
+  return [
+    {
+      kind: "response",
+      met: scaledCount(211, scale),
+      breached: scaledCount(31, scale),
+      atRisk: scaledCount(14, scale),
+      onTrack: scaledCount(28, scale),
+    },
+    {
+      kind: "resolution",
+      met: scaledCount(163, scale),
+      breached: scaledCount(47, scale),
+      atRisk: scaledCount(19, scale),
+      onTrack: scaledCount(36, scale),
+    },
+  ];
+}
+
+function backlogReportData(context) {
+  const scale = reportScale(context);
+  return [
+    { bucket: "<1d", count: scaledCount(18, scale) },
+    { bucket: "1-3d", count: scaledCount(26, scale) },
+    { bucket: "3-7d", count: scaledCount(21, scale) },
+    { bucket: "7-30d", count: scaledCount(34, scale) },
+    // A visible rotten tail is intentional: a spotless demo fixture would not
+    // exercise the report's actual management question.
+    { bucket: "30d+", count: scaledCount(17, scale) },
+  ];
+}
+
+function teamThroughputReport(context) {
+  const scale = reportScale(context, ["teamId"]);
+  const rows = [
+    { teamId: 1, teamName: "Network Operations", resolved: 96 },
+    { teamId: 2, teamName: "Service Desk", resolved: 72 },
+    { teamId: null, teamName: null, resolved: 11 },
+  ];
+  return rows
+    .filter((row) => context.teamId === undefined || row.teamId === context.teamId)
+    .map((row) => ({ ...row, resolved: scaledCount(row.resolved, scale) }));
+}
+
+function assigneeThroughputReport(context) {
+  const scale = reportScale(context, ["assigneeId"]);
+  const rows = [
+    { assigneeId: 1, assigneeName: "Jess Spillers", resolved: 68 },
+    { assigneeId: 2, assigneeName: "Priya Shah", resolved: 61 },
+    { assigneeId: 3, assigneeName: "Sam Rivera", resolved: 43 },
+    { assigneeId: null, assigneeName: null, resolved: 7 },
+  ];
+  return rows
+    .filter((row) =>
+      context.assigneeId === undefined || row.assigneeId === context.assigneeId
+    )
+    .map((row) => ({ ...row, resolved: scaledCount(row.resolved, scale) }));
+}
+
+function companyTimeReport(context) {
+  const scale = reportScale(context, ["companyId"]);
+  const rows = [
+    { companyId: 1, companyName: "ACME Manufacturing", minutes: 6_840 },
+    { companyId: 2, companyName: "Northwind Clinic", minutes: 3_270 },
+    { companyId: null, companyName: null, minutes: 480 },
+  ];
+  return rows
+    .filter((row) =>
+      context.companyId === undefined || row.companyId === context.companyId
+    )
+    .map((row) => ({
+      ...row,
+      minutes: scaledCount(row.minutes, scale),
+    }));
+}
+
+function daySpreadReport(context) {
+  const technician = assignees.find((user) =>
+    user.id === (context.assigneeId ?? demoUser.id)
+  );
+  if (!technician) {
+    return {
+      data: {
+        assigneeId: context.assigneeId ?? demoUser.id,
+        entries: [],
+        target: {
+          minutes: 480,
+          source: "default_8h",
+          label: "Default 8-hour day (no staff schedule is configured)",
+        },
+        summary: {
+          count: 0,
+          loggedMinutes: 0,
+          placedMinutes: 0,
+          coveredMinutes: 0,
+          unplacedMinutes: 0,
+          unloggedMinutes: 480,
+          uncoveredMinutes: 480,
+          firstStart: null,
+          lastStop: null,
+        },
+      },
+      meta: context.meta,
+    };
+  }
+
+  const at = (minutesAfterMidnight) =>
+    new Date(context.from.getTime() + minutesAfterMidnight * 60_000).toISOString();
+  const firstStart = at(10 * 60);
+  const firstStop = at(12 * 60);
+  const secondStart = at(13 * 60);
+  const secondStop = at(15 * 60);
+  return {
+    data: {
+      assigneeId: technician.id,
+      entries: [
+        {
+          id: 2_701,
+          ticketId: 101,
+          ticketNumber: "10482",
+          ticketTitle: "VPN drops every 12 minutes on ACME-FW-01",
+          content: "Packet capture, tunnel-lifetime comparison, and vendor review",
+          minutes: 120,
+          timeStart: firstStart,
+          timeStop: firstStop,
+          workedAt: firstStart,
+          placed: true,
+        },
+        {
+          id: 2_702,
+          ticketId: 103,
+          ticketNumber: "10484",
+          ticketTitle: "Jira change request waiting on approval",
+          content: "Change-plan review and customer coordination",
+          minutes: 120,
+          timeStart: secondStart,
+          timeStop: secondStop,
+          workedAt: secondStart,
+          placed: true,
+        },
+      ],
+      target: {
+        minutes: 480,
+        source: "default_8h",
+        label: "Default 8-hour day (no staff schedule is configured)",
+      },
+      summary: {
+        count: 2,
+        loggedMinutes: 240,
+        placedMinutes: 240,
+        coveredMinutes: 240,
+        unplacedMinutes: 0,
+        unloggedMinutes: 240,
+        uncoveredMinutes: 240,
+        firstStart,
+        lastStop: secondStop,
+      },
+    },
+    meta: context.meta,
+  };
+}
+
+function ticketSlaTimelineReport() {
+  const createdAt = new Date();
+  createdAt.setDate(createdAt.getDate() - 2);
+  createdAt.setHours(8, 20, 0, 0);
+  const at = (minutesAfterCreation) =>
+    new Date(createdAt.getTime() + minutesAfterCreation * 60_000).toISOString();
+  const now = new Date();
+
+  return {
+    data: {
+      ticket: {
+        id: 101,
+        ticketNumber: "10482",
+        title: "VPN drops every 12 minutes on ACME-FW-01",
+        status: "In Progress",
+        createdAt: createdAt.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      events: [
+        {
+          id: "8101",
+          ticketId: 101,
+          kind: "created",
+          fromValue: null,
+          toValue: "New",
+          actor: "Maya Chen (email)",
+          companyId: 1,
+          teamId: 2,
+          assigneeId: null,
+          priority: "High",
+          occurredAt: at(0),
+          sourceAuditId: "9101",
+        },
+        {
+          id: "8102",
+          ticketId: 101,
+          kind: "assigned",
+          fromValue: null,
+          toValue: "Jess Spillers",
+          actor: "Priya Shah",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "High",
+          occurredAt: at(12),
+          sourceAuditId: "9102",
+        },
+        {
+          id: "8103",
+          ticketId: 101,
+          kind: "first_response",
+          fromValue: null,
+          toValue: null,
+          actor: "Jess Spillers",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "High",
+          occurredAt: at(45),
+          sourceAuditId: "9103",
+        },
+        {
+          id: "8104",
+          ticketId: 101,
+          kind: "status_changed",
+          fromValue: "New",
+          toValue: "In Progress",
+          actor: "Jess Spillers",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "High",
+          occurredAt: at(50),
+          sourceAuditId: "9104",
+        },
+        {
+          id: "8105",
+          ticketId: 101,
+          kind: "status_changed",
+          fromValue: "In Progress",
+          toValue: "Waiting",
+          actor: "Jess Spillers",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "High",
+          occurredAt: at(280),
+          sourceAuditId: "9105",
+        },
+        {
+          id: "8106",
+          ticketId: 101,
+          kind: "sla_breached",
+          fromValue: null,
+          toValue: "resolution",
+          actor: "sla-scheduler",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "High",
+          occurredAt: at(480),
+          sourceAuditId: null,
+        },
+        {
+          id: "8107",
+          ticketId: 101,
+          kind: "resolved",
+          fromValue: "Waiting",
+          toValue: "Resolved",
+          actor: "Jess Spillers",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "High",
+          occurredAt: at(1_495),
+          sourceAuditId: "9107",
+        },
+        {
+          id: "8108",
+          ticketId: 101,
+          kind: "reopened",
+          fromValue: "Resolved",
+          toValue: "In Progress",
+          actor: "Maya Chen (email)",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "Critical",
+          occurredAt: at(1_570),
+          sourceAuditId: "9108",
+        },
+        {
+          id: "8109",
+          ticketId: 101,
+          kind: "sla_breached",
+          fromValue: null,
+          toValue: "resolution",
+          actor: "sla-scheduler",
+          companyId: 1,
+          teamId: 1,
+          assigneeId: 1,
+          priority: "Critical",
+          occurredAt: at(1_810),
+          sourceAuditId: null,
+        },
+      ],
+      targets: [
+        {
+          id: "5101",
+          ticketId: 101,
+          policyId: 12,
+          policyName: "ACME priority support — High",
+          responseMinutes: 60,
+          resolutionMinutes: 480,
+          responseDueAt: at(60),
+          resolutionDueAt: at(480),
+          establishedAt: at(0),
+          supersededAt: at(1_570),
+        },
+        {
+          id: "5102",
+          ticketId: 101,
+          policyId: 4,
+          policyName: "Production incident — Critical",
+          responseMinutes: 30,
+          resolutionMinutes: 240,
+          responseDueAt: at(1_600),
+          resolutionDueAt: at(1_810),
+          establishedAt: at(1_570),
+          supersededAt: null,
+        },
+      ],
+    },
+    meta: {
+      from: createdAt.toISOString(),
+      to: now.toISOString(),
+      includesReconstructed: false,
+      reconstructedFrom: REPORT_RECONSTRUCTED_FROM,
+      reconstructedThrough: REPORT_RECONSTRUCTED_THROUGH,
+      rangeDerived: true,
+    },
+  };
+}
+
 function json(route, body, status = 200) {
   return route.fulfill({
     status,
@@ -991,13 +1724,162 @@ function json(route, body, status = 200) {
   });
 }
 
+function csvCell(value) {
+  const text = value == null ? "" : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function companyTimeCsv(route, context) {
+  const rows = companyTimeReport(context);
+  const body = [
+    ["company_id", "company_name", "minutes", "hours"],
+    ...rows.map((row) => [
+      row.companyId,
+      row.companyName ?? "Unattributed",
+      row.minutes,
+      (row.minutes / 60).toFixed(2),
+    ]),
+  ].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
+  return route.fulfill({
+    status: 200,
+    contentType: "text/csv; charset=utf-8",
+    headers: {
+      "Content-Disposition": 'attachment; filename="anchordesk-time-by-company.csv"',
+      "X-AnchorDesk-Report-From": context.meta.from,
+      "X-AnchorDesk-Report-To": context.meta.to,
+      "X-AnchorDesk-Includes-Reconstructed":
+        String(context.meta.includesReconstructed),
+    },
+    body,
+  });
+}
+
 export async function handleApi(route) {
   const request = route.request();
   const url = new URL(request.url());
   const apiPath = url.pathname.replace(/^\/api/, "");
   const method = request.method();
-  const body = request.postData() ? request.postDataJSON() : {};
+  let body = {};
+  const contentType = request.headers()["content-type"] ?? "";
+  if (request.postData() && contentType.includes("application/json")) {
+    try {
+      body = request.postDataJSON();
+    } catch {
+      body = {};
+    }
+  }
   if (debugCapture) console.log(`API ${method} ${apiPath}`);
+
+  if (method === "GET" && apiPath === "/portal/auth/me") {
+    return json(route, { requester: portalRequester });
+  }
+  if (method === "POST" && apiPath === "/portal/auth/magic-link") {
+    return json(
+      route,
+      {
+        ok: true,
+        message: "If that email address is registered, a sign-in link will arrive shortly.",
+      },
+      202
+    );
+  }
+  if (method === "POST" && apiPath === "/portal/auth/verify") {
+    return json(route, { requester: portalRequester });
+  }
+  if (method === "POST" && apiPath === "/portal/auth/logout") {
+    return json(route, { ok: true });
+  }
+  // Portal deflection only. Scoped to visibility=portal so it does not shadow
+  // the ranked staff KB search defined further down — both workstreams added a
+  // /kb/search handler, and an unscoped one here silently made every staff
+  // search return the portal fixtures.
+  if (
+    method === "GET" &&
+    apiPath === "/kb/search" &&
+    url.searchParams.get("visibility") === "portal"
+  ) {
+    return json(route, { items: portalKbItems });
+  }
+  if (method === "GET" && apiPath === "/portal/tickets") {
+    const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+    const pageSize = Math.min(
+      50,
+      Math.max(1, Number(url.searchParams.get("pageSize") || 20))
+    );
+    const start = (page - 1) * pageSize;
+    return json(route, {
+      items: portalTickets
+        .slice(start, start + pageSize)
+        .map(({ notes: _notes, attachments: _attachments, ...ticket }) => ({
+          ...ticket,
+          notes: [],
+          attachments: [],
+        })),
+      total: portalTickets.length,
+      page,
+      pageSize,
+    });
+  }
+  if (method === "POST" && apiPath === "/portal/tickets") {
+    const now = new Date().toISOString();
+    return json(
+      route,
+      {
+        id: 804,
+        ticketNumber: "10502",
+        title: body.summary,
+        summary: body.summary,
+        description: body.description || null,
+        status: "New",
+        priority: "Medium",
+        createdAt: now,
+        updatedAt: now,
+        closedAt: null,
+        notes: [],
+        attachments: [],
+      },
+      201
+    );
+  }
+  let portalMatch = apiPath.match(/^\/portal\/tickets\/(\d+)$/);
+  if (method === "GET" && portalMatch) {
+    const ticket = portalTickets.find((item) => item.id === Number(portalMatch[1]));
+    return ticket
+      ? json(route, ticket)
+      : json(route, { error: "Ticket not found" }, 404);
+  }
+  portalMatch = apiPath.match(/^\/portal\/tickets\/(\d+)\/comments$/);
+  if (method === "POST" && portalMatch) {
+    return json(
+      route,
+      {
+        id: 8103,
+        content: body.content,
+        htmlContent: null,
+        direction: null,
+        authorKind: "you",
+        createdAt: new Date().toISOString(),
+      },
+      201
+    );
+  }
+  portalMatch = apiPath.match(/^\/portal\/tickets\/(\d+)\/attachments$/);
+  if (method === "POST" && portalMatch) {
+    return json(
+      route,
+      [
+        {
+          id: 8202,
+          filename: "room-controller.jpg",
+          contentType: "image/jpeg",
+          size: 13724,
+          createdAt: new Date().toISOString(),
+          downloadUrl: "/api/portal/attachments/8202/download",
+        },
+      ],
+      201
+    );
+  }
 
   if (method === "GET" && apiPath === "/auth/me") return json(route, { user: demoUser });
   if (method === "PUT" && apiPath === "/auth/kanban-columns") {
@@ -1007,6 +1889,67 @@ export async function handleApi(route) {
   if (method === "GET" && apiPath === "/auth/setup-status") return json(route, { needed: false });
   if (method === "GET" && apiPath === "/auth/config") return json(route, { local: true, oidc: true, saml: false });
   if (method === "GET" && apiPath === "/ui-settings") return json(route, { legacyTableView: false });
+  // Captured in its default state: off is what a fresh install actually looks
+  // like, and the panel's warning copy differs between the two.
+  if (method === "GET" && apiPath === "/portal-settings") return json(route, { enabled: false });
+  if (method === "PATCH" && apiPath === "/portal-settings") return json(route, { enabled: true });
+
+  const reportPaths = new Set([
+    "/reports/volume",
+    "/reports/durations",
+    "/reports/sla-compliance",
+    "/reports/backlog-age",
+    "/reports/throughput/team",
+    "/reports/throughput/assignee",
+    "/reports/time-by-company",
+    "/reports/time-by-company.csv",
+  ]);
+  if (method === "GET" && reportPaths.has(apiPath)) {
+    const context = reportRequestContext(url.searchParams);
+    if (context.error) return json(route, { error: context.error }, 400);
+    if (apiPath === "/reports/volume") {
+      return json(route, { data: volumeReportData(context), meta: context.meta });
+    }
+    if (apiPath === "/reports/durations") {
+      return json(route, { data: durationReportData(context), meta: context.meta });
+    }
+    if (apiPath === "/reports/sla-compliance") {
+      const coverageFrom = new Date(REPORT_SLA_COVERAGE_FROM);
+      return json(route, {
+        data: slaComplianceReport(context),
+        meta: {
+          ...context.meta,
+          slaSnapshotCoverageFrom: coverageFrom.toISOString(),
+          includesUnrecordedSlaHistory: context.from < coverageFrom,
+        },
+      });
+    }
+    if (apiPath === "/reports/backlog-age") {
+      return json(route, { data: backlogReportData(context), meta: context.meta });
+    }
+    if (apiPath === "/reports/throughput/team") {
+      return json(route, { data: teamThroughputReport(context), meta: context.meta });
+    }
+    if (apiPath === "/reports/throughput/assignee") {
+      return json(route, { data: assigneeThroughputReport(context), meta: context.meta });
+    }
+    if (apiPath === "/reports/time-by-company") {
+      return json(route, { data: companyTimeReport(context), meta: context.meta });
+    }
+    return companyTimeCsv(route, context);
+  }
+
+  if (method === "GET" && apiPath === "/time/day-spread") {
+    const context = reportRequestContext(url.searchParams);
+    return context.error
+      ? json(route, { error: context.error }, 400)
+      : json(route, daySpreadReport(context));
+  }
+
+  if (method === "GET" && apiPath === "/tickets/101/sla-timeline") {
+    return json(route, ticketSlaTimelineReport());
+  }
+
   if (method === "GET" && apiPath === "/assignees") return json(route, assignees);
   if (method === "GET" && apiPath === "/users") return json(route, managedUsers);
   if (method === "GET" && apiPath === "/labels") return json(route, labels);
@@ -1101,6 +2044,111 @@ export async function handleApi(route) {
     if (index >= 0) savedViews.splice(index, 1);
     return json(route, {}, 204);
   }
+
+  if (method === "GET" && apiPath === "/kb/search") {
+    const q = (url.searchParams.get("q") || "").trim();
+    const visibility = url.searchParams.get("visibility");
+    const requestedLimit = Number(url.searchParams.get("limit") || 20);
+    const limit = Number.isInteger(requestedLimit)
+      ? Math.max(1, Math.min(requestedLimit, 100))
+      : 20;
+    const items = kbArticles
+      .filter((article) =>
+        article.published &&
+        (!visibility || article.visibility === visibility)
+      )
+      .map((article) => ({ article, score: kbSearchScore(article, q) }))
+      .filter((result) => result.score > 0)
+      .sort((a, b) => b.score - a.score || a.article.id - b.article.id)
+      .slice(0, limit)
+      .map(({ article, score }) => ({
+        id: article.id,
+        slug: article.slug,
+        title: article.title,
+        excerpt: kbExcerpt(article, q),
+        score: Number(score.toFixed(4)),
+      }));
+    return json(route, { items });
+  }
+
+  if (method === "GET" && apiPath === "/kb/articles") {
+    const includeUnpublished = url.searchParams.get("includeUnpublished") === "true";
+    const visibility = url.searchParams.get("visibility");
+    const items = kbArticles
+      .filter((article) =>
+        (includeUnpublished || article.published) &&
+        (!visibility || article.visibility === visibility)
+      )
+      .sort((a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime() ||
+        b.id - a.id
+      )
+      .map((article) => ({
+        id: article.id,
+        slug: article.slug,
+        title: article.title,
+        excerpt: kbExcerpt(article, ""),
+        category: article.category,
+        visibility: article.visibility,
+        published: article.published,
+        author: article.author,
+        createdAt: article.createdAt,
+        updatedAt: article.updatedAt,
+      }));
+    return json(route, { items });
+  }
+
+  if (method === "POST" && apiPath === "/kb/articles") {
+    const now = new Date().toISOString();
+    const article = {
+      id: Math.max(0, ...kbArticles.map((item) => item.id)) + 1,
+      slug: uniqueKbSlug(body.title),
+      title: body.title,
+      bodyHtml: body.bodyHtml,
+      category: body.category,
+      visibility: body.visibility ?? "internal",
+      published: body.published ?? false,
+      author: demoUser.displayName,
+      createdAt: now,
+      updatedAt: now,
+    };
+    kbArticles.push(article);
+    return json(route, article, 201);
+  }
+
+  resourceMatch = apiPath.match(/^\/kb\/articles\/(\d+)$/);
+  if (resourceMatch && method === "GET") {
+    const article = kbArticles.find((item) => item.id === Number(resourceMatch[1]));
+    return article ? json(route, article) : json(route, { error: "Article not found" }, 404);
+  }
+  if (resourceMatch && method === "PATCH") {
+    const article = kbArticles.find((item) => item.id === Number(resourceMatch[1]));
+    if (!article) return json(route, { error: "Article not found" }, 404);
+    for (const field of ["title", "bodyHtml", "category", "visibility", "published"]) {
+      if (body[field] !== undefined) article[field] = body[field];
+    }
+    // Slugs are server-owned and remain stable across title edits.
+    article.updatedAt = new Date().toISOString();
+    return json(route, article);
+  }
+  if (resourceMatch && method === "DELETE") {
+    const index = kbArticles.findIndex((item) => item.id === Number(resourceMatch[1]));
+    if (index < 0) return json(route, { error: "Article not found" }, 404);
+    kbArticles.splice(index, 1);
+    return route.fulfill({ status: 204, body: "" });
+  }
+
+  resourceMatch = apiPath.match(/^\/kb\/portal\/([a-z0-9-]+)$/);
+  if (resourceMatch && method === "GET") {
+    // Mirror the real portal boundary instead of relying on callers to filter.
+    const article = kbArticles.find((item) =>
+      item.slug === resourceMatch[1] &&
+      item.visibility === "portal" &&
+      item.published
+    );
+    return article ? json(route, article) : json(route, { error: "Article not found" }, 404);
+  }
+
   if (method === "GET" && apiPath === "/notifications") {
     return json(route, {
       unread: 2,
@@ -1579,13 +2627,20 @@ export async function handleApi(route) {
 
 /**
  * Route every /api/* request on the page into the mock dataset.
- * `authenticated: false` makes /auth/me return 401 so the login screen renders.
+ * `authenticated: false` makes /auth/me return 401 so the staff login renders.
+ * `portalAuthenticated: false` does the same for the requester portal.
  */
 export function installApiMock(page, options = {}) {
   return page.route("**/*", (route) => {
     const pathname = new URL(route.request().url()).pathname;
     if (!pathname.startsWith("/api/")) return route.continue();
     if (options.authenticated === false && pathname === "/api/auth/me") {
+      return route.fulfill({ status: 401, contentType: "application/json", body: "{}" });
+    }
+    if (
+      options.portalAuthenticated === false
+      && pathname === "/api/portal/auth/me"
+    ) {
       return route.fulfill({ status: 401, contentType: "application/json", body: "{}" });
     }
     return handleApi(route);

@@ -33,9 +33,12 @@ import TicketCard from "./components/TicketCard";
 import FilterDialog from "./components/FilterDialog";
 // Lazy: the admin console is role-gated and heavy; keep it out of the main chunk.
 const AdminView = lazy(() => import("./components/AdminView"));
+// Reporting visuals and TIME calendar stay out of the ticketing shell chunk.
+const ReportsView = lazy(() => import("./components/ReportsView"));
+const MyDayView = lazy(() => import("./components/MyDayView"));
 import NetworkView from "./components/NetworkView";
 import CompaniesView from "./components/CompaniesView";
-import MyDayView from "./components/MyDayView";
+import KnowledgeBaseView from "./components/KnowledgeBaseView";
 import TicketDialog from "./components/TicketDialog";
 import TicketTable from "./components/TicketTable";
 import KanbanBoard from "./components/KanbanBoard";
@@ -158,7 +161,7 @@ function App() {
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [ticketNotes, setTicketNotes] = useState<Note[]>([]);
-  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban" | "admin" | "network" | "companies" | "myday">(
+  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban" | "admin" | "network" | "companies" | "myday" | "knowledge" | "reports">(
     () => (new URLSearchParams(window.location.search).has("admin") ? "admin" : "kanban")
   );
   const [toast, setToast] = useState<{ message: string; severity: "success" | "error" } | null>(null);
@@ -665,8 +668,14 @@ function App() {
           <Suspense fallback={<Box sx={{ display: "grid", placeItems: "center", py: 6 }}><CircularProgress /></Box>}>
             <AdminView onOpenTickets={() => setViewMode("kanban")} />
           </Suspense>
+        ) : viewMode === "reports" ? (
+          <Suspense fallback={<Box sx={{ display: "grid", placeItems: "center", py: 6 }}><CircularProgress /></Box>}>
+            <ReportsView />
+          </Suspense>
         ) : viewMode === "myday" ? (
-          <MyDayView onOpenTicket={openTicketById} />
+          <Suspense fallback={<Box sx={{ display: "grid", placeItems: "center", py: 6 }}><CircularProgress /></Box>}>
+            <MyDayView onOpenTicket={openTicketById} />
+          </Suspense>
         ) : viewMode === "network" ? (
           <NetworkView initialCompany={networkCompany} />
         ) : viewMode === "companies" ? (
@@ -674,6 +683,8 @@ function App() {
             onOpenTicket={openTicketById}
             onViewNetwork={(name) => { setNetworkCompany(name); setViewMode("network"); }}
           />
+        ) : viewMode === "knowledge" ? (
+          <KnowledgeBaseView canWrite={canWrite} />
         ) : (
           <>
         {error && <Typography color="error">Error: {error.message}</Typography>}

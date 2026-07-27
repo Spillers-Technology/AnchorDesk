@@ -7,11 +7,16 @@
 jest.mock('../db/prisma', () => ({
   prisma: {
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
     ticket: {
       findUnique: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
       findUniqueOrThrow: jest.fn(),
+    },
+    ticketSlaSnapshot: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
     },
   },
 }));
@@ -38,6 +43,7 @@ const ticketFindUnique = prisma.ticket.findUnique as jest.Mock;
 const ticketUpdate = prisma.ticket.update as jest.Mock;
 const ticketFindUniqueOrThrow = prisma.ticket.findUniqueOrThrow as jest.Mock;
 const computeSla = computeSlaFields as jest.Mock;
+const snapshotFindFirst = prisma.ticketSlaSnapshot.findFirst as jest.Mock;
 
 const MANUAL_DUE = new Date('2026-07-18T09:00:00Z');
 
@@ -48,6 +54,7 @@ function existingTicket(overrides: Record<string, unknown> = {}) {
     status: 'Open',
     priority: 'Medium',
     companyId: 7,
+    contactId: 9,
     companyName: 'Acme',
     customFields: null,
     createdAt: new Date('2026-07-15T08:00:00Z'),
@@ -69,6 +76,7 @@ beforeEach(() => {
   transaction.mockImplementation(
     async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma)
   );
+  snapshotFindFirst.mockResolvedValue(null);
 });
 
 describe('ticketRepository.update dueAt handling', () => {
@@ -95,6 +103,7 @@ describe('ticketRepository.update dueAt handling', () => {
       slaPolicyId: 2,
       responseDueAt: new Date('2026-07-15T08:30:00Z'),
       resolutionDueAt: new Date('2026-07-15T12:00:00Z'),
+      snapshot: null,
     });
 
     await update(42, { priority: 'High' }, 'alice');
@@ -111,5 +120,15 @@ describe('ticketRepository.update dueAt handling', () => {
     ticketFindUnique.mockResolvedValue(existingTicket());
     await update(42, { dueAt: new Date('2026-07-21T09:00:00Z') }, 'alice');
     expect(computeSla).not.toHaveBeenCalled();
+  });
+
+  it('quarantines prior requester history when ticket ownership changes', async () => {
+    ticketFindUnique.mockResolvedValue(existingTicket());
+
+    await update(42, { contactId: 10 }, 'alice');
+
+    const data = ticketUpdate.mock.calls[0][0].data;
+    expect(data.contactId).toBe(10);
+    expect(data.portalAccessRevokedAt).toBeInstanceOf(Date);
   });
 });

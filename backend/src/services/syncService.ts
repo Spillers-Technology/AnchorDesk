@@ -10,7 +10,10 @@
 
 import { SyncRunStatus, SyncRunTrigger, TicketSource } from '@prisma/client';
 import { prisma } from '../db/prisma';
-import { TicketProvider } from '../providers/TicketProvider';
+import {
+  localVisibilityForExternalNote,
+  TicketProvider,
+} from '../providers/TicketProvider';
 import { createTicketProvider, resolveCredentials } from '../providers/ticketProviderFactory';
 import * as ticketRepo from '../repositories/ticketRepository';
 import * as noteRepo from '../repositories/noteRepository';
@@ -467,7 +470,10 @@ async function executeSync(providerRow: ProviderRow, runId: number): Promise<Syn
                   noteType: n.noteType,
                   timeStart: n.timeStart,
                   timeStop: n.timeStop,
+                  createdAt: n.createdAt,
                   externalId: n.externalId,
+                  visibility: localVisibilityForExternalNote(n),
+                  via: 'sync',
                 },
                 'system'
               );

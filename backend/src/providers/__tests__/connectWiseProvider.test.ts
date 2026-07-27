@@ -129,6 +129,32 @@ describe("ConnectWise pagination", () => {
     ]);
   });
 
+  it("exposes only an explicitly external detail note to requesters", async () => {
+    getServiceTicketsByParentIdNotes
+      .mockResolvedValueOnce([
+        {
+          ...note(1, "Customer update"),
+          detailDescriptionFlag: true,
+          internalAnalysisFlag: false,
+        },
+        {
+          ...note(2, "Private analysis"),
+          detailDescriptionFlag: true,
+          internalAnalysisFlag: true,
+        },
+        note(3, "Unknown legacy bucket"),
+      ])
+      .mockResolvedValueOnce([]);
+
+    const rows = await new ConnectWiseProvider("Support").fetchNotes("42");
+
+    expect(rows.map((row) => row.visibility)).toEqual([
+      "public",
+      "internal",
+      "internal",
+    ]);
+  });
+
   it("continues after short non-empty pages in case the server clamps page size", async () => {
     getServiceTickets
       .mockResolvedValueOnce([ticket(1), ticket(2)])

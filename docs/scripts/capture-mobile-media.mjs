@@ -43,7 +43,15 @@ function wanted(envVar, name) {
   return filter.split(",").map((s) => s.trim()).includes(name);
 }
 
-async function newDeviceContext(browser, device, { authenticated = true } = {}) {
+async function newDeviceContext(
+  browser,
+  device,
+  {
+    authenticated = true,
+    portalAuthenticated = true,
+    startPath = "/",
+  } = {}
+) {
   const context = await browser.newContext({
     viewport: device.viewport,
     deviceScaleFactor: 2,
@@ -55,8 +63,8 @@ async function newDeviceContext(browser, device, { authenticated = true } = {}) 
     page.on("console", (message) => console.log(`BROWSER ${message.type()}: ${message.text()}`));
     page.on("pageerror", (error) => console.log(`BROWSER pageerror: ${error.message}`));
   }
-  await installApiMock(page, { authenticated });
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+  await installApiMock(page, { authenticated, portalAuthenticated });
+  await page.goto(`${baseUrl}${startPath}`, { waitUntil: "domcontentloaded" });
   await freezeAnimations(page);
   return { context, page };
 }
@@ -71,8 +79,131 @@ async function shoot(page, device, view) {
   console.log(`  ✓ ${view}`);
 }
 
+async function assertNoHorizontalPageScroll(page, view) {
+  const metrics = await page.evaluate(() => ({
+    viewportWidth: document.documentElement.clientWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    bodyWidth: document.body?.scrollWidth ?? 0,
+  }));
+  const pageWidth = Math.max(metrics.documentWidth, metrics.bodyWidth);
+  // A single CSS pixel can be introduced by fractional device-scale rounding.
+  if (pageWidth > metrics.viewportWidth + 1) {
+    throw new Error(
+      `${view} has horizontal page scroll: ${pageWidth}px content in a ${metrics.viewportWidth}px viewport`
+    );
+  }
+}
+
+async function shootWithoutPageOverflow(page, device, view) {
+  await assertNoHorizontalPageScroll(page, view);
+  await shoot(page, device, view);
+}
+
+async function shootSection(page, device, view, testId) {
+  const section = page.getByTestId(testId);
+  await section.waitFor({ timeout: 20_000 });
+  await section.evaluate((element) =>
+    element.scrollIntoView({ block: "center", inline: "nearest" })
+  );
+  await page.waitForTimeout(150);
+  await shootWithoutPageOverflow(page, device, view);
+}
+
+async function assertWideArticleContentScrollable(page, view) {
+  const metrics = await page.locator("article .html-table-scroll").first().evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  if (metrics.scrollWidth <= metrics.clientWidth + 1) {
+    throw new Error(
+      `${view} wide table is clipped or collapsed instead of internally scrollable: ` +
+      `${metrics.scrollWidth}px content in a ${metrics.clientWidth}px container`
+    );
+  }
+}
+
 async function captureDevice(browser, device) {
   console.log(`\n${device.name} (${device.viewport.width}×${device.viewport.height})`);
+
+  // The customer portal is a separate HTML entry and bundle. Exercise it in
+  // its own contexts so a staff session can never mask requester-only states.
+  if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-login")) {
+    const { context, page } = await newDeviceContext(browser, device, {
+      portalAuthenticated: false,
+      startPath: "/portal/login",
+    });
+    await page
+      .getByRole("button", { name: "Email me a sign-in link" })
+      .waitFor({ timeout: 20_000 });
+    await shoot(page, device, "portal-login");
+    await context.close();
+  }
+
+  const portalViews = [
+    "portal-tickets",
+    "portal-new-ticket",
+    "portal-ticket",
+    "portal-comment",
+    "portal-attachment",
+  ];
+  if (portalViews.some((name) => wanted("ANCHORDESK_CAPTURE_VIEWS", name))) {
+    const { context, page } = await newDeviceContext(browser, device, {
+      startPath: "/portal/tickets",
+    });
+    try {
+      await page.getByRole("heading", { name: "My tickets" }).waitFor({ timeout: 20_000 });
+      if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-tickets")) {
+        await shoot(page, device, "portal-tickets");
+      }
+
+      if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-new-ticket")) {
+        await page.goto(`${baseUrl}/portal/tickets/new`, { waitUntil: "domcontentloaded" });
+        const summary = page.getByLabel("Summary");
+        await summary.fill("Conference room display will not connect");
+        await page
+          .getByText("Does this answer it?", { exact: true })
+          .waitFor({ timeout: 20_000 });
+        await shoot(page, device, "portal-new-ticket");
+      }
+
+      if (
+        wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-ticket")
+        || wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-comment")
+        || wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-attachment")
+      ) {
+        await page.goto(`${baseUrl}/portal/tickets/801`, { waitUntil: "domcontentloaded" });
+        await page
+          .getByRole("heading", { name: "Conference room display will not connect" })
+          .waitFor({ timeout: 20_000 });
+        if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-ticket")) {
+          await shoot(page, device, "portal-ticket");
+        }
+
+        if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-comment")) {
+          const comment = page.getByLabel("Comment");
+          await comment.fill("The display controller is now blinking amber.");
+          await comment.evaluate((element) => element.scrollIntoView({ block: "center" }));
+          await shoot(page, device, "portal-comment");
+        }
+
+        if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-attachment")) {
+          const input = page.getByLabel("Upload attachments");
+          await input.setInputFiles({
+            name: "room-controller.jpg",
+            mimeType: "image/jpeg",
+            buffer: Buffer.from("mock portal attachment"),
+          });
+          await page.getByText("File uploaded.", { exact: true }).waitFor({ timeout: 20_000 });
+          await page
+            .getByText("room-controller.jpg", { exact: true })
+            .evaluate((element) => element.scrollIntoView({ block: "center" }));
+          await shoot(page, device, "portal-attachment");
+        }
+      }
+    } finally {
+      await context.close();
+    }
+  }
 
   // Login renders only for an unauthenticated user, so it gets its own context.
   if (wanted("ANCHORDESK_CAPTURE_VIEWS", "login")) {
@@ -196,10 +327,71 @@ async function captureDevice(browser, device) {
       await shoot(page, device, "cards");
     }
 
-    if (view("myday")) {
-      await openDrawer(page, "My Day");
-      await page.getByText("Duration-only", { exact: false }).waitFor({ timeout: 20_000 });
-      await shoot(page, device, "myday");
+    const reportSections = [
+      { view: "reports-volume", testId: "report-volume" },
+      { view: "reports-durations", testId: "report-durations" },
+      { view: "reports-sla", testId: "report-sla" },
+      { view: "reports-backlog", testId: "report-backlog" },
+      { view: "reports-team-throughput", testId: "report-team-throughput" },
+      { view: "reports-assignee-throughput", testId: "report-assignee-throughput" },
+      { view: "reports-time-company", testId: "report-time-company" },
+    ];
+    if (view("reports") || reportSections.some((section) => view(section.view))) {
+      await openDrawer(page, "Reports");
+      const reportsRoot = page.getByTestId("reports-view");
+      await reportsRoot.waitFor({ timeout: 20_000 });
+      await reportsRoot
+        .getByText("Includes reconstructed history", { exact: false })
+        .first()
+        .waitFor({ timeout: 20_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      if (view("reports")) {
+        await shootWithoutPageOverflow(page, device, "reports");
+      }
+      for (const section of reportSections) {
+        if (view(section.view)) {
+          await shootSection(page, device, section.view, section.testId);
+        }
+      }
+    }
+
+    // Keep the historical `myday` filename in the matrix while adding the two
+    // explicit 2.7 TIME proof views. It now points at the consolidated TIME
+    // calendar's day mode instead of the removed standalone navigation label.
+    const timeViews = ["myday", "time-day", "time-sla"];
+    if (timeViews.some(view)) {
+      await openDrawer(page, "TIME calendar");
+      const daySpread = page.getByTestId("time-day-spread");
+      await daySpread.waitFor({ timeout: 20_000 });
+      await daySpread.getByText("Visible workday gaps", { exact: true }).waitFor({ timeout: 20_000 });
+      await daySpread.getByText("50%", { exact: true }).waitFor({ timeout: 20_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      if (view("myday")) {
+        await shootWithoutPageOverflow(page, device, "myday");
+      }
+      if (view("time-day")) {
+        await shootWithoutPageOverflow(page, device, "time-day");
+      }
+
+      if (view("time-sla")) {
+        await page.getByRole("tab", { name: "Ticket SLA timeline" }).click();
+        const timeline = page.getByTestId("time-sla-timeline");
+        await timeline.waitFor({ timeout: 20_000 });
+        const search = timeline.getByLabel("Find a ticket");
+        await search.fill("10482");
+        const option = page.getByRole("option", {
+          name: /#10482 · VPN drops every 12 minutes/,
+        });
+        await option.waitFor({ timeout: 20_000 });
+        const response = page.waitForResponse((candidate) =>
+          new URL(candidate.url()).pathname === "/api/tickets/101/sla-timeline"
+        );
+        await option.click();
+        await response;
+        await timeline.getByLabel(/SLA breached at/).first().waitFor({ timeout: 20_000 });
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await shootWithoutPageOverflow(page, device, "time-sla");
+      }
     }
 
     if (view("companies")) {
@@ -216,6 +408,60 @@ async function captureDevice(browser, device) {
       await page.getByText("Device type, open services", { exact: false }).waitFor({ timeout: 20_000 });
       await page.waitForTimeout(800); // let the canvas settle
       await shoot(page, device, "network");
+    }
+
+    const kbViews = [
+      "knowledge-base",
+      "knowledge-base-article",
+      "knowledge-base-editor",
+    ];
+    if (kbViews.some(view)) {
+      const vpnTitle = "Diagnose VPN tunnel renegotiation every 12 minutes";
+      await openDrawer(page, "Knowledge Base");
+      await page.getByRole("heading", { name: "Knowledge base", exact: true }).waitFor({ timeout: 20_000 });
+      await page.getByText(vpnTitle, { exact: true }).first().waitFor({ timeout: 20_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      if (view("knowledge-base")) await shoot(page, device, "knowledge-base");
+
+      if (view("knowledge-base-article") || view("knowledge-base-editor")) {
+        const rankedSearch = page.waitForResponse((response) => {
+          const responseUrl = new URL(response.url());
+          return responseUrl.pathname === "/api/kb/search" &&
+            responseUrl.searchParams.get("q") === "vpn tunnel renegotiation";
+        });
+        await page.getByLabel("Search articles").fill("vpn tunnel renegotiation");
+        await rankedSearch;
+        await page
+          .getByText("Reset your Microsoft 365 password and MFA", { exact: true })
+          .waitFor({ state: "hidden", timeout: 20_000 });
+
+        const bestMatch = page.getByText(vpnTitle, { exact: true }).first();
+        await bestMatch.waitFor({ timeout: 20_000 });
+        const articleRequest = page.waitForResponse((response) =>
+          new URL(response.url()).pathname === "/api/kb/articles/401"
+        );
+        await bestMatch.evaluate((element) => element.scrollIntoView({ block: "center" }));
+        await bestMatch.dispatchEvent("click");
+        await articleRequest;
+
+        const article = page.locator("article");
+        await article.getByRole("heading", { name: vpnTitle, exact: true }).waitFor({ timeout: 20_000 });
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await assertNoHorizontalPageScroll(page, "knowledge-base-article");
+        await assertWideArticleContentScrollable(page, "knowledge-base-article");
+        if (view("knowledge-base-article")) {
+          await shoot(page, device, "knowledge-base-article");
+        }
+
+        if (view("knowledge-base-editor")) {
+          await article.getByRole("button", { name: "Edit", exact: true }).click();
+          await page.getByRole("heading", { name: "Edit knowledge base article" }).waitFor({ timeout: 20_000 });
+          await page.getByRole("textbox", { name: "Title" }).waitFor({ timeout: 20_000 });
+          await shoot(page, device, "knowledge-base-editor");
+          await page.keyboard.press("Escape");
+          await page.getByRole("heading", { name: "Edit knowledge base article" }).waitFor({ state: "hidden", timeout: 5_000 });
+        }
+      }
     }
 
     const adminViews = ["admin", "admin-teams", "admin-custom-fields", "admin-checklists", "checklist-template-editor", "admin-automations", "admin-ticket-sync", "ticket-sync-connection-editor", "ticket-sync-job-editor", "ticket-sync-run-history", "ticket-sync-run-detail", "admin-devices", "device-assets"];
@@ -304,6 +550,34 @@ async function captureDevice(browser, device) {
           await page.keyboard.press("Escape");
         }
       }
+    }
+
+    if (view("admin-customer-portal")) {
+      const portalSettingsUrl = new URL(baseUrl);
+      portalSettingsUrl.searchParams.set("admin", "customer-portal");
+      await page.goto(portalSettingsUrl.href, { waitUntil: "domcontentloaded" });
+      await freezeAnimations(page);
+      // MUI 9's Switch exposes role="switch", not checkbox.
+      await page
+        .getByRole("switch", { name: "Enable the customer portal" })
+        .waitFor({ timeout: 20_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await assertNoHorizontalPageScroll(page, "admin-customer-portal");
+      await shoot(page, device, "admin-customer-portal");
+    }
+
+    if (view("admin-knowledge-base")) {
+      const adminKnowledgeBaseUrl = new URL(baseUrl);
+      adminKnowledgeBaseUrl.searchParams.set("admin", "knowledge-base");
+      await page.goto(adminKnowledgeBaseUrl.href, { waitUntil: "domcontentloaded" });
+      await freezeAnimations(page);
+      await page.getByLabel("Filter articles").waitFor({ timeout: 20_000 });
+      await page
+        .getByText("Replace an edge firewall without downtime", { exact: true })
+        .first()
+        .waitFor({ timeout: 20_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await shoot(page, device, "admin-knowledge-base");
     }
   } catch (error) {
     if (debugCapture) {

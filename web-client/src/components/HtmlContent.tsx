@@ -4,6 +4,8 @@ import { hasRenderableHtml, sanitizeHtml } from "../html";
 export const HTML_CONTENT_SX: SxProps<Theme> = {
   color: "text.primary",
   lineHeight: 1.6,
+  maxWidth: "100%",
+  minWidth: 0,
   overflowWrap: "anywhere",
   wordBreak: "break-word",
   "& > :first-of-type": { mt: 0 },
@@ -14,9 +16,33 @@ export const HTML_CONTENT_SX: SxProps<Theme> = {
   "& ul, & ol": { pl: 3, my: 1 },
   "& li": { my: 0.25 },
   "& blockquote": { borderLeft: 3, borderColor: "divider", pl: 1.5, ml: 0, my: 1, color: "text.secondary" },
-  "& pre": { whiteSpace: "pre-wrap", overflowX: "auto", bgcolor: "action.hover", p: 1, borderRadius: 1 },
+  // Preserve code formatting, but contain wide lines inside the block rather
+  // than letting an article/timeline widen the whole phone viewport.
+  "& pre": {
+    whiteSpace: "pre",
+    maxWidth: "100%",
+    overflowX: "auto",
+    WebkitOverflowScrolling: "touch",
+    bgcolor: "action.hover",
+    p: 1,
+    borderRadius: 1,
+  },
   "& code": { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontSize: "0.9em" },
-  "& table": { width: "100%", borderCollapse: "collapse", my: 1, display: "block", overflowX: "auto" },
+  "& .html-table-scroll": {
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
+    my: 1,
+    overflowX: "auto",
+    WebkitOverflowScrolling: "touch",
+  },
+  "& .html-table-scroll > table": {
+    width: "max-content",
+    minWidth: "100%",
+    maxWidth: "none",
+    borderCollapse: "collapse",
+    my: 0,
+  },
   "& th, & td": { border: "1px solid", borderColor: "divider", px: 1, py: 0.75, textAlign: "left", verticalAlign: "top" },
 };
 
@@ -36,6 +62,32 @@ function mergeSx(base: SxProps<Theme>, extra?: SxProps<Theme>): SxProps<Theme> {
   return extra ? ([base, extra] as SxProps<Theme>) : base;
 }
 
+/**
+ * Add a fixed-width scrolling viewport around sanitized tables. A table cannot
+ * reliably scroll itself when authored inline width/min-width wins the CSS
+ * cascade, so wide columns would otherwise be clipped by a phone reader.
+ */
+export function wrapSanitizedTables(value: string): string {
+  const safe = sanitizeHtml(value);
+  if (typeof document === "undefined" || !safe.toLowerCase().includes("<table")) {
+    return safe;
+  }
+
+  const template = document.createElement("template");
+  template.innerHTML = safe;
+  for (const table of Array.from(template.content.querySelectorAll("table"))) {
+    if (table.parentElement?.classList.contains("html-table-scroll")) continue;
+    const scroller = document.createElement("div");
+    scroller.className = "html-table-scroll";
+    scroller.setAttribute("role", "region");
+    scroller.setAttribute("aria-label", "Scrollable table");
+    scroller.tabIndex = 0;
+    table.parentNode?.insertBefore(scroller, table);
+    scroller.appendChild(table);
+  }
+  return template.innerHTML;
+}
+
 export default function HtmlContent({ value, emptyText = "No content yet.", sx }: HtmlContentProps) {
   const body = value ?? "";
   if (!body.trim()) {
@@ -52,7 +104,7 @@ export default function HtmlContent({ value, emptyText = "No content yet.", sx }
     return (
       <Box
         sx={mergeSx(HTML_CONTENT_SX, sx)}
-        dangerouslySetInnerHTML={{ __html: sanitizeHtml(body) }}
+        dangerouslySetInnerHTML={{ __html: wrapSanitizedTables(body) }}
       />
     );
   }

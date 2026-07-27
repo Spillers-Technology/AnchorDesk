@@ -24,16 +24,20 @@ import { pingRoutes } from './routes/ping';
 import { mcpRoutes } from './routes/mcp';
 import { oauthRoutes } from './routes/oauth';
 import { authRoutes } from './routes/auth';
+import { portalAuthRoutes } from './routes/portalAuth';
+import { portalRoutes } from './routes/portal';
 import { apiTokenRoutes } from './routes/apiTokens';
 import { userRoutes } from './routes/users';
 import { integrationRoutes } from './routes/integrations';
 import { uiSettingsRoutes } from './routes/uiSettings';
+import { portalSettingsRoutes } from './routes/portalSettings';
 import { adminRoutes } from './routes/admin';
 import { companyRoutes } from './routes/companies';
 import { registerAuthHook } from './middleware/auth';
 import { bootstrapAuth } from './services/auth/bootstrap';
 import { pruneExpiredSessions } from './services/auth/sessions';
 import { pruneExpiredCodes } from './services/auth/oauthProvider';
+import { pruneExpiredMagicLinks } from './services/auth/portalMagicLinks';
 import { seedSettings } from './services/settingsService';
 import { ensurePgExtras } from './db/pgExtras';
 import { runDataMigrations } from './db/dataMigrations';
@@ -42,12 +46,15 @@ import { startImapScheduler } from './services/imapScheduler';
 import { startSlaScheduler } from './services/slaScheduler';
 import { startSyncScheduler } from './services/syncScheduler';
 import { initWsHub } from './services/realtime/wsHub';
+import { initTicketEventSubscriber } from './services/realtime/ticketEventSubscriber';
 import { initNotificationService } from './services/notificationService';
 import { initAutomationService } from './services/automation/automationService';
 import { teamRoutes } from './routes/teams';
 import { customFieldRoutes } from './routes/customFields';
 import { automationRoutes } from './routes/automations';
 import { savedViewRoutes } from './routes/views';
+import { kbRoutes } from './routes/kb';
+import { reportRoutes } from './routes/reports';
 import { config } from './config/config';
 import { prisma } from './db/prisma';
 import { backfillLegacyExternalRefs } from './repositories/deviceRepository';
@@ -97,6 +104,11 @@ async function start() {
 
   // Auth: login flows, session, self-service (public + authed endpoints).
   server.register(authRoutes);
+  // Requester magic-link auth + scoped Contact sessions.
+  server.register(portalAuthRoutes);
+  // Requester-owned ticket activity; this plugin has a separate principal guard
+  // and an encapsulated no-store response boundary.
+  server.register(portalRoutes);
   // OAuth 2.0 authorization server for MCP clients (DCR + authorize + token).
   server.register(oauthRoutes);
   // Personal access tokens (self-service) — used by MCP / programmatic clients.
@@ -107,6 +119,7 @@ async function start() {
   server.register(integrationRoutes);
   // Interface preferences (read by all authed users; written by admins).
   server.register(uiSettingsRoutes);
+  server.register(portalSettingsRoutes);
   // Admin: console overview + audit-log viewer.
   server.register(adminRoutes);
 
@@ -132,8 +145,12 @@ async function start() {
   server.register(automationRoutes);
   // Saved ticket views (personal + shared filter sets)
   server.register(savedViewRoutes);
+  // Knowledge base: staff browse/authoring + published portal-safe search/read.
+  server.register(kbRoutes);
   // Time / "My Day" — the signed-in user's logged time for a day
   server.register(timeRoutes);
+  // Manager reporting + TIME day/ticket drill-downs over the 2.7 fact spine.
+  server.register(reportRoutes);
   // Devices (local-first asset records + ticket linking)
   server.register(deviceRoutes);
   // Probes (netviz scanner registration + inbound device ingest)
@@ -200,6 +217,7 @@ async function start() {
 
   // Wire the WebSocket hub + notification service to the in-process event bus.
   initWsHub();
+  initTicketEventSubscriber(server.log);
   initNotificationService();
   initAutomationService();
 
@@ -220,6 +238,9 @@ async function start() {
   setInterval(() => {
     pruneExpiredSessions().catch((err) => server.log.warn({ err }, 'Session prune failed'));
     pruneExpiredCodes().catch((err) => server.log.warn({ err }, 'OAuth code prune failed'));
+    pruneExpiredMagicLinks().catch((err) =>
+      server.log.warn({ err }, 'Portal magic-link prune failed')
+    );
   }, 60 * 60 * 1000).unref();
 }
 

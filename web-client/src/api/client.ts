@@ -47,6 +47,21 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function requestBlob(path: string): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const res = await fetch(`/api${path}`, {
+    headers,
+    credentials: "same-origin",
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new ApiError(res.status, body, `API GET ${path} → ${res.status}: ${body}`);
+  }
+  return res.blob();
+}
+
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 export interface AuthUser {
@@ -465,6 +480,24 @@ export function getUiSettings() {
 /** Admin-only write. */
 export function updateUiSettings(data: Partial<UiSettings>) {
   return request<UiSettings>("/ui-settings", { method: "PATCH", body: JSON.stringify(data) });
+}
+
+// ─── Customer portal switch ──────────────────────────────────────────────────
+
+export interface PortalSettings {
+  enabled: boolean;
+}
+
+/** Admin-only in both directions, unlike ui-settings. */
+export function getPortalSettings() {
+  return request<PortalSettings>("/portal-settings");
+}
+
+export function updatePortalSettings(data: Partial<PortalSettings>) {
+  return request<PortalSettings>("/portal-settings", {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
 }
 
 // ─── Mailboxes (IMAP email-to-ticket) ─────────────────────────────────────────
@@ -1429,6 +1462,7 @@ export interface MyDayEntry {
   minutes: number;
   timeStart: string | null;
   timeStop: string | null;
+  workedAt: string;
   /** True when the entry has a start+stop window and can sit on the clock. */
   placed: boolean;
 }
@@ -1452,6 +1486,228 @@ export interface MyDay {
 export function getMyDay(from: Date, to: Date) {
   const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
   return request<MyDay>(`/me/time-entries?${params}`);
+}
+
+// ─── Reports (2.7.0) ─────────────────────────────────────────────────────────
+
+export interface ReportFilters {
+  /** Inclusive UTC instant. */
+  from: string;
+  /** Exclusive UTC instant. */
+  to: string;
+  companyId?: number;
+  teamId?: number;
+  assigneeId?: number;
+}
+
+export interface ReportMeta {
+  from: string;
+  to: string;
+  includesReconstructed: boolean;
+  reconstructedFrom: string | null;
+  reconstructedThrough: string | null;
+}
+
+export interface ReportResponse<T, M extends ReportMeta = ReportMeta> {
+  data: T;
+  meta: M;
+}
+
+export interface VolumeBucket {
+  day: string;
+  created: number;
+  resolved: number;
+}
+
+export interface DurationMetric {
+  count: number;
+  p50Minutes: number | null;
+  p90Minutes: number | null;
+}
+
+export interface DurationPercentiles {
+  firstResponse: DurationMetric;
+  resolution: DurationMetric;
+}
+
+export interface SlaComplianceRow {
+  kind: "response" | "resolution";
+  met: number;
+  breached: number;
+  atRisk: number;
+  onTrack: number;
+}
+
+export interface SlaComplianceMeta extends ReportMeta {
+  slaSnapshotCoverageFrom: string | null;
+  includesUnrecordedSlaHistory: boolean;
+}
+
+export interface BacklogAgeBucket {
+  bucket: "<1d" | "1-3d" | "3-7d" | "7-30d" | "30d+";
+  count: number;
+}
+
+export interface TeamThroughput {
+  teamId: number | null;
+  teamName: string | null;
+  resolved: number;
+}
+
+export interface AssigneeThroughput {
+  assigneeId: number | null;
+  assigneeName: string | null;
+  resolved: number;
+}
+
+export interface CompanyTimeLogged {
+  companyId: number | null;
+  companyName: string | null;
+  minutes: number;
+}
+
+export interface TimeDaySpreadData {
+  assigneeId: number;
+  entries: MyDayEntry[];
+  target: {
+    minutes: number;
+    source: "default_8h";
+    label: string;
+  };
+  summary: {
+    count: number;
+    loggedMinutes: number;
+    placedMinutes: number;
+    coveredMinutes: number;
+    unplacedMinutes: number;
+    unloggedMinutes: number;
+    uncoveredMinutes: number;
+    firstStart: string | null;
+    lastStop: string | null;
+  };
+}
+
+export type TimeDaySpreadResponse = ReportResponse<TimeDaySpreadData>;
+
+export type TicketTimelineEventKind =
+  | "created"
+  | "status_changed"
+  | "assigned"
+  | "context_changed"
+  | "first_response"
+  | "resolved"
+  | "reopened"
+  | "merged"
+  | "sla_breached";
+
+export interface TicketSlaTimelineEvent {
+  id: string;
+  kind: TicketTimelineEventKind;
+  fromValue: string | null;
+  toValue: string | null;
+  actor: string | null;
+  companyId: number | null;
+  teamId: number | null;
+  assigneeId: number | null;
+  priority: string | null;
+  occurredAt: string;
+  sourceAuditId: string | null;
+}
+
+export interface TicketSlaTimelineTarget {
+  id: string;
+  policyId: number | null;
+  policyName: string | null;
+  responseMinutes: number | null;
+  resolutionMinutes: number | null;
+  responseDueAt: string | null;
+  resolutionDueAt: string | null;
+  establishedAt: string;
+  supersededAt: string | null;
+}
+
+export interface TicketSlaTimelineData {
+  ticket: {
+    id: number;
+    ticketNumber: string | null;
+    title: string;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+  events: TicketSlaTimelineEvent[];
+  targets: TicketSlaTimelineTarget[];
+}
+
+export interface TicketSlaTimelineMeta extends ReportMeta {
+  rangeDerived: boolean;
+}
+
+export type TicketSlaTimelineResponse =
+  ReportResponse<TicketSlaTimelineData, TicketSlaTimelineMeta>;
+
+function reportQuery(filters: ReportFilters): string {
+  const params = new URLSearchParams({
+    from: filters.from,
+    to: filters.to,
+  });
+  if (filters.companyId !== undefined) params.set("companyId", String(filters.companyId));
+  if (filters.teamId !== undefined) params.set("teamId", String(filters.teamId));
+  if (filters.assigneeId !== undefined) params.set("assigneeId", String(filters.assigneeId));
+  return params.toString();
+}
+
+export function getVolumeReport(filters: ReportFilters) {
+  return request<ReportResponse<VolumeBucket[]>>(`/reports/volume?${reportQuery(filters)}`);
+}
+
+export function getDurationReport(filters: ReportFilters) {
+  return request<ReportResponse<DurationPercentiles>>(`/reports/durations?${reportQuery(filters)}`);
+}
+
+export function getSlaComplianceReport(filters: ReportFilters) {
+  return request<ReportResponse<SlaComplianceRow[], SlaComplianceMeta>>(
+    `/reports/sla-compliance?${reportQuery(filters)}`
+  );
+}
+
+export function getBacklogAgeReport(filters: ReportFilters) {
+  return request<ReportResponse<BacklogAgeBucket[]>>(`/reports/backlog-age?${reportQuery(filters)}`);
+}
+
+export function getTeamThroughputReport(filters: ReportFilters) {
+  return request<ReportResponse<TeamThroughput[]>>(
+    `/reports/throughput/team?${reportQuery(filters)}`
+  );
+}
+
+export function getAssigneeThroughputReport(filters: ReportFilters) {
+  return request<ReportResponse<AssigneeThroughput[]>>(
+    `/reports/throughput/assignee?${reportQuery(filters)}`
+  );
+}
+
+export function getTimeByCompanyReport(filters: ReportFilters) {
+  return request<ReportResponse<CompanyTimeLogged[]>>(
+    `/reports/time-by-company?${reportQuery(filters)}`
+  );
+}
+
+export function downloadTimeByCompanyCsv(filters: ReportFilters) {
+  return requestBlob(`/reports/time-by-company.csv?${reportQuery(filters)}`);
+}
+
+export function getTimeDaySpread(from: Date, to: Date, assigneeId: number) {
+  const params = new URLSearchParams({
+    from: from.toISOString(),
+    to: to.toISOString(),
+    assigneeId: String(assigneeId),
+  });
+  return request<TimeDaySpreadResponse>(`/time/day-spread?${params}`);
+}
+
+export function getTicketSlaTimeline(ticketId: number) {
+  return request<TicketSlaTimelineResponse>(`/tickets/${ticketId}/sla-timeline`);
 }
 
 // ---- Checklists (2.4.0) ----------------------------------------------------
@@ -1523,6 +1779,96 @@ export function applyChecklistTemplate(ticketId: number, templateId: number) {
     method: "POST",
     body: JSON.stringify({ templateId }),
   });
+}
+
+// ---- Knowledge base (2.7.0) -------------------------------------------------
+
+export type KbVisibility = "internal" | "portal";
+
+export interface KbArticle {
+  id: number;
+  slug: string;
+  title: string;
+  bodyHtml: string;
+  category: string;
+  visibility: KbVisibility;
+  published: boolean;
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KbArticleSummary {
+  id: number;
+  slug: string;
+  title: string;
+  excerpt: string;
+  category: string;
+  visibility: KbVisibility;
+  published: boolean;
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KbSearchItem {
+  id: number;
+  slug: string;
+  title: string;
+  excerpt: string;
+  score: number;
+}
+
+export interface KbArticleInput {
+  title: string;
+  bodyHtml: string;
+  category: string;
+  visibility: KbVisibility;
+  published: boolean;
+}
+
+export function searchKbArticles(options: {
+  q: string;
+  visibility?: KbVisibility;
+  limit?: number;
+}) {
+  const params = new URLSearchParams({ q: options.q });
+  if (options.visibility) params.set("visibility", options.visibility);
+  if (options.limit != null) params.set("limit", String(options.limit));
+  return request<{ items: KbSearchItem[] }>(`/kb/search?${params}`);
+}
+
+export function listKbArticles(options: {
+  includeUnpublished?: boolean;
+  visibility?: KbVisibility;
+} = {}) {
+  const params = new URLSearchParams();
+  if (options.includeUnpublished) params.set("includeUnpublished", "true");
+  if (options.visibility) params.set("visibility", options.visibility);
+  const query = params.toString();
+  return request<{ items: KbArticleSummary[] }>(`/kb/articles${query ? `?${query}` : ""}`);
+}
+
+export function getKbArticle(id: number) {
+  return request<KbArticle>(`/kb/articles/${id}`);
+}
+
+export function createKbArticle(data: KbArticleInput) {
+  return request<KbArticle>("/kb/articles", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateKbArticle(id: number, data: Partial<KbArticleInput>) {
+  return request<KbArticle>(`/kb/articles/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteKbArticle(id: number) {
+  return request<void>(`/kb/articles/${id}`, { method: "DELETE" });
 }
 
 export interface AutomationPreview {

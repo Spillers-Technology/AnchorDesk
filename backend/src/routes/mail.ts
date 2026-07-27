@@ -53,6 +53,7 @@ export async function mailRoutes(server: FastifyInstance) {
         text: body.text,
         html: body.html,
         author,
+        actorSub: req.actorSub,
         attachmentIds: body.attachmentIds,
         fromIdentityId: body.fromIdentityId,
         signatureHtml,

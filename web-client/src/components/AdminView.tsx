@@ -49,10 +49,12 @@ import HistoryIcon from "@mui/icons-material/History";
 import TimerIcon from "@mui/icons-material/Timer";
 import LabelIcon from "@mui/icons-material/Label";
 import TuneIcon from "@mui/icons-material/Tune";
+import StorefrontIcon from "@mui/icons-material/Storefront";
 import GroupsIcon from "@mui/icons-material/Groups";
 import DynamicFormIcon from "@mui/icons-material/DynamicForm";
 import BoltIcon from "@mui/icons-material/Bolt";
 import ChecklistIcon from "@mui/icons-material/Checklist";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 import AlternateEmailIcon from "@mui/icons-material/AlternateEmail";
 import SyncIcon from "@mui/icons-material/Sync";
 import EditIcon from "@mui/icons-material/Edit";
@@ -61,6 +63,7 @@ import * as api from "../api/client";
 import { TICKET_PRIORITIES } from "../ticketVocab";
 import { useIsPhone } from "../theme/useIsPhone";
 import ChecklistTemplatesPanel from "./admin/ChecklistTemplatesPanel";
+import KbArticlesPanel from "./admin/KbArticlesPanel";
 import TicketSyncPanel from "./admin/TicketSyncPanel";
 import ConfirmDialog from "./admin/ConfirmDialog";
 import PanelSearch, { rowMatches } from "./admin/PanelSearch";
@@ -78,7 +81,8 @@ import {
 
 type AdminSection =
   | "overview" | "users" | "auth" | "integrations" | "interface" | "sla" | "mailboxes" | "mail" | "labels"
-  | "teams" | "custom-fields" | "checklists" | "automations" | "ticket-sync" | "probes" | "devices" | "audit";
+  | "teams" | "custom-fields" | "checklists" | "knowledge-base" | "automations" | "customer-portal"
+  | "ticket-sync" | "probes" | "devices" | "audit";
 
 /** Rail sections grouped the way admins think about them. */
 const NAV_GROUPS: { heading: string | null; items: { id: AdminSection; label: string; icon: React.ReactNode }[] }[] = [
@@ -101,6 +105,7 @@ const NAV_GROUPS: { heading: string | null; items: { id: AdminSection; label: st
       { id: "labels", label: "Labels", icon: <LabelIcon /> },
       { id: "custom-fields", label: "Custom Fields", icon: <DynamicFormIcon /> },
       { id: "checklists", label: "Checklists", icon: <ChecklistIcon /> },
+      { id: "knowledge-base", label: "Knowledge Base", icon: <MenuBookIcon /> },
       { id: "automations", label: "Automations", icon: <BoltIcon /> },
       { id: "interface", label: "Interface", icon: <TuneIcon /> },
     ],
@@ -110,6 +115,7 @@ const NAV_GROUPS: { heading: string | null; items: { id: AdminSection; label: st
     items: [
       { id: "mailboxes", label: "Mailboxes", icon: <EmailIcon /> },
       { id: "mail", label: "Mail Identities", icon: <AlternateEmailIcon /> },
+      { id: "customer-portal", label: "Customer Portal", icon: <StorefrontIcon /> },
       { id: "ticket-sync", label: "Ticket Sync", icon: <SyncIcon /> },
       { id: "integrations", label: "Integrations", icon: <CableIcon /> },
     ],
@@ -173,6 +179,7 @@ export default function AdminView({ onOpenTickets }: { onOpenTickets?: () => voi
         {section === "auth" && <AuthSettingsPanel />}
         {section === "integrations" && <IntegrationsPanel onNavigate={setSection} />}
         {section === "interface" && <InterfacePanel />}
+        {section === "customer-portal" && <CustomerPortalPanel />}
         {section === "sla" && <SlaPanel />}
         {section === "mailboxes" && <MailboxesPanel />}
         {section === "mail" && <MailIdentitiesPanel />}
@@ -180,6 +187,7 @@ export default function AdminView({ onOpenTickets }: { onOpenTickets?: () => voi
         {section === "teams" && <TeamsPanel />}
         {section === "custom-fields" && <CustomFieldsPanel />}
         {section === "checklists" && <ChecklistTemplatesPanel />}
+        {section === "knowledge-base" && <KbArticlesPanel />}
         {section === "automations" && <AutomationsPanel />}
         {section === "ticket-sync" && <TicketSyncPanel />}
         {section === "probes" && <ProbesPanel />}
@@ -514,6 +522,93 @@ function InterfacePanel() {
             onChange={(e) => setLegacyTable(e.target.checked)}
           />
         </Stack>
+        {msg && <Alert severity="info" sx={{ mt: 2 }}>{msg}</Alert>}
+      </Paper>
+    </Stack>
+  );
+}
+
+/**
+ * The customer-portal switch.
+ *
+ * Deliberately wordier than a settings toggle usually deserves. Turning this on
+ * publishes a surface to people outside the company, and the two things it
+ * changes (who can sign in, and that published portal-visibility KB articles
+ * become readable without a staff login) are not guessable from a switch
+ * labelled "enabled". An admin should be able to make this decision from this
+ * screen without reading the docs first.
+ */
+function CustomerPortalPanel() {
+  const { data, loading, error, reload } = useAsync(() => api.getPortalSettings());
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const setEnabled = async (enabled: boolean) => {
+    setSaving(true);
+    setMsg(null);
+    try {
+      await api.updatePortalSettings({ enabled });
+      reload();
+      setMsg(
+        enabled
+          ? "Customer portal is live. Contacts can request a sign-in link at /portal."
+          : "Customer portal is off. Portal sign-in and portal article reads now refuse.",
+      );
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <CircularProgress />;
+  if (error || !data) return <Alert severity="error">{error ?? "Failed to load"}</Alert>;
+
+  return (
+    <Stack spacing={2}>
+      <Typography variant="h5">Customer Portal</Typography>
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={2}
+          sx={{
+            alignItems: { xs: "flex-start", sm: "center" },
+            justifyContent: "space-between",
+          }}
+        >
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle2">Enable the customer portal</Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary", maxWidth: 560 }}>
+              Lets your contacts sign in at <code>/portal</code> with an emailed link to
+              submit and follow their own tickets. Off by default — upgrading AnchorDesk
+              should never publish a customer-facing surface you did not ask for.
+            </Typography>
+          </Box>
+          <Switch
+            checked={data.enabled}
+            disabled={saving}
+            onChange={(e) => void setEnabled(e.target.checked)}
+            slotProps={{ input: { "aria-label": "Enable the customer portal" } }}
+          />
+        </Stack>
+
+        <Alert severity={data.enabled ? "warning" : "info"} sx={{ mt: 2 }}>
+          {data.enabled ? (
+            <>
+              While this is on, any contact whose email matches exactly one CRM record can
+              request a sign-in link, and knowledge-base articles marked{" "}
+              <strong>portal</strong> visibility are readable without a staff login.
+              Internal articles, drafts, and every staff route stay closed.
+            </>
+          ) : (
+            <>
+              While this is off, portal sign-in returns “not found” and knowledge-base
+              portal reads require a staff login. Articles you mark as{" "}
+              <strong>portal</strong> visibility are still staff-only until you turn this on.
+            </>
+          )}
+        </Alert>
+
         {msg && <Alert severity="info" sx={{ mt: 2 }}>{msg}</Alert>}
       </Paper>
     </Stack>

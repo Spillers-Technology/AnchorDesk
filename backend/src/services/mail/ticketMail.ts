@@ -40,6 +40,8 @@ export interface SendTicketEmailInput {
   text?: string;
   /** Display name of the technician sending (for the note author). */
   author: string;
+  /** Authenticated actor string, including API/MCP channel provenance. */
+  actorSub: string;
   /** IDs of attachments already uploaded to this ticket to include + link. */
   attachmentIds?: number[];
   /** Send-from identity (a shared box or the tech's alias). Falls back to default. */
@@ -55,18 +57,24 @@ export interface SendTicketEmailInput {
  * `cid:` reference and attach the bytes inline so the recipient's client renders
  * them. The STORED note keeps the relative URLs for our own UI.
  */
-async function embedInlineImages(html: string): Promise<{ html: string; inline: OutboundAttachment[] }> {
+async function embedInlineImages(
+  ticketId: number,
+  html: string,
+): Promise<{ html: string; inline: OutboundAttachment[]; attachmentIds: number[] }> {
   const ids = new Set<number>();
   const re = /\/api\/attachments\/(\d+)\/download/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) ids.add(Number(m[1]));
-  if (!ids.size) return { html, inline: [] };
+  if (!ids.size) return { html, inline: [], attachmentIds: [] };
 
   const inline: OutboundAttachment[] = [];
   let out = html;
-  for (const id of ids) {
-    const a = await attachmentRepo.getById(id);
-    if (!a) continue;
+  // Scope every inline reference to this ticket exactly like the explicit
+  // attachmentIds path below. HTML is runtime input; an attachment URL from a
+  // different ticket must never turn into exfiltrated inline bytes.
+  const rows = await attachmentRepo.listByIds(ticketId, [...ids]);
+  for (const a of rows) {
+    const id = a.id;
     try {
       const content = await readToBuffer(a.storageBackend, a.storageKey);
       const cid = `att${id}@anchordesk`;
@@ -76,7 +84,7 @@ async function embedInlineImages(html: string): Promise<{ html: string; inline: 
       /* leave the URL as-is if the bytes can't be read */
     }
   }
-  return { html: out, inline };
+  return { html: out, inline, attachmentIds: rows.map((row) => row.id) };
 }
 
 /** Build the References chain + In-Reply-To for a ticket's existing thread. */
@@ -141,7 +149,13 @@ export async function sendTicketEmail(ticketId: number, input: SendTicketEmailIn
 
   // For SENDING, turn inline-image attachment URLs into cid: parts so external
   // clients render them. The stored note keeps `html` (relative URLs) for our UI.
-  const embedded = html ? await embedInlineImages(html) : { html: undefined, inline: [] as OutboundAttachment[] };
+  const embedded = html
+    ? await embedInlineImages(ticketId, html)
+    : {
+        html: undefined,
+        inline: [] as OutboundAttachment[],
+        attachmentIds: [] as number[],
+      };
   const sendAttachments = [...attachments, ...embedded.inline];
 
   const { messageId: sentId } = await mailTransport.send({
@@ -169,6 +183,8 @@ export async function sendTicketEmail(ticketId: number, input: SendTicketEmailIn
     {
       noteType: 'email',
       direction: 'outbound',
+      visibility: 'public',
+      via: 'email',
       content: text ?? '(no body)',
       htmlContent: html,
       author: input.author,
@@ -180,12 +196,21 @@ export async function sendTicketEmail(ticketId: number, input: SendTicketEmailIn
       externalId: storedId,
       inReplyTo: thread.inReplyTo,
     },
-    input.author
+    input.actorSub
   );
 
   // Link the included attachments to the email note so they render in-context.
-  if (attachmentRows.length) {
-    await attachmentRepo.attachToNote(attachmentRows.map((a) => a.id), note.id);
+  const publicAttachmentIds = Array.from(new Set([
+    ...attachmentRows.map((attachment) => attachment.id),
+    ...embedded.attachmentIds,
+  ]));
+  if (publicAttachmentIds.length) {
+    await attachmentRepo.attachToNote(
+      publicAttachmentIds,
+      note.id,
+      true,
+      input.actorSub,
+    );
   }
 
   return { messageId: storedId, note };

@@ -1,5 +1,131 @@
 # Changelog
 
+## 2.7.0 — 2026-07-26 — Pass the Flinch Test (minor)
+
+[docs/roadmap-3.0.0.md](docs/roadmap-3.0.0.md) defines 3.0 by one question: *if
+a stranger wanted to buy AnchorDesk tomorrow, could we say yes without
+flinching?* Three product gaps decided that answer — a **customer portal**,
+**reporting**, and a **knowledge base**. After two correctness releases (2.5
+sync, 2.6 relations) all three were still at zero.
+
+2.7 crosses all three at once, deliberately breadth-first: shallow
+implementations we can now critique, rather than another quarter of design
+docs. Plan: [docs/roadmap-2.7.md](docs/roadmap-2.7.md).
+
+"Badly" was allowed to mean sparse and unpolished. It was **not** allowed to
+mean lying to the user, skipping RBAC/audit/mobile, or shipping a metric that
+looks right and isn't.
+
+### Added — the SLA and event spine
+
+The foundation the rest stands on. Reporting is not a charts feature, it is a
+data-modelling one, and the old schema could not answer the questions:
+
+- **`TicketEvent`** — an append-only fact table written by a second subscriber
+  on the existing event bus (not a replacement for `audit_log`; both are
+  written). Company/team/assignee/priority are **denormalised onto each row**,
+  so a report grouped by company reflects the company *at the time* and never
+  joins a mutable ticket row to find out.
+- **`TicketSlaSnapshot`** — SLA targets frozen at the moment they are promised.
+  Previously "did we hit our SLA last quarter?" changed answer when somebody
+  edited a policy today, and became unanswerable if they deleted one. Snapshots
+  carry no foreign key to `SlaPolicy` on purpose, and **database triggers reject
+  UPDATE and DELETE** on both reporting tables — so even a direct `psql` session
+  cannot rewrite history. A legitimate re-target appends a new snapshot.
+- **`Note.workedAt`** — a work date on time entries. A duration-only entry
+  previously knew only when the *note* was written, so a technician could not
+  log Friday's work on Monday and a day-spread calendar had nothing to place.
+- **Idempotent backfill** from `audit_log`, keyed on `(sourceAuditId, kind)` so
+  live delivery and boot-time reconstruction converge on one row. It
+  deliberately **does not fabricate historical SLA snapshots** — old policy
+  edits were never preserved, so a plausible-looking snapshot would be a lie.
+  Older promises stay explicitly unknown.
+
+### Added — reporting and the TIME calendar
+
+- **`/reports/*`** — volume created vs resolved, first-response and resolution
+  distributions, SLA compliance, backlog age, per-team and per-technician
+  throughput, and time logged by company. Aggregation happens in Postgres.
+- **Percentiles, not averages.** Every duration metric reports p50/p90 via
+  `percentile_cont`. A mean response time is dominated by outliers and will
+  confidently report a healthy desk while half its customers wait a day.
+- **Reconstructed history is labelled as such** wherever a window overlaps
+  backfilled data — *"Reconstructed events are estimates, not recorded
+  history."*
+- **TIME calendar** — a technician's day laid out so the **gaps are visible**,
+  because unlogged time is what costs money; plus a per-ticket SLA timeline
+  showing the frozen promise against what happened. Entries with no start/stop
+  are reported as *unplaced* rather than silently dropped.
+- **Nine read-only MCP tools**, so an agent can answer "how did we do last
+  week" without scraping the UI.
+
+### Added — customer portal
+
+- **Requester sign-in by magic link**, with the requester riding the existing
+  `Contact` model as a distinct principal — never a staff `User` with a new
+  role. Sessions carry an explicit scope and a database CHECK enforces exactly
+  one principal per row.
+- **A field allowlist with its own test.** Internal notes, time entries, audit
+  history, device links, and sync state cannot reach a portal response, and the
+  test fails if a new `Ticket` field starts leaking.
+- **Duplicate contact emails fail closed.** Contact email is not unique in the
+  CRM, so login refuses unless exactly one contact owns the address — guessing
+  would turn a data-quality problem into an authorization decision.
+- **Ownership transfer quarantines the ticket** from portal reads: owning the
+  row is not proof of entitlement to the prior conversation. Merged tickets are
+  hidden from the portal for the same reason.
+- Its own slim bundle (~29 kB) on a separate route tree; the staff SPA is
+  untouched.
+
+### Added — knowledge base
+
+- `KbArticle` with internal/portal visibility, authored in the existing editor
+  through the shared sanitizer, searched with the existing Postgres FTS +
+  `pg_trgm` stack.
+- **Visibility is safe by construction**: the portal-facing repository
+  functions cannot express "internal", hard-code published + portal, and
+  re-check before serializing.
+- Stable slugs that survive title edits; MCP tools so an agent can find the
+  existing answer instead of inventing one.
+
+### Added — the release gate
+
+- **`portal.enabled`, default off**, with an Admin → Customer Portal panel.
+  Both the portal and the KB are fully built, but upgrading must never hand a
+  shop a live customer-facing surface it did not ask for: without this,
+  `requestMagicLink` would issue a sign-in link to any uniquely-matching contact
+  in the CRM, and KB portal reads would answer anonymously. Enforced in three
+  places, re-checked per request so switching it off takes effect immediately
+  rather than at session expiry.
+
+### Fixed
+
+- The optional-extras Postgres test mocked by **call position**, so it broke
+  twice in one release as workstreams added required invariants. It now fails a
+  statement by identity and lets the required set grow.
+- `/time/day-spread` caps its range at 26 hours; its authorization test was
+  asserting against a month-long range and failing on the guard before reaching
+  the rule under test.
+- The portal's KB search mock shadowed the ranked staff search, so staff search
+  silently returned portal fixtures.
+
+### Known limitations
+
+Recorded rather than discovered later — see
+[roadmap-configurability.md](docs/roadmap-configurability.md) and
+[roadmap-portal-v2.md](docs/roadmap-portal-v2.md):
+
+- **Business hours are hard-coded** (09:00–17:00, eight hours) in the unlogged
+  time calculation. Labelled as a default, but still an opinion that makes those
+  numbers wrong for shops that work other hours.
+- **No per-user timezone.** Reports bucket by UTC calendar day, so "today" ends
+  at the wrong hour for anyone outside UTC.
+- **The portal is v1**: no self-registration, no approval queue, no per-contact
+  access grants, and requesters see only their own tickets rather than their
+  company's. Designed in `roadmap-portal-v2.md`.
+- Technician identity is always anonymous ("Support") to requesters; the
+  admin-settable version is designed but not built.
+
 ## 2.6.0 — 2026-07-25 — Relations (minor)
 
 Ticket **merge** and **parent/child hierarchy**, on top of the sync correctness

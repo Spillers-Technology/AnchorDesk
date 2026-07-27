@@ -1,5 +1,6 @@
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
+import * as ticketRepository from './ticketRepository';
 
 export interface TeamInput {
   name: string;
@@ -59,6 +60,18 @@ export async function update(id: number, input: Partial<TeamInput>, actorSub: st
 
 export async function remove(id: number, actorSub: string) {
   const before = await prisma.team.findUnique({ where: { id } });
+  const tickets = await prisma.ticket.findMany({
+    where: { teamId: id },
+    select: { id: true },
+  });
+  for (const ticket of tickets) {
+    await ticketRepository.update(
+      ticket.id,
+      { teamId: null },
+      actorSub,
+      { expectedTeamId: id },
+    );
+  }
   await prisma.team.delete({ where: { id } });
   await audit.record({
     entityType: 'team',

@@ -8,6 +8,8 @@
  */
 export const TICKET_STATUSES = ['New', 'Assigned', 'In Progress', 'Waiting', 'Resolved', 'Closed'] as const;
 export const TICKET_PRIORITIES = ['Low', 'Medium', 'High', 'Critical'] as const;
+/** Canonical statuses that complete the normal resolution clock. */
+export const TERMINAL_TICKET_STATUSES = ['Resolved', 'Closed'] as const;
 
 const STATUS_BY_LOWER = new Map(TICKET_STATUSES.map((s) => [s.toLowerCase(), s]));
 const PRIORITY_BY_LOWER = new Map(TICKET_PRIORITIES.map((p) => [p.toLowerCase(), p]));

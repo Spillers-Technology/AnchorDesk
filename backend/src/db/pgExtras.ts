@@ -25,6 +25,20 @@ export const TICKET_TSV =
 export const TICKET_TRGM =
   "lower(coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' || coalesce(description,'') || ' ' || coalesce(company_name,'') || ' ' || coalesce(priority,'') || ' ' || coalesce(ticket_number,''))";
 
+// Knowledge-base search uses clean body_text derived from sanitized HTML. Title
+// is weighted highest so an article explicitly about the query beats one that
+// merely mentions it deep in a long body. These expressions are shared verbatim
+// with kbArticleRepository's query so Postgres can use the functional indexes.
+export const KB_ARTICLE_TSV =
+  "setweight(to_tsvector('english', coalesce(title,'')), 'A') || " +
+  "setweight(to_tsvector('english', coalesce(category,'')), 'B') || " +
+  "setweight(to_tsvector('english', coalesce(body_text,'')), 'C')";
+
+export const KB_ARTICLE_TRGM =
+  "lower(coalesce(title,'') || ' ' || coalesce(category,'') || ' ' || coalesce(body_text,''))";
+
+export const KB_ARTICLE_TITLE_TRGM = "lower(coalesce(title,''))";
+
 export const LEGACY_EXTERNAL_IDENTITY_INDEX_NAME =
   'idx_tickets_external_legacy_unique';
 export const LEGACY_EXTERNAL_IDENTITY_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT EXISTS ${LEGACY_EXTERNAL_IDENTITY_INDEX_NAME}
@@ -37,6 +51,32 @@ export const TICKET_NUMBER_SEQUENCE_SQL =
   `CREATE SEQUENCE IF NOT EXISTS ticket_number_seq AS bigint ` +
   `START WITH ${10 ** (config.ticketNumberDigits - 1)} ` +
   `MINVALUE ${10 ** (config.ticketNumberDigits - 1)}`;
+export const SESSION_PRINCIPAL_CHECK_NAME = 'sessions_scope_principal_check';
+export const SESSION_PRINCIPAL_CHECK_SQL = `
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_constraint AS constraint_meta
+      JOIN pg_catalog.pg_class AS table_meta
+        ON table_meta.oid = constraint_meta.conrelid
+      JOIN pg_catalog.pg_namespace AS schema_meta
+        ON schema_meta.oid = table_meta.relnamespace
+      WHERE schema_meta.nspname = current_schema()
+        AND table_meta.relname = 'sessions'
+        AND constraint_meta.conname = '${SESSION_PRINCIPAL_CHECK_NAME}'
+    ) THEN
+      ALTER TABLE sessions
+        ADD CONSTRAINT ${SESSION_PRINCIPAL_CHECK_NAME}
+        CHECK (
+          (scope = 'staff' AND user_id IS NOT NULL AND contact_id IS NULL)
+          OR
+          (scope = 'portal' AND user_id IS NULL AND contact_id IS NOT NULL)
+        ) NOT VALID;
+    END IF;
+  END
+  $$;
+`;
 
 const EXPECTED_LEGACY_IDENTITY_PREDICATE =
   'sync_connection_idisnullandexternal_idisnotnullandexternal_providerisnotnull';
@@ -70,14 +110,48 @@ const OPTIONAL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_tickets_trgm ON tickets USING GIN (${TICKET_TRGM} gin_trgm_ops)`,
   // Trigram over note bodies so search reaches into the conversation/timeline.
   `CREATE INDEX IF NOT EXISTS idx_notes_content_trgm ON notes USING GIN (lower(content) gin_trgm_ops)`,
+  // Knowledge-base FTS + typo tolerance. Visibility/published are relational
+  // predicates in every query; the schema's btree index covers that boundary.
+  // Compound tsvector concatenation needs its own expression parentheses
+  // inside GIN's index-column list (a bare function expression does not).
+  `CREATE INDEX IF NOT EXISTS idx_kb_articles_fts ON kb_articles USING GIN ((${KB_ARTICLE_TSV}))`,
+  `CREATE INDEX IF NOT EXISTS idx_kb_articles_trgm ON kb_articles USING GIN (${KB_ARTICLE_TRGM} gin_trgm_ops)`,
+  `CREATE INDEX IF NOT EXISTS idx_kb_articles_title_trgm ON kb_articles USING GIN (${KB_ARTICLE_TITLE_TRGM} gin_trgm_ops)`,
   // Common list filter: open tickets by company, excluding soft-deleted ones.
   `CREATE INDEX IF NOT EXISTS idx_tickets_active ON tickets (company_name, status, created_at DESC) WHERE status <> 'Deleted'`,
   // Device map / Network view groups by company; partial-skip orphans.
   `CREATE INDEX IF NOT EXISTS idx_devices_company_status ON devices (company_name, status) WHERE company_name IS NOT NULL`,
+  // Workstream A report range scans. These are performance-only: their absence
+  // makes reports slower, not false, so startup warns and continues.
+  `CREATE INDEX IF NOT EXISTS idx_ticket_events_occurred ON ticket_events (occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ticket_events_ticket_occurred ON ticket_events (ticket_id, occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ticket_events_kind_occurred ON ticket_events (kind, occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ticket_events_company_occurred ON ticket_events (company_id, occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ticket_events_team_occurred ON ticket_events (team_id, occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ticket_events_assignee_occurred ON ticket_events (assignee_id, occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ticket_events_backfill_occurred
+     ON ticket_events (occurred_at)
+     WHERE actor = 'backfill'`,
+  `CREATE INDEX IF NOT EXISTS idx_ticket_sla_snapshots_ticket_established ON ticket_sla_snapshots (ticket_id, established_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ticket_sla_snapshots_response_due ON ticket_sla_snapshots (response_due_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_ticket_sla_snapshots_resolution_due ON ticket_sla_snapshots (resolution_due_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_notes_time_worked_ticket
+     ON notes (worked_at, ticket_id)
+     WHERE note_type = 'time_entry' AND worked_at IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_notes_time_author_worked
+     ON notes (author_id, worked_at)
+     WHERE note_type = 'time_entry' AND worked_at IS NOT NULL`,
 ];
 
 function normalizePredicate(predicate: string | null): string {
   return (predicate ?? '').toLowerCase().replace(/["()\s]/g, '');
+}
+
+function normalizeCheckDefinition(definition: string | null): string {
+  return (definition ?? '')
+    .toLowerCase()
+    .replace(/::"?sessionscope"?/g, '')
+    .replace(/["()\s]/g, '');
 }
 
 /**
@@ -176,6 +250,49 @@ export async function ensureLegacyExternalIdentityInvariant(): Promise<void> {
   if (!valid) {
     throw new CriticalPgInvariantError(
       `Critical PostgreSQL invariant "${LEGACY_EXTERNAL_IDENTITY_INDEX_NAME}" is missing or has an unexpected definition`,
+    );
+  }
+}
+
+/**
+ * A Session is deliberately polymorphic, but never ambiguous: staff rows bind
+ * to one User and portal rows bind to one Contact. Prisma cannot express this
+ * cross-column CHECK, so create and catalog-validate it before listening.
+ *
+ * Application resolution repeats the same positive checks. This constraint is
+ * the structural backstop for direct SQL, Prisma Studio, and future write paths.
+ */
+export async function ensureSessionPrincipalInvariant(): Promise<void> {
+  await prisma.$executeRawUnsafe(SESSION_PRINCIPAL_CHECK_SQL);
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE sessions VALIDATE CONSTRAINT ${SESSION_PRINCIPAL_CHECK_NAME}`,
+  );
+
+  const rows = await prisma.$queryRawUnsafe<
+    Array<{ is_validated: boolean; definition: string | null }>
+  >(`
+    SELECT constraint_meta.convalidated AS is_validated,
+           pg_catalog.pg_get_constraintdef(constraint_meta.oid, true) AS definition
+    FROM pg_catalog.pg_constraint AS constraint_meta
+    JOIN pg_catalog.pg_class AS table_meta
+      ON table_meta.oid = constraint_meta.conrelid
+    JOIN pg_catalog.pg_namespace AS schema_meta
+      ON schema_meta.oid = table_meta.relnamespace
+    WHERE schema_meta.nspname = current_schema()
+      AND table_meta.relname = 'sessions'
+      AND constraint_meta.conname = '${SESSION_PRINCIPAL_CHECK_NAME}'
+      AND constraint_meta.contype = 'c'
+  `);
+
+  const expected =
+    "checkscope='staff'anduser_idisnotnullandcontact_idisnullorscope='portal'anduser_idisnullandcontact_idisnotnull";
+  if (
+    rows.length !== 1 ||
+    rows[0].is_validated !== true ||
+    normalizeCheckDefinition(rows[0].definition) !== expected
+  ) {
+    throw new CriticalPgInvariantError(
+      `Critical PostgreSQL invariant "${SESSION_PRINCIPAL_CHECK_NAME}" is missing or has an unexpected definition`,
     );
   }
 }
@@ -338,14 +455,159 @@ export async function ensureLiveMergeLedgerInvariant(): Promise<void> {
   }
 }
 
+const TICKET_EVENT_AUDIT_IDENTITY_INDEX = 'ticket_events_source_audit_kind_key';
+const TICKET_EVENT_SOURCE_KEY_INDEX = 'ticket_events_source_key_key';
+const TICKET_EVENT_APPEND_TRIGGER = 'trg_ticket_events_append_only';
+const SLA_SNAPSHOT_APPEND_TRIGGER = 'trg_ticket_sla_snapshots_append_only';
+
+/**
+ * The report spine has two structural promises, not performance preferences:
+ *
+ *  - live delivery and audit backfill share unique source identities;
+ *  - recorded events and SLA targets are append-only.
+ *
+ * If either guarantee is absent, reports can silently duplicate or rewrite
+ * history. Create and catalog-verify them before accepting traffic.
+ */
+export async function ensureReportingSpineInvariants(): Promise<void> {
+  await prisma.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS ${TICKET_EVENT_AUDIT_IDENTITY_INDEX}
+      ON ticket_events (source_audit_id, kind)
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS ${TICKET_EVENT_SOURCE_KEY_INDEX}
+      ON ticket_events (source_key)
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE OR REPLACE FUNCTION anchordesk_reject_reporting_fact_mutation()
+    RETURNS TRIGGER AS $$
+    BEGIN
+      RAISE EXCEPTION '% is append-only; % is not permitted', TG_TABLE_NAME, TG_OP
+        USING ERRCODE = 'check_violation';
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${TICKET_EVENT_APPEND_TRIGGER} ON ticket_events`);
+  await prisma.$executeRawUnsafe(`
+    CREATE TRIGGER ${TICKET_EVENT_APPEND_TRIGGER}
+    BEFORE UPDATE OR DELETE ON ticket_events
+    FOR EACH ROW EXECUTE FUNCTION anchordesk_reject_reporting_fact_mutation()
+  `);
+  await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${SLA_SNAPSHOT_APPEND_TRIGGER} ON ticket_sla_snapshots`);
+  await prisma.$executeRawUnsafe(`
+    CREATE TRIGGER ${SLA_SNAPSHOT_APPEND_TRIGGER}
+    BEFORE UPDATE OR DELETE ON ticket_sla_snapshots
+    FOR EACH ROW EXECUTE FUNCTION anchordesk_reject_reporting_fact_mutation()
+  `);
+
+  const indexes = await prisma.$queryRawUnsafe<Array<{
+    name: string;
+    is_unique: boolean;
+    is_valid: boolean;
+    is_ready: boolean;
+    access_method: string;
+    key_columns: string[];
+    predicate: string | null;
+  }>>(`
+    SELECT index_class.relname::text AS name,
+           index_meta.indisunique AS is_unique,
+           index_meta.indisvalid AS is_valid,
+           index_meta.indisready AS is_ready,
+           access_method.amname AS access_method,
+           ARRAY(
+             SELECT attribute.attname::text
+             FROM unnest(index_meta.indkey::smallint[]) WITH ORDINALITY AS key_part(attnum, ordinal)
+             JOIN pg_catalog.pg_attribute AS attribute
+               ON attribute.attrelid = table_meta.oid
+              AND attribute.attnum = key_part.attnum
+             WHERE key_part.ordinal <= index_meta.indnkeyatts
+             ORDER BY key_part.ordinal
+           ) AS key_columns,
+           pg_catalog.pg_get_expr(index_meta.indpred, index_meta.indrelid) AS predicate
+    FROM pg_catalog.pg_index AS index_meta
+    JOIN pg_catalog.pg_class AS index_class ON index_class.oid = index_meta.indexrelid
+    JOIN pg_catalog.pg_class AS table_meta ON table_meta.oid = index_meta.indrelid
+    JOIN pg_catalog.pg_namespace AS schema_meta ON schema_meta.oid = table_meta.relnamespace
+    JOIN pg_catalog.pg_am AS access_method ON access_method.oid = index_class.relam
+    WHERE schema_meta.nspname = current_schema()
+      AND table_meta.relname = 'ticket_events'
+      AND index_class.relname IN (
+        '${TICKET_EVENT_AUDIT_IDENTITY_INDEX}',
+        '${TICKET_EVENT_SOURCE_KEY_INDEX}'
+      )
+  `);
+  const byName = new Map(indexes.map((row) => [row.name, row]));
+  const auditIdentity = byName.get(TICKET_EVENT_AUDIT_IDENTITY_INDEX);
+  const sourceKey = byName.get(TICKET_EVENT_SOURCE_KEY_INDEX);
+  const validIndex = (
+    row: typeof auditIdentity,
+    columns: string[],
+  ) => Boolean(
+    row &&
+    row.is_unique === true &&
+    row.is_valid === true &&
+    row.is_ready === true &&
+    row.access_method === 'btree' &&
+    row.predicate === null &&
+    Array.isArray(row.key_columns) &&
+    row.key_columns.length === columns.length &&
+    row.key_columns.every((column, index) => column === columns[index]),
+  );
+  if (
+    !validIndex(auditIdentity, ['source_audit_id', 'kind']) ||
+    !validIndex(sourceKey, ['source_key'])
+  ) {
+    throw new CriticalPgInvariantError(
+      'Critical TicketEvent source-identity indexes are missing or have unexpected definitions',
+    );
+  }
+
+  const triggers = await prisma.$queryRawUnsafe<Array<{
+    table_name: string;
+    trigger_name: string;
+    enabled: string;
+    definition: string;
+  }>>(`
+    SELECT table_meta.relname::text AS table_name,
+           trigger_meta.tgname::text AS trigger_name,
+           trigger_meta.tgenabled::text AS enabled,
+           pg_catalog.pg_get_triggerdef(trigger_meta.oid) AS definition
+    FROM pg_catalog.pg_trigger AS trigger_meta
+    JOIN pg_catalog.pg_class AS table_meta ON table_meta.oid = trigger_meta.tgrelid
+    JOIN pg_catalog.pg_namespace AS schema_meta ON schema_meta.oid = table_meta.relnamespace
+    WHERE schema_meta.nspname = current_schema()
+      AND (
+        (table_meta.relname = 'ticket_events' AND trigger_meta.tgname = '${TICKET_EVENT_APPEND_TRIGGER}')
+        OR
+        (table_meta.relname = 'ticket_sla_snapshots' AND trigger_meta.tgname = '${SLA_SNAPSHOT_APPEND_TRIGGER}')
+      )
+      AND NOT trigger_meta.tgisinternal
+  `);
+  const validTriggers =
+    triggers.length === 2 &&
+    triggers.every((row) =>
+      (row.enabled === 'O' || row.enabled === 'A') &&
+      row.definition.includes('anchordesk_reject_reporting_fact_mutation'),
+    ) &&
+    triggers.some((row) => row.table_name === 'ticket_events' && row.trigger_name === TICKET_EVENT_APPEND_TRIGGER) &&
+    triggers.some((row) => row.table_name === 'ticket_sla_snapshots' && row.trigger_name === SLA_SNAPSHOT_APPEND_TRIGGER);
+  if (!validTriggers) {
+    throw new CriticalPgInvariantError(
+      'Critical reporting append-only triggers are missing or not enabled for origin writes',
+    );
+  }
+}
+
 export async function ensurePgExtras(log: FastifyBaseLogger): Promise<void> {
   // This is a correctness boundary, so any create/query/validation failure
   // propagates and aborts startup. Optional performance extras run only after it
   // has been proven.
   await ensureRuntimeDependencies();
   await ensureLegacyExternalIdentityInvariant();
+  await ensureSessionPrincipalInvariant();
   await ensureTicketHierarchyInvariant();
   await ensureLiveMergeLedgerInvariant();
+  await ensureReportingSpineInvariants();
 
   let optionalFailures = 0;
   for (const sql of OPTIONAL_STATEMENTS) {

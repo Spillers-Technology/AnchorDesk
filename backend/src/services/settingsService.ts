@@ -24,7 +24,8 @@ export type IntegrationKey =
   | "datto"
   | "storage"
   | "tickets"
-  | "ui";
+  | "ui"
+  | "portal";
 
 export interface SmtpConfig {
   host: string;
@@ -78,6 +79,19 @@ export interface TicketsConfig {
   /** Minimum width (zero-padded) for generated ticket numbers, 4–6. */
   numberDigits: number;
 }
+/**
+ * Customer-portal switch.
+ *
+ * Default OFF, deliberately. The portal and the knowledge base are both fully
+ * built, but upgrading must never hand a shop a live customer-facing surface it
+ * did not ask for: `requestMagicLink` would otherwise issue a sign-in link to
+ * any uniquely-matching Contact in the CRM, and KB portal reads would answer
+ * anonymously. Turning the portal on is a decision an admin makes.
+ */
+export interface PortalConfig {
+  enabled: boolean;
+}
+
 export interface UiConfig {
   /** Show the legacy DataGrid table view in the ticket view switcher. Off by
    *  default — Board/Cards are the primary views; an admin opts the table in. */
@@ -102,6 +116,7 @@ const SECRET_FIELDS: Record<IntegrationKey, string[]> = {
   storage: ["s3SecretAccessKey"],
   tickets: [],
   ui: [],
+  portal: [],
 };
 
 function envDefaults(key: IntegrationKey): Record<string, unknown> {
@@ -124,6 +139,8 @@ function envDefaults(key: IntegrationKey): Record<string, unknown> {
       return { numberDigits: config.ticketNumberDigits };
     case "ui":
       return { legacyTableView: false };
+    case "portal":
+      return { enabled: false };
   }
 }
 
@@ -156,6 +173,7 @@ export async function seedSettings(): Promise<void> {
     "storage",
     "tickets",
     "ui",
+    "portal",
   ] as IntegrationKey[]) {
     const existing = await prisma.setting.findUnique({ where: { key } });
     if (!existing) {
@@ -290,6 +308,18 @@ export async function getTickets(): Promise<TicketsConfig> {
       v.numberDigits ?? config.ticketNumberDigits,
     ),
   };
+}
+
+export async function getPortal(): Promise<PortalConfig> {
+  const v = await load("portal");
+  return { enabled: Boolean(v.enabled ?? false) };
+}
+
+/** Cheap gate for hot paths (auth middleware runs this per request). `load`
+ *  serves from a process-local cache that writes invalidate, so this is a map
+ *  lookup after first read. */
+export async function isPortalEnabled(): Promise<boolean> {
+  return (await getPortal()).enabled;
 }
 
 export async function getUi(): Promise<UiConfig> {

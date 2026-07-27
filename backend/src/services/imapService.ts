@@ -19,6 +19,7 @@ import * as ticketRepo from '../repositories/ticketRepository';
 import * as noteRepo from '../repositories/noteRepository';
 import * as attachmentRepo from '../repositories/attachmentRepository';
 import * as labelRepo from '../repositories/labelRepository';
+import * as companyRepo from '../repositories/companyRepository';
 import { currentStorage, buildKey } from './storage';
 import { sanitizeEmailHtml } from './mail/sanitizeHtml';
 import { ticketNumberFromSubject } from './mail/threading';
@@ -107,7 +108,8 @@ async function ingest(parsed: ParsedMail, mb: Mailbox, uid: number): Promise<'cr
   } else {
     try {
       const senderAddress = parsed.from?.value.find((entry) => entry.address)?.address;
-      const senderCompany = mb.companyName
+      const senderContact = await companyRepo.findUniqueContactByEmail(senderAddress ?? '');
+      const senderCompany = senderContact || mb.companyName
         ? null
         : await findOrCreateCompanyForEmail(senderAddress ?? '', 'imap');
       const ticket = await ticketRepo.create(
@@ -115,8 +117,11 @@ async function ingest(parsed: ParsedMail, mb: Mailbox, uid: number): Promise<'cr
           title: clamp(subject, 255),
           summary: clamp(body, 200),
           description: body,
-          companyId: senderCompany?.id,
-          companyName: mb.companyName ?? senderCompany?.name,
+          // A uniquely matched Contact is authoritative for both sides of the
+          // ownership pair. Never combine its id with a mailbox/domain company.
+          contactId: senderContact?.id,
+          companyId: senderContact?.companyId ?? senderCompany?.id,
+          companyName: senderContact ? undefined : mb.companyName ?? senderCompany?.name,
           source: 'imap',
           externalId: messageId,
           externalProvider: 'imap',
@@ -158,6 +163,8 @@ async function ingest(parsed: ParsedMail, mb: Mailbox, uid: number): Promise<'cr
     {
       noteType: 'email',
       direction: 'inbound',
+      visibility: 'public',
+      via: 'email',
       content: body,
       htmlContent: html,
       author: fromText,
@@ -169,7 +176,14 @@ async function ingest(parsed: ParsedMail, mb: Mailbox, uid: number): Promise<'cr
     },
     'imap'
   );
-  if (stored.length) await attachmentRepo.attachToNote(stored.map((s) => s.id), note.id);
+  if (stored.length) {
+    await attachmentRepo.attachToNote(
+      stored.map((storedAttachment) => storedAttachment.id),
+      note.id,
+      true,
+      'imap',
+    );
+  }
   return outcome;
 }
 
@@ -201,6 +215,7 @@ async function storeInboundAttachments(ticketId: number, parsed: ParsedMail): Pr
           storageBackend: storage.backend,
           storageKey: key,
           createdBy: 'imap',
+          portalVisible: true,
         },
         'imap',
       );

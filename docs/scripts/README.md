@@ -7,26 +7,43 @@ mocked `/api/*` responses (no backend or database needed):
   [`docs/assets/screenshots/`](../assets/screenshots/). These are the images
   used by the README and the docs site (with the lightbox in
   `docs/assets/lightbox.js`). Captured views: **board**, **ticket modal**,
-  **My Day**, **Companies**, **Network**, **Sync**.
+  **Reports**, both **TIME calendar** modes, **Companies**, **Network**, and
+  **Sync**. The old `anchordesk-my-day.jpg` path is retained as an alias capture
+  of the TIME day spread so existing documentation links do not break.
 - **`capture-mobile-media.mjs`** — the **mobile verification matrix**
   ([docs/mobile.md](../mobile.md)): **login**, **board**, **saved views**,
   **Kanban columns**, **advanced filters**, **ticket**, **ticket history**,
   **composer**, **merge dialog**, **merge acknowledgements**,
-  **ticket hierarchy**, **cards**, **My Day**,
+  **ticket hierarchy**, **cards**, **Reports** (overview plus a scrolled proof
+  of each report), **TIME day spread**, **TIME ticket SLA timeline**,
   **Companies**, **Network**, **Sync**, and the **Admin** dashboard, teams,
   custom fields, checklist templates, checklist-template editor, automations,
-  devices, and device-asset editor across five touch device profiles (Galaxy
-  360, iPhone 393, Pixel 412, folded foldable 344, unfolded foldable 717).
+  devices, device-asset editor, the requester portal's login, ticket list,
+  new-request/deflection form, ticket conversation, comment form, and attachment
+  flow, plus Reports and the TIME calendar, across five touch device profiles
+  (Galaxy 360, iPhone 393, Pixel 412, folded foldable 344, unfolded foldable
+  717). Every Reports/TIME shot asserts that the document itself has no
+  horizontal overflow; wide charts and tracks must scroll only inside their own
+  container.
   Output lands in
   `docs/assets/screenshots/mobile/` — **gitignored** working artifacts; curated
   marketing shots (e.g. `anchordesk-mobile-board.jpg`) are copied into the
   committed folder by hand.
 
 Both import **`mock-api.mjs`**, which owns the fixture dataset, the
-`handleApi()` route handler, and shared helpers: `installApiMock(page, { authenticated })`
+`handleApi()` route handler, and shared helpers:
+`installApiMock(page, { authenticated, portalAuthenticated })`
 (pass `authenticated: false` to get a 401 from `/auth/me` so the login screen
-renders), `freezeAnimations(page)` (deterministic screenshots), `loadPlaywright()`,
+renders, or `portalAuthenticated: false` for `/portal/auth/me`),
+`freezeAnimations(page)` (deterministic screenshots), `loadPlaywright()`,
 `waitForServer()`, and `openDrawer()`.
+
+The 2.7 fixtures mirror the real report contracts and read their `from`, `to`,
+`companyId`, `teamId`, and `assigneeId` query parameters. They deliberately
+include reconstructed event provenance, partial frozen-SLA coverage, long-tail
+p50/p90 durations, every SLA state (including `onTrack`), old backlog, team and
+technician load, billable company time, a four-hour day inside an explicit
+eight-hour target, and a ticket lifecycle with frozen targets and breaches.
 
 ## Regenerating the screenshots
 
@@ -60,14 +77,14 @@ renders), `freezeAnimations(page)` (deterministic screenshots), `loadPlaywright(
 
    ```bash
    node docs/scripts/capture-product-media.mjs   # desktop hero shots
-   node docs/scripts/capture-mobile-media.mjs    # mobile matrix (105 shots)
+   node docs/scripts/capture-mobile-media.mjs    # mobile matrix (42 views × 5 devices)
    ```
 
    Review the desktop diff before committing. While iterating on a mobile fix,
    filter the matrix:
 
    ```bash
-   ANCHORDESK_CAPTURE_DEVICES=galaxy,fold-closed ANCHORDESK_CAPTURE_VIEWS=saved-view,kanban-columns \
+   ANCHORDESK_CAPTURE_DEVICES=galaxy,fold-closed ANCHORDESK_CAPTURE_VIEWS=reports,time-day,portal-tickets \
      node docs/scripts/capture-mobile-media.mjs
    ```
 

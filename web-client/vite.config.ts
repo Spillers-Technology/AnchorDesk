@@ -1,6 +1,7 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { readFileSync } from 'fs'
+import { fileURLToPath } from 'node:url'
 
 // Bake the package version into the bundle so the UI can show which build is
 // running (answers "did the deploy land?" at a glance — see AccountMenu).
@@ -12,10 +13,54 @@ const { version } = JSON.parse(readFileSync(new URL('./package.json', import.met
 const backendOrigin = process.env.BACKEND_ORIGIN || 'http://localhost:8060'
 const backendWs = backendOrigin.replace(/^http/, 'ws')
 
+function isPortalDocumentRequest(request: {
+  method?: string;
+  url?: string;
+  headers: { accept?: string | string[] };
+}): boolean {
+  if (request.method !== 'GET' || !request.url) return false
+  const accept = request.headers.accept
+  if (typeof accept !== 'string' || !accept.includes('text/html')) return false
+  const pathname = new URL(request.url, 'http://vite.local').pathname
+  return (
+    (pathname === '/portal' || pathname.startsWith('/portal/'))
+    && pathname !== '/portal/index.html'
+  )
+}
+
+// Vite's normal SPA fallback always selects the root index.html. The customer
+// portal is a second HTML entry, so nested portal routes need an explicit
+// development/preview rewrite to keep hard reloads out of the staff bundle.
+function portalHistoryFallback(): Plugin {
+  return {
+    name: 'anchordesk-portal-history-fallback',
+    configureServer(server) {
+      server.middlewares.use((request, _response, next) => {
+        if (isPortalDocumentRequest(request)) request.url = '/portal/index.html'
+        next()
+      })
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use((request, _response, next) => {
+        if (isPortalDocumentRequest(request)) request.url = '/portal/index.html'
+        next()
+      })
+    },
+  }
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(version),
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        staff: fileURLToPath(new URL('./index.html', import.meta.url)),
+        portal: fileURLToPath(new URL('./portal/index.html', import.meta.url)),
+      },
+    },
   },
   server: {
     host: true,   // bind 0.0.0.0 — required for Docker / k8s
@@ -43,5 +88,5 @@ export default defineConfig({
       },
     }
   },
-  plugins: [react()],
+  plugins: [portalHistoryFallback(), react()],
 })

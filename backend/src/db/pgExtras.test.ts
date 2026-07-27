@@ -16,11 +16,15 @@ import {
   ensureLegacyExternalIdentityInvariant,
   ensureLiveMergeLedgerInvariant,
   ensurePgExtras,
+  ensureReportingSpineInvariants,
   ensureRuntimeDependencies,
+  ensureSessionPrincipalInvariant,
   ensureTicketHierarchyInvariant,
   LEGACY_EXTERNAL_IDENTITY_INDEX_NAME,
   LEGACY_EXTERNAL_IDENTITY_INDEX_SQL,
   PG_TRGM_EXTENSION_SQL,
+  SESSION_PRINCIPAL_CHECK_NAME,
+  SESSION_PRINCIPAL_CHECK_SQL,
   TICKET_NUMBER_SEQUENCE_SQL,
 } from './pgExtras';
 
@@ -58,6 +62,57 @@ function validRuntime(overrides: Record<string, unknown> = {}) {
   return {
     has_ticket_number_sequence: true,
     has_pg_trgm: true,
+    ...overrides,
+  };
+}
+
+function validReportingIndexes() {
+  return [
+    {
+      name: 'ticket_events_source_audit_kind_key',
+      is_unique: true,
+      is_valid: true,
+      is_ready: true,
+      access_method: 'btree',
+      key_columns: ['source_audit_id', 'kind'],
+      predicate: null,
+    },
+    {
+      name: 'ticket_events_source_key_key',
+      is_unique: true,
+      is_valid: true,
+      is_ready: true,
+      access_method: 'btree',
+      key_columns: ['source_key'],
+      predicate: null,
+    },
+  ];
+}
+
+function validReportingTriggers() {
+  return [
+    {
+      table_name: 'ticket_events',
+      trigger_name: 'trg_ticket_events_append_only',
+      enabled: 'O',
+      definition: 'EXECUTE FUNCTION anchordesk_reject_reporting_fact_mutation()',
+    },
+    {
+      table_name: 'ticket_sla_snapshots',
+      trigger_name: 'trg_ticket_sla_snapshots_append_only',
+      enabled: 'O',
+      definition: 'EXECUTE FUNCTION anchordesk_reject_reporting_fact_mutation()',
+    },
+  ];
+}
+
+function validSessionConstraint(overrides: Record<string, unknown> = {}) {
+  return {
+    is_validated: true,
+    definition:
+      `CHECK (((scope = 'staff'::"SessionScope") AND (user_id IS NOT NULL) ` +
+      `AND (contact_id IS NULL)) OR ((scope = 'portal'::"SessionScope") ` +
+      `AND (user_id IS NULL) AND (contact_id IS NOT NULL)))`,
     ...overrides,
   };
 }
@@ -164,6 +219,46 @@ describe('critical runtime dependencies', () => {
   });
 });
 
+describe('critical scoped-session principal invariant', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    db.$executeRawUnsafe.mockResolvedValue(0);
+    db.$queryRawUnsafe.mockResolvedValue([validSessionConstraint()]);
+  });
+
+  it('creates, validates, and catalog-checks the exact principal pairing', async () => {
+    await expect(ensureSessionPrincipalInvariant()).resolves.toBeUndefined();
+    expect(db.$executeRawUnsafe).toHaveBeenNthCalledWith(
+      1,
+      SESSION_PRINCIPAL_CHECK_SQL,
+    );
+    expect(db.$executeRawUnsafe.mock.calls[1][0]).toContain(
+      `VALIDATE CONSTRAINT ${SESSION_PRINCIPAL_CHECK_NAME}`,
+    );
+    expect(db.$queryRawUnsafe.mock.calls[0][0]).toContain(
+      SESSION_PRINCIPAL_CHECK_NAME,
+    );
+  });
+
+  it.each([
+    ['absent', []],
+    ['not validated', [validSessionConstraint({ is_validated: false })]],
+    [
+      'weaker/wrong definition',
+      [
+        validSessionConstraint({
+          definition: `CHECK (user_id IS NOT NULL OR contact_id IS NOT NULL)`,
+        }),
+      ],
+    ],
+  ])('fails closed when the constraint is %s', async (_case, rows) => {
+    db.$queryRawUnsafe.mockResolvedValue(rows);
+    await expect(ensureSessionPrincipalInvariant()).rejects.toBeInstanceOf(
+      CriticalPgInvariantError,
+    );
+  });
+});
+
 describe('critical ticket hierarchy trigger', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -241,32 +336,75 @@ describe('critical live merge ledger invariant', () => {
   });
 });
 
+describe('critical reporting-spine invariants', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    db.$executeRawUnsafe.mockResolvedValue(0);
+    db.$queryRawUnsafe
+      .mockResolvedValueOnce(validReportingIndexes())
+      .mockResolvedValueOnce(validReportingTriggers());
+  });
+
+  it('verifies durable source identities and append-only event/snapshot triggers', async () => {
+    await expect(ensureReportingSpineInvariants()).resolves.toBeUndefined();
+    const statements = db.$executeRawUnsafe.mock.calls.map(([sql]) => String(sql));
+    expect(statements.join('\n')).toContain('UNIQUE INDEX');
+    expect(statements.join('\n')).toContain('source_audit_id, kind');
+    expect(statements.join('\n')).toContain('trg_ticket_events_append_only');
+    expect(statements.join('\n')).toContain('trg_ticket_sla_snapshots_append_only');
+  });
+
+  it('fails closed when a source identity index has the wrong key', async () => {
+    const indexes = validReportingIndexes();
+    indexes[0] = { ...indexes[0], key_columns: ['kind', 'source_audit_id'] };
+    db.$queryRawUnsafe
+      .mockReset()
+      .mockResolvedValueOnce(indexes)
+      .mockResolvedValueOnce(validReportingTriggers());
+    await expect(ensureReportingSpineInvariants()).rejects.toBeInstanceOf(
+      CriticalPgInvariantError,
+    );
+  });
+
+  it('fails closed when either append-only trigger is absent', async () => {
+    db.$queryRawUnsafe
+      .mockReset()
+      .mockResolvedValueOnce(validReportingIndexes())
+      .mockResolvedValueOnce(validReportingTriggers().slice(0, 1));
+    await expect(ensureReportingSpineInvariants()).rejects.toBeInstanceOf(
+      CriticalPgInvariantError,
+    );
+  });
+});
+
 describe('optional Postgres extras', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     db.$queryRawUnsafe
       .mockResolvedValueOnce([validRuntime()])
       .mockResolvedValueOnce([validIndex()])
+      .mockResolvedValueOnce([validSessionConstraint()])
       .mockResolvedValueOnce([{ enabled: 'O' }])
       // The live-merge-ledger partial unique index, verified after the trigger.
-      .mockResolvedValueOnce([validLiveMergeIndex()]);
+      .mockResolvedValueOnce([validLiveMergeIndex()])
+      .mockResolvedValueOnce(validReportingIndexes())
+      .mockResolvedValueOnce(validReportingTriggers());
   });
 
   it('logs an optional failure and continues through the remaining statements', async () => {
-    // Seven required statements run before the optional ones: sequence, pg_trgm,
-    // legacy identity index, the hierarchy function/drop/create, and the live
-    // merge ledger index. The rejection below is therefore the FIRST optional
-    // statement — a required one failing must abort startup, not warn.
-    db.$executeRawUnsafe
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0)
-      .mockRejectedValueOnce(new Error('optional index unavailable'))
-      .mockResolvedValue(0);
+    // Fail the statement by WHAT IT IS, not by how many ran before it.
+    // Counting positions couples this test to the number of required
+    // invariants, so it broke twice in one release as workstreams added their
+    // own — and each time the fix was to re-count, which teaches nothing. The
+    // behaviour under test is "an OPTIONAL statement failing is a warning; a
+    // required one failing aborts startup", so target an optional statement
+    // directly and let the required set grow freely.
+    db.$executeRawUnsafe.mockImplementation(async (sql: string) => {
+      if (sql.includes('idx_tickets_fts')) {
+        throw new Error('optional index unavailable');
+      }
+      return 0;
+    });
     const log = logger();
 
     await expect(ensurePgExtras(log)).resolves.toBeUndefined();
@@ -274,7 +412,13 @@ describe('optional Postgres extras', () => {
     expect(db.$executeRawUnsafe.mock.calls[2][0]).toBe(
       LEGACY_EXTERNAL_IDENTITY_INDEX_SQL,
     );
-    expect(db.$executeRawUnsafe.mock.calls.length).toBeGreaterThan(7);
+    expect(db.$executeRawUnsafe.mock.calls.length).toBeGreaterThan(14);
+    expect(
+      db.$executeRawUnsafe.mock.calls.map(([sql]) => sql).join('\n'),
+    ).toContain(
+      "idx_ticket_events_backfill_occurred\n     ON ticket_events (occurred_at)\n     WHERE actor = 'backfill'",
+    );
+    expect(db.$executeRawUnsafe.mock.calls.length).toBeGreaterThan(9);
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         err: expect.any(Error),

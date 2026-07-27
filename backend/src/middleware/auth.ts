@@ -21,12 +21,15 @@ import { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler } 
 import * as oidc from 'openid-client';
 import { UserRole } from '@prisma/client';
 import { config } from '../config/config';
-import { resolveSession, SESSION_COOKIE } from '../services/auth/sessions';
+import { resolveScopedSession, SESSION_COOKIE } from '../services/auth/sessions';
 import { getAuthSettings } from '../services/auth/authConfig';
 import * as userRepo from '../repositories/userRepository';
 import * as apiTokens from '../services/auth/apiTokens';
-import { isPublic } from './publicPaths';
+import { isPortalSessionAllowed, isPublic } from './publicPaths';
 import { mcpWwwAuthenticateHeader } from '../services/auth/mcpOAuth';
+import { authorizePortalKbRead } from './kbPortalAccess';
+import type { RequesterPrincipal } from '../types/principal';
+import { isPortalEnabled } from '../services/settingsService';
 
 export { isPublic };
 
@@ -42,9 +45,19 @@ export interface AuthUser {
   kanbanColumns: string[] | null;
 }
 
+export interface StaffPrincipal {
+  kind: 'staff';
+  user: AuthUser;
+}
+
+export type RequestPrincipal = StaffPrincipal | RequesterPrincipal;
+
 declare module 'fastify' {
   interface FastifyRequest {
     user: AuthUser;
+    // Neutral discriminated identity. Requester principals never acquire a
+    // staff User shape or role; legacy staff routes continue using `user`.
+    principal: RequestPrincipal;
     // Stable actor string for the audit log. Plain username for interactive
     // logins; suffixed with the channel (e.g. "alice (api)") for token clients
     // so mutations stay attributed to the real user while showing how they came in.
@@ -54,7 +67,7 @@ declare module 'fastify' {
   }
 }
 
-export type AuthChannel = 'web' | 'api' | 'mcp';
+export type AuthChannel = 'web' | 'api' | 'mcp' | 'portal';
 
 /** Audit actor string: the user, tagged with the channel for non-web access. */
 export function actorFor(username: string, channel: AuthChannel): string {
@@ -150,11 +163,52 @@ function unauthorized(request: FastifyRequest, reply: FastifyReply) {
   return reply.status(401).send({ error: 'Authentication required' });
 }
 
+async function applyRequesterSession(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  principal: RequesterPrincipal,
+) {
+  // Re-checked per request, not at sign-in: switching the portal off must take
+  // effect on the next request rather than whenever existing cookies happen to
+  // expire. An admin turning it off is usually reacting to something.
+  if (!(await isPortalEnabled())) {
+    return reply.status(403).send({ error: 'The customer portal is not enabled' });
+  }
+  request.principal = principal;
+  request.actorSub = actorFor(
+    `requester:${principal.contactId}`,
+    'portal',
+  );
+  request.authChannel = 'portal';
+  if (!isPortalSessionAllowed(request.method, request.url)) {
+    return reply.status(403).send({
+      error: 'Portal session is not permitted for this route',
+    });
+  }
+}
+
 export async function registerAuthHook(server: FastifyInstance) {
   if (config.oidcDisabled) {
     server.log.warn('OIDC_DISABLED=true — all requests run as the dev admin user');
-    server.addHook('onRequest', async (request: FastifyRequest) => {
+    server.addHook('onRequest', async (
+      request: FastifyRequest,
+      reply: FastifyReply,
+    ) => {
+      // Portal login must remain exercisable in local development. Once the
+      // browser has a valid requester cookie, preserve that narrower principal
+      // and its allowlist instead of overwriting it with DEV_ADMIN. Resolve that
+      // cookie even on otherwise-public staff routes: public-to-anonymous must
+      // not become a way for an authenticated requester to escape the positive
+      // route allowlist.
+      const sessionToken = request.cookies?.[SESSION_COOKIE];
+      if (sessionToken) {
+        const principal = await resolveScopedSession(sessionToken);
+        if (principal?.kind === 'requester') {
+          return await applyRequesterSession(request, reply, principal);
+        }
+      }
       request.user = DEV_ADMIN;
+      request.principal = { kind: 'staff', user: DEV_ADMIN };
       request.actorSub = 'system';
       request.authChannel = 'web';
     });
@@ -162,15 +216,27 @@ export async function registerAuthHook(server: FastifyInstance) {
   }
 
   server.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
-    if (isPublic(request.url)) return;
-
-    // 1. Session cookie (primary browser path).
+    // 1. Session cookie (primary browser path). Resolve a valid requester
+    // cookie before the public-path bypass: otherwise a portal principal could
+    // invoke public staff-auth mutations such as /auth/logout outside its
+    // positive allowlist. Invalid/expired cookies still reach public routes as
+    // anonymous requests.
     const sessionToken = request.cookies?.[SESSION_COOKIE];
+    const sessionPrincipal = sessionToken
+      ? await resolveScopedSession(sessionToken)
+      : null;
+    if (sessionPrincipal?.kind === 'requester') {
+      return await applyRequesterSession(request, reply, sessionPrincipal);
+    }
+
+    if (isPublic(request.url, request.method)) return;
+
     if (sessionToken) {
-      const user = await resolveSession(sessionToken);
-      if (user) {
-        request.user = toAuthUser(user);
-        request.actorSub = user.username;
+      if (sessionPrincipal?.kind === 'staff') {
+        const user = toAuthUser(sessionPrincipal.user);
+        request.user = user;
+        request.principal = { kind: 'staff', user };
+        request.actorSub = sessionPrincipal.user.username;
         request.authChannel = 'web';
         return enforceBaseline(request, reply);
       }
@@ -187,6 +253,7 @@ export async function registerAuthHook(server: FastifyInstance) {
         const user = await apiTokens.resolve(bearer);
         if (user) {
           request.user = toAuthUser(user);
+          request.principal = { kind: 'staff', user: request.user };
           request.actorSub = actorFor(user.username, 'api');
           request.authChannel = 'api';
           return enforceBaseline(request, reply);
@@ -199,6 +266,7 @@ export async function registerAuthHook(server: FastifyInstance) {
         const user = await resolveBearer(bearer);
         if (user) {
           request.user = user;
+          request.principal = { kind: 'staff', user };
           request.actorSub = actorFor(user.username, 'api');
           request.authChannel = 'api';
           return enforceBaseline(request, reply);
@@ -206,6 +274,17 @@ export async function registerAuthHook(server: FastifyInstance) {
       } catch (err) {
         request.log.warn({ err }, 'Bearer auth failed');
       }
+    }
+
+    // Workstream D exposes only the published+portal KB path before the
+    // Contact-backed portal principal exists. Keep this after normal staff
+    // authentication so a signed-in staff caller on /kb/search still carries
+    // their real role and can request internal results. Workstream C replaces
+    // the decision inside authorizePortalKbRead, not this auth flow.
+    if (await authorizePortalKbRead(request)) {
+      request.actorSub = 'portal';
+      request.authChannel = 'web';
+      return;
     }
 
     return unauthorized(request, reply);
@@ -216,7 +295,16 @@ export async function registerAuthHook(server: FastifyInstance) {
 function enforceBaseline(request: FastifyRequest, reply: FastifyReply) {
   const method = request.method.toUpperCase();
   const isWrite = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
-  if (isWrite && request.user.role === 'readonly') {
+  // MCP multiplexes read and mutation tools through one POST endpoint. Its
+  // parsed-body handler binds the transport to this user and allows readonly
+  // callers only an explicit set of read tools. No other POST is exempt.
+  const isMcpMessageTransport =
+    request.url.split('?')[0] === '/mcp/messages';
+  if (
+    isWrite &&
+    request.user.role === 'readonly' &&
+    !isMcpMessageTransport
+  ) {
     return reply.status(403).send({ error: 'Read-only role cannot modify data' });
   }
 }

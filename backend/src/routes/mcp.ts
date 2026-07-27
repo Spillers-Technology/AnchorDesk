@@ -23,9 +23,60 @@ import { MergeLedgerFormatError } from '../services/merge/mergeLedger';
 import { mailTransport } from '../services/mail/SmtpMailTransport';
 import { actorFor } from '../middleware/auth';
 import { buildMcpProtectedResourceMetadata } from '../services/auth/mcpOAuth';
+import { registerKbTools } from './mcpKb';
+import { registerReportTools } from './mcpReports';
 
 const MAX_TEMPLATE_ITEMS = 100;
 const MAX_DUE_OFFSET_MINUTES = 60 * 24 * 365;
+
+/**
+ * The auth middleware normally blocks every readonly POST. MCP necessarily
+ * sends reads and writes through one POST transport, so /mcp/messages defers
+ * that decision to this explicit tool allowlist after the JSON-RPC body has
+ * been parsed. Keep this list conservative: an omitted read fails closed.
+ */
+export const READ_ONLY_MCP_TOOLS = new Set([
+  'list_tickets',
+  'get_ticket',
+  'preview_ticket_merge',
+  'list_ticket_children',
+  'list_checklist_templates',
+  'list_ticket_checklist',
+  'get_ticket_history',
+  'search_tickets',
+  'list_labels',
+  'list_teams',
+  'list_custom_fields',
+  'list_saved_views',
+  'search_kb_articles',
+  'read_kb_article',
+  'list_kb_articles',
+  'report_volume',
+  'report_durations',
+  'report_sla_compliance',
+  'report_backlog_age',
+  'report_team_throughput',
+  'report_assignee_throughput',
+  'report_time_by_company',
+  'get_time_day_spread',
+  'get_ticket_sla_timeline',
+] as const);
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Lifecycle/discovery messages are safe. A readonly tools/call is safe only
+ * when its exact tool name is allowlisted; malformed calls fail closed here. */
+export function isReadonlyMcpMessageAllowed(body: unknown): boolean {
+  const messages = Array.isArray(body) ? body : [body];
+  return messages.every((message) => {
+    if (!isPlainObject(message) || message.method !== 'tools/call') return true;
+    const params = message.params;
+    if (!isPlainObject(params) || typeof params.name !== 'string') return false;
+    return (READ_ONLY_MCP_TOOLS as ReadonlySet<string>).has(params.name);
+  });
+}
 
 function readPackageVersion(): string {
   // tsx resolves from src/routes; compiled production resolves from
@@ -78,6 +129,8 @@ const checklistTemplateItems = z.array(z.object({
  */
 export function buildMcpServer(actor: string, userId: number, role: UserRole): McpServer {
   const server = new McpServer({ name: 'anchordesk', version: MCP_SERVER_VERSION });
+  registerKbTools(server, actor, role);
+  registerReportTools(server, userId, role);
 
   server.tool(
     'list_tickets',
@@ -229,7 +282,14 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
       const changedBy = actor;
       const note = await notes.create(
         ticketId,
-        { content, author: actor, noteType: 'note', queueForTicketSync: true },
+        {
+          content,
+          author: actor,
+          noteType: 'note',
+          queueForTicketSync: true,
+          visibility: 'public',
+          via: 'mcp',
+        },
         changedBy
       );
       return { content: [{ type: 'text', text: JSON.stringify(note, null, 2) }] };
@@ -525,20 +585,43 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
 
   server.tool(
     'log_time',
-    'Log billable time on a ticket, either as a duration (minutes) or a start/stop window.',
+    'Log billable time on a ticket, either as a duration (minutes) or a start/stop window. workedAt records when the work happened, so past work can be entered later.',
     {
       ticketId: z.number().int(),
       minutes: z.number().int().positive().optional().describe('Duration in minutes (omit if using start/stop)'),
       start: z.string().optional().describe('ISO timestamp; with `stop`, duration is derived'),
       stop: z.string().optional().describe('ISO timestamp'),
+      workedAt: z.string().datetime({ offset: true }).optional().describe('ISO timestamp for when duration-only work occurred; a start/stop window uses start'),
       note: z.string().optional().describe('Optional note for the entry'),
       author: z.string().optional().default('MCP Agent'),
     },
-    async ({ ticketId, minutes, start, stop, note, author }) => {
+    async ({ ticketId, minutes, start, stop, workedAt, note, author }) => {
       const changedBy = actor;
       let mins = minutes ?? 0;
       let timeStart: Date | undefined;
       let timeStop: Date | undefined;
+      const recordedWorkedAt = workedAt ? new Date(workedAt) : undefined;
+      if (Boolean(start) !== Boolean(stop)) {
+        return {
+          content: [{ type: 'text', text: 'start and stop must be provided together' }],
+          isError: true,
+        };
+      }
+      if (minutes !== undefined && start) {
+        return {
+          content: [{ type: 'text', text: 'Provide minutes or start/stop, not both' }],
+          isError: true,
+        };
+      }
+      if (workedAt && start) {
+        return {
+          content: [{
+            type: 'text',
+            text: 'workedAt is only accepted for duration-only entries; start is the work date for a window',
+          }],
+          isError: true,
+        };
+      }
       if (start && stop) {
         timeStart = new Date(start);
         timeStop = new Date(stop);
@@ -552,7 +635,19 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
       }
       const entry = await notes.create(
         ticketId,
-        { content: note?.trim() || `Logged ${mins} min`, author, noteType: 'time_entry', minutes: mins, timeStart, timeStop },
+        {
+          content: note?.trim() || `Logged ${mins} min`,
+          author,
+          authorId: userId,
+          noteType: 'time_entry',
+          minutes: mins,
+          timeStart,
+          timeStop,
+          workedAt: recordedWorkedAt,
+          // Time entries are never customer-visible, whatever the channel.
+          visibility: 'internal',
+          via: 'mcp',
+        },
         changedBy,
       );
       return { content: [{ type: 'text', text: JSON.stringify(entry, null, 2) }] };
@@ -579,7 +674,10 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
         return { content: [{ type: 'text', text: 'SMTP is not configured' }], isError: true };
       }
       try {
-        const { messageId } = await ticketMail.sendTicketEmail(ticketId, { to, cc, subject, html, text, author });
+        const { messageId } = await ticketMail.sendTicketEmail(
+          ticketId,
+          { to, cc, subject, html, text, author, actorSub: actor },
+        );
         return { content: [{ type: 'text', text: JSON.stringify({ ok: true, messageId }, null, 2) }] };
       } catch (err) {
         return { content: [{ type: 'text', text: (err as Error).message }], isError: true };
@@ -665,7 +763,10 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
 }
 
 export async function mcpRoutes(app: FastifyInstance) {
-  const transports = new Map<string, SSEServerTransport>();
+  const transports = new Map<
+    string,
+    { transport: SSEServerTransport; userId: number; role: UserRole }
+  >();
 
   async function sendProtectedResourceMetadata(_req: FastifyRequest, reply: FastifyReply) {
     return reply.send(buildMcpProtectedResourceMetadata());
@@ -682,7 +783,11 @@ export async function mcpRoutes(app: FastifyInstance) {
     // hijack so Fastify 5 doesn't also try to manage/serialize the reply.
     reply.hijack();
     const transport = new SSEServerTransport('/mcp/messages', reply.raw);
-    transports.set(transport.sessionId, transport);
+    transports.set(transport.sessionId, {
+      transport,
+      userId: req.user.id,
+      role: req.user.role,
+    });
 
     reply.raw.on('close', () => transports.delete(transport.sessionId));
 
@@ -694,12 +799,28 @@ export async function mcpRoutes(app: FastifyInstance) {
   // POST endpoint — MCP client sends messages here
   app.post('/mcp/messages', async (req, reply) => {
     const sessionId = (req.query as Record<string, string>).sessionId;
-    const transport = transports.get(sessionId);
-    if (!transport) {
+    const session = transports.get(sessionId);
+    if (!session) {
       return reply.status(404).send({ error: 'Session not found' });
+    }
+    // A session id is routing state, not authorization. Bind it to the user and
+    // role that opened the SSE stream; a role change requires reconnecting.
+    if (
+      session.userId !== req.user.id ||
+      session.role !== req.user.role
+    ) {
+      return reply.status(403).send({ error: 'MCP session identity mismatch; reconnect' });
+    }
+    if (
+      req.user.role === 'readonly' &&
+      !isReadonlyMcpMessageAllowed(req.body)
+    ) {
+      return reply.status(403).send({
+        error: 'Read-only role cannot invoke this MCP tool',
+      });
     }
     // handlePostMessage writes the response to reply.raw directly.
     reply.hijack();
-    await transport.handlePostMessage(req.raw, reply.raw, req.body);
+    await session.transport.handlePostMessage(req.raw, reply.raw, req.body);
   });
 }

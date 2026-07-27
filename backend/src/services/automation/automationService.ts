@@ -71,7 +71,17 @@ async function applyAction(action: RuleAction, ticketId: number, ticketTitle: st
       await labelRepo.applyToTicket(ticketId, action.labelId, actor);
       break;
     case 'add_note':
-      await noteRepo.create(ticketId, { content: action.content, author: actor, noteType: 'internal' }, actor);
+      await noteRepo.create(
+        ticketId,
+        {
+          content: action.content,
+          author: actor,
+          noteType: 'internal',
+          visibility: 'internal',
+          via: 'automation',
+        },
+        actor,
+      );
       break;
     case 'notify_user':
       await notify(action.userId, ticketId, action.message ?? `Automation matched ticket #${ticketId}`, actor, ticketTitle);
