@@ -325,19 +325,27 @@ describe('TIME REST contract', () => {
   });
 
   it('limits non-admin day spread to self while admins may select a technician', async () => {
+    // A day spread is one day. The shared month-long `query` is rejected by the
+    // endpoint's 26-hour cap (a day plus slack for DST), so this case needs its
+    // own single-day range or it fails on the range guard long before it
+    // reaches the authorization rule it is meant to test.
+    const dayFrom = new Date('2026-07-01T00:00:00.000Z');
+    const dayTo = new Date('2026-07-02T00:00:00.000Z');
+    const dayQuery = 'from=2026-07-01T00%3A00%3A00Z&to=2026-07-02T00%3A00%3A00Z';
+
     const technician = await appFor('technician');
     try {
       const own = await technician.inject({
         method: 'GET',
-        url: `/time/day-spread?${query}`,
+        url: `/time/day-spread?${dayQuery}`,
       });
       expect(own.statusCode).toBe(200);
-      expect(mockedDaySpread).toHaveBeenCalledWith(7, { from, to });
+      expect(mockedDaySpread).toHaveBeenCalledWith(7, { from: dayFrom, to: dayTo });
 
       mockedDaySpread.mockClear();
       const other = await technician.inject({
         method: 'GET',
-        url: `/time/day-spread?${query}&assigneeId=8`,
+        url: `/time/day-spread?${dayQuery}&assigneeId=8`,
       });
       expect(other.statusCode).toBe(403);
       expect(mockedDaySpread).not.toHaveBeenCalled();
@@ -349,12 +357,27 @@ describe('TIME REST contract', () => {
     try {
       const selected = await admin.inject({
         method: 'GET',
-        url: `/time/day-spread?${query}&assigneeId=8`,
+        url: `/time/day-spread?${dayQuery}&assigneeId=8`,
       });
       expect(selected.statusCode).toBe(200);
-      expect(mockedDaySpread).toHaveBeenCalledWith(8, { from, to });
+      expect(mockedDaySpread).toHaveBeenCalledWith(8, { from: dayFrom, to: dayTo });
     } finally {
       await admin.close();
+    }
+  });
+
+  // The cap is load-bearing for the authorization test above, so pin it.
+  it('rejects a day spread wider than a day', async () => {
+    const technician = await appFor('technician');
+    try {
+      const tooWide = await technician.inject({
+        method: 'GET',
+        url: `/time/day-spread?${query}`,
+      });
+      expect(tooWide.statusCode).toBe(400);
+      expect(mockedDaySpread).not.toHaveBeenCalled();
+    } finally {
+      await technician.close();
     }
   });
 });
