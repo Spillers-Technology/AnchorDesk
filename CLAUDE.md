@@ -169,6 +169,51 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 >   protects the `psql` session at 2am, which is how this data actually gets
 >   corrupted. Hierarchy is never pushed or pulled.
 
+> **As of 2.7.0 ("Pass the Flinch Test"):** the three 3.0 product gaps —
+> **customer portal**, **reporting**, **knowledge base** — all cross at once,
+> deliberately breadth-first. Plan: [docs/roadmap-2.7.md](docs/roadmap-2.7.md);
+> per-workstream notes in `docs/2.7-workstream-{a,b,c,d}-notes.md`.
+> - **The SLA/event spine is the foundation, and the reason reporting is
+>   trustworthy.** `TicketEvent` is an append-only fact table fed by a second
+>   `eventBus` subscriber (alongside, not instead of, `audit_log`), with
+>   company/team/assignee/priority **denormalised onto each row** so a report
+>   grouped by company reflects the company *at the time*.
+>   `TicketSlaSnapshot` freezes SLA targets when promised — previously "did we
+>   hit SLA last quarter?" changed answer when someone edited a policy today.
+>   Snapshots hold no FK to `SlaPolicy`, and **triggers reject UPDATE/DELETE on
+>   both reporting tables**, so history is immutable even from `psql`.
+>   `Note.workedAt` gives time entries a work date. The boot backfill is
+>   idempotent on `(sourceAuditId, kind)` and deliberately **does not fabricate
+>   historical SLA snapshots** — older promises stay explicitly unknown rather
+>   than plausibly wrong.
+> - **Reporting reports percentiles, never a bare mean.** p50/p90 via
+>   `percentile_cont` in Postgres; a mean response time is dominated by outliers
+>   and lies. Any window overlapping backfilled data is labelled *"estimates,
+>   not recorded history"*. Chart colour comes from a **fixed validated
+>   palette** with separate light/dark steps, **not** `theme.palette` — seven
+>   user-selectable themes would otherwise destroy colourblind safety. Every
+>   chart has a table view. The **TIME calendar** renders a technician's day so
+>   the *gaps* are visible, and reports entries with no start/stop as *unplaced*
+>   rather than dropping them.
+> - **The portal's requester is a `Contact`, never a staff `User` with a role.**
+>   Magic-link sign-in; sessions carry a scope with a DB CHECK enforcing exactly
+>   one principal. The serialization boundary is an **explicit allowlist with
+>   its own test**, so a new `Ticket` field cannot start leaking. Duplicate
+>   contact emails **fail closed** — guessing between them would turn a CRM
+>   data-quality problem into an authorization decision. Ownership transfer and
+>   merge both **quarantine** a ticket from portal reads: owning the row is not
+>   proof of entitlement to the prior conversation.
+> - **Knowledge-base visibility is safe by construction** — the portal-facing
+>   repository functions cannot express "internal", hard-code published+portal,
+>   and re-check before serializing.
+> - **`portal.enabled` gates all of it, default off.** Upgrading must never hand
+>   a shop a live customer-facing surface it did not ask for. Enforced in the KB
+>   seam, both portal route plugins, and per-request on live requester sessions,
+>   so switching it off takes effect immediately rather than at session expiry.
+> - **The rule:** "badly" means sparse and unpolished. It never means lying to
+>   the user, skipping RBAC/audit/mobile, or shipping a metric that looks right
+>   and isn't.
+
 Key design goals:
 - Excellent standalone ticketing experience first
 - Sync to/from external platforms second
