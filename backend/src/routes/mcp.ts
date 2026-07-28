@@ -25,6 +25,7 @@ import { actorFor } from '../middleware/auth';
 import { buildMcpProtectedResourceMetadata } from '../services/auth/mcpOAuth';
 import { registerKbTools } from './mcpKb';
 import { registerReportTools } from './mcpReports';
+import { registerPortalTools } from './mcpPortal';
 
 const MAX_TEMPLATE_ITEMS = 100;
 const MAX_DUE_OFFSET_MINUTES = 60 * 24 * 365;
@@ -60,6 +61,7 @@ export const READ_ONLY_MCP_TOOLS = new Set([
   'report_time_by_company',
   'get_time_day_spread',
   'get_ticket_sla_timeline',
+  'list_portal_grants',
 ] as const);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -131,6 +133,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
   const server = new McpServer({ name: 'anchordesk', version: MCP_SERVER_VERSION });
   registerKbTools(server, actor, role);
   registerReportTools(server, userId, role);
+  registerPortalTools(server, actor, role);
 
   server.tool(
     'list_tickets',

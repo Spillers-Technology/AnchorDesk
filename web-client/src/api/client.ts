@@ -715,6 +715,32 @@ export function deleteContact(id: number) {
   return request<void>(`/contacts/${id}`, { method: "DELETE" });
 }
 
+// ─── Portal access (Portal v2) ──────────────────────────────────────────────
+
+export interface PortalGrant {
+  id: number;
+  contactId: number;
+  companyId: number;
+  grantedBy: string;
+  grantedAt: string;
+  effectiveFrom: string;
+  revokedBy: string | null;
+  revokedAt: string | null;
+}
+
+export function listContactPortalGrants(contactId: number) {
+  return request<PortalGrant[]>(`/contacts/${contactId}/portal-grants`);
+}
+export function grantPortalAccess(contactId: number, effectiveFrom?: string) {
+  return request<PortalGrant>(`/contacts/${contactId}/portal-grant`, {
+    method: "POST",
+    body: JSON.stringify(effectiveFrom ? { effectiveFrom } : {}),
+  });
+}
+export function revokePortalAccess(contactId: number) {
+  return request<PortalGrant>(`/contacts/${contactId}/portal-grant/revoke`, { method: "POST" });
+}
+
 // ─── Time tracking ──────────────────────────────────────────────────────────────
 
 export function getTicketTime(ticketId: number) {

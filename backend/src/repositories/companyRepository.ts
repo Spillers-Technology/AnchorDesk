@@ -161,6 +161,10 @@ export interface ContactInput {
   isPrimary?: boolean;
 }
 
+export function getContactById(id: number): Promise<Contact | null> {
+  return prisma.contact.findUnique({ where: { id } });
+}
+
 /**
  * Resolve a portal/email identity without guessing. Contact email is legacy
  * CRM data and is not structurally unique, so a duplicate case-insensitive
