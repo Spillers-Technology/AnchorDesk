@@ -96,12 +96,13 @@ describe('POST /tickets/:id/notes public create contract', () => {
     }
   });
 
-  it('constructs a local conversation note DTO, sanitizes HTML, and offers it for push-out', async () => {
+  it('constructs a local conversation note DTO, sanitizes HTML, and defaults to internal (no push-out)', async () => {
     mockedNoteRepo.create.mockResolvedValue({
       id: 9,
       ticketId: 42,
       content: 'Customer called back',
       noteType: 'note',
+      visibility: 'internal',
     } as never);
     const app = await technicianApp();
     try {
@@ -120,18 +121,49 @@ describe('POST /tickets/:id/notes public create contract', () => {
       const [ticketId, input, actor] = mockedNoteRepo.create.mock.calls[0];
       expect(ticketId).toBe(42);
       expect(actor).toBe('technician');
+      // A note is internal unless someone deliberately publishes it — omitting
+      // `visibility` must never fall back to public, even for noteType 'note'.
       expect(input).toEqual({
         content: 'Customer called back',
         htmlContent: '<p>Customer called back</p>',
         noteType: 'note',
         author: 'Technician',
         authorId: 2,
-        queueForTicketSync: true,
-        visibility: 'public',
+        queueForTicketSync: false,
+        visibility: 'internal',
         via: 'web',
       });
       expect(input).not.toHaveProperty('externalId');
       expect(input).not.toHaveProperty('direction');
+      expect(mockedTwoWaySync.pushNoteOut).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('offers an explicitly published note to an external provider', async () => {
+    mockedNoteRepo.create.mockResolvedValue({
+      id: 9,
+      ticketId: 42,
+      content: 'Customer called back',
+      noteType: 'note',
+      visibility: 'public',
+    } as never);
+    const app = await technicianApp();
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/tickets/42/notes',
+        payload: {
+          content: 'Customer called back',
+          noteType: 'note',
+          visibility: 'public',
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      const [, input] = mockedNoteRepo.create.mock.calls[0];
+      expect(input).toMatchObject({ queueForTicketSync: true, visibility: 'public' });
       expect(mockedTwoWaySync.pushNoteOut).toHaveBeenCalledWith(42, 9);
     } finally {
       await app.close();
@@ -144,6 +176,7 @@ describe('POST /tickets/:id/notes public create contract', () => {
       ticketId: 42,
       content: 'Technician-only diagnostic',
       noteType: 'internal',
+      visibility: 'internal',
     } as never);
     const app = await technicianApp();
     try {
@@ -159,10 +192,27 @@ describe('POST /tickets/:id/notes public create contract', () => {
       expect(res.statusCode).toBe(201);
       expect(mockedNoteRepo.create).toHaveBeenCalledWith(
         42,
-        expect.objectContaining({ noteType: 'internal' }),
+        expect.objectContaining({ noteType: 'internal', visibility: 'internal' }),
         'technician'
       );
       expect(mockedTwoWaySync.pushNoteOut).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rejects an invalid visibility value', async () => {
+    const app = await technicianApp();
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/tickets/42/notes',
+        payload: { content: 'Note', visibility: 'everyone' },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain('visibility');
+      expect(mockedNoteRepo.create).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }

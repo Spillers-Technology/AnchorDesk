@@ -759,6 +759,8 @@ export function listNotes(ticketId: number) {
 type CreateLocalNoteInput = {
   /** Only locally-authored conversation note types are accepted here. */
   noteType?: "note" | "internal";
+  /** Internal unless explicitly published; omit to stay internal. */
+  visibility?: "internal" | "public";
 } & (
   | { content: string; htmlContent?: string }
   | { content?: string; htmlContent: string }
