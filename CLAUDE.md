@@ -214,6 +214,24 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 >   the user, skipping RBAC/audit/mobile, or shipping a metric that looks right
 >   and isn't.
 
+> **As of 2.7.1 ("Drafts you can find"):** the first real-install report on 2.7's
+> knowledge base was "the KB doesn't work" — from a healthy deploy. New articles
+> default to drafts, Browse lists published rows only, and the empty state
+> advised rewording the search when nothing was published at all, so an author's
+> articles simply were not there and nothing said why. Browse stays
+> published-only (correct for a reader); what it now does is give the reason —
+> authors see a count of the drafts the current filter is hiding plus a jump to
+> Manage, the empty state stops blaming the wording, create is reachable from
+> both modes, and the editor states what a draft means before it is saved.
+> `GET /kb/articles` and `list_kb_articles` gain a `published` filter that
+> `listForAuthors` already supported; it is **rejected** without
+> `includeUnpublished` rather than silently ignored, because the staff listing is
+> hard-coded to published rows and would answer "only drafts" with an empty list
+> reading as "no drafts exist" — the same quiet lie the release fixes. **The
+> lesson worth keeping:** a filter that silently does nothing, and an empty state
+> that explains itself with a cause that cannot apply, are indistinguishable from
+> a broken feature.
+
 Key design goals:
 - Excellent standalone ticketing experience first
 - Sync to/from external platforms second

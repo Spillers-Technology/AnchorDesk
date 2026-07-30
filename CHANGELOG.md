@@ -1,5 +1,47 @@
 # Changelog
 
+## 2.7.1 — 2026-07-29 — Drafts you can find (patch)
+
+The first real-install report on 2.7's knowledge base was "the KB doesn't
+work." The deployment was fine. The knowledge base was fine. What was broken
+was that it told the author nothing true about why their shelf was empty.
+
+Two articles had been written on the homelab install, a day apart. Both were
+`internal`, both `published = false`, and both had `updated_at ==
+created_at` — written once, never opened again. A new article defaults to a
+draft, Browse lists published articles only, and the empty state advised
+*"Try different wording or clear the visibility filter"* — advice that could
+not possibly help, because nothing was published at all. The shelf looked
+broken, so the work stopped. That is the whole bug.
+
+### Fixed
+
+- **Browse no longer hides drafts silently.** For authors it now counts the
+  drafts hidden by the current filter and offers a jump to Manage, scoped to
+  the same visibility filter as the list so the number always matches what
+  Manage will show. Browse itself stays published-only — that is correct for a
+  reader. The missing piece was never the listing, it was the reason.
+- **The Browse empty state stops blaming the wording** when the real cause is
+  that nothing has been published.
+- **"Create article" is reachable from both modes**, not only from Manage.
+- **The editor says what a draft means before it is saved**, rather than
+  leaving the author to discover it by the article seeming to vanish.
+
+### Added
+
+- **`GET /kb/articles?published=`** narrows the author listing;
+  `listForAuthors` already supported it. It is **rejected** without
+  `includeUnpublished` rather than silently ignored: the staff listing is
+  hard-coded to published rows, so honouring it there would answer "only
+  drafts" with an empty list that reads as "no drafts exist" — the same class
+  of quiet lie this release exists to fix.
+- **MCP parity** — `list_kb_articles` takes the same filter, with the same
+  refusal.
+
+No schema change, no data migration. Verified at 344px and 360px through the
+mobile capture matrix; the mock API learned the new parameter so the harness
+count is real rather than faked.
+
 ## 2.7.0 — 2026-07-26 — Pass the Flinch Test (minor)
 
 [docs/roadmap-3.0.0.md](docs/roadmap-3.0.0.md) defines 3.0 by one question: *if

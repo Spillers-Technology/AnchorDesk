@@ -1,6 +1,6 @@
 {
   "name": "anchordesk-backend",
-  "version": "2.7.0",
+  "version": "2.7.1",
   "main": "dist/src/index.js",
   "scripts": {
     "test": "jest --runInBand",
