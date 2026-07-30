@@ -232,6 +232,29 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 > that explains itself with a cause that cannot apply, are indistinguishable from
 > a broken feature.
 
+> **As of 2.7.2 ("The query nobody ran"):** both KB list endpoints had been
+> returning **500** since 2.7.0 — `42883: function left(text, bigint) does not
+> exist`. `LEFT(body_text, ${EXCERPT_LENGTH + 1})` binds a JS number, Prisma
+> sends it as `int8`, and Postgres defines only `left(text, integer)`, so the
+> statement failed at *plan time* for every caller regardless of rows.
+> `listPublishedForStaff` and `listForAuthors` both used it, so there was no
+> working list view at all; 2.7.1's discoverability fix was real but was the
+> second bug, not the first. Fixed with a named `::int` cast
+> (`EXCERPT_SQL_LENGTH`).
+> - **The lesson, which is the durable part:** 826 tests passed while every
+>   request 500'd. The unit suite mocks `$queryRaw`, and **a mock accepts any
+>   string as SQL** — `expect(query.text).toContain('LEFT(body_text,')` proved
+>   only that we composed the query, never that Postgres would run it. The
+>   real-Postgres suite that could have caught it didn't cover either list
+>   function and was gated behind `KB_POSTGRES_TESTS=1`, which nothing in CI
+>   set; the workflow even declared a `DATABASE_URL` with no database behind it,
+>   which is what made the skip look like configuration.
+> - **Therefore:** raw SQL is only proven by executing it. Any change to a
+>   `$queryRaw`/`Prisma.sql` statement needs a case in a `*.postgres.test.ts`
+>   suite, and CI runs those in a separate `postgres-tests` job with a service
+>   container so an unavailable runner fails visibly instead of skipping
+>   silently. Asserting on composed SQL text is not coverage.
+
 Key design goals:
 - Excellent standalone ticketing experience first
 - Sync to/from external platforms second

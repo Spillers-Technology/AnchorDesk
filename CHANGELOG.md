@@ -1,5 +1,57 @@
 # Changelog
 
+## 2.7.2 — 2026-07-29 — The query nobody ran (patch)
+
+Both knowledge-base list endpoints returned **500** in 2.7.0 and 2.7.1:
+
+```
+GET /kb/articles?includeUnpublished=true
+→ 500 P2010: Raw query failed. Code: `42883`.
+  ERROR: function left(text, bigint) does not exist
+```
+
+`LEFT(body_text, ${EXCERPT_LENGTH + 1})` binds a JS number, and Prisma sends
+that as `int8`. Postgres defines only `left(text, integer)` — there is no
+`bigint` overload — so the statement failed at **plan time**, for every caller,
+regardless of how many rows it would have matched. `listPublishedForStaff`
+(Browse) and `listForAuthors` (Manage) both used it, so the knowledge base had
+no working list view at all.
+
+This is the actual reason the knowledge base "didn't work" on a real install.
+2.7.1 diagnosed the empty shelf as a discoverability problem and fixed that —
+correctly, but it was the second bug, not the first.
+
+### Fixed
+
+- **`LEFT(body_text, …::int)`** in both list statements. The cast is named
+  (`EXCERPT_SQL_LENGTH`) with the reason attached, so it does not get quietly
+  reverted as noise.
+
+### Fixed — the test that should have caught it
+
+The interesting failure is not the missing cast, it is that a full green suite
+reported health while every request 500'd.
+
+- The unit suite mocks `$queryRaw`, which **accepts any string as SQL**. Its
+  assertion — `expect(query.text).toContain('LEFT(body_text,')` — proved the
+  query was *composed*, never that Postgres would *run* it. A test that can only
+  see the SQL it just wrote cannot tell valid SQL from invalid.
+- The real-Postgres suite that could have caught it did not cover either list
+  function, and was gated behind `KB_POSTGRES_TESTS=1` — so it **never ran in
+  CI**. The backend workflow even set `DATABASE_URL` while providing no
+  database, which is how the skip stayed invisible.
+- Both list statements are now executed against real Postgres, asserting the
+  published/draft boundary, the `published: false` filter, and that `LEFT()`
+  still truncates. Verified to fail with the original `42883` before the cast and
+  pass after.
+- **CI runs it.** A separate `postgres-tests` job supplies a Postgres service
+  container, kept separate so a runner that cannot provide one fails visibly
+  instead of silently skipping.
+
+Audited the rest of the raw SQL for the same class: `date_trunc` receives a
+timestamp and `ts_rank_cd`'s normalization argument is an inline literal, so
+`left()` was the only site binding a JS number into a type-strict overload.
+
 ## 2.7.1 — 2026-07-29 — Drafts you can find (patch)
 
 The first real-install report on 2.7's knowledge base was "the KB doesn't

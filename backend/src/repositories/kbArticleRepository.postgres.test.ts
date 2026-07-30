@@ -11,6 +11,8 @@ import { ensurePgExtras } from '../db/pgExtras';
 import {
   create,
   getPublishedPortalBySlug,
+  listForAuthors,
+  listPublishedForStaff,
   searchPublishedPortal,
 } from './kbArticleRepository';
 
@@ -116,5 +118,58 @@ describePostgres('KB ranked search against PostgreSQL', () => {
       getPublishedPortalBySlug(strongerInternal.slug),
     ).resolves.toBeNull();
     await expect(getPublishedPortalBySlug(draftPortal.slug)).resolves.toBeNull();
+  });
+
+  /**
+   * Regression: both list endpoints returned 42883 in 2.7.0/2.7.1 —
+   * `function left(text, bigint) does not exist`. Prisma binds a JS number as
+   * int8 and Postgres defines only `left(text, integer)`, so the statement
+   * failed at plan time and the whole knowledge base 500'd for every caller.
+   *
+   * The unit suite could not catch it: it mocks `$queryRaw`, which accepts any
+   * string as SQL, so asserting the query text was composed proved only that we
+   * built it — never that Postgres would run it. That is the gap these cases
+   * close, so they must execute the real statements rather than inspect them.
+   */
+  it('executes both list statements against Postgres', async () => {
+    const unique = `pulsar${Date.now()}`;
+    const publishedInternal = await create({
+      title: `${unique} published internal`,
+      category: 'Lists',
+      visibility: 'internal',
+      published: true,
+      bodyHtml: `<p>${'body text '.repeat(60)}</p>`,
+    }, 'postgres-test');
+    ids.push(publishedInternal.id);
+    const draftInternal = await create({
+      title: `${unique} draft internal`,
+      category: 'Lists',
+      visibility: 'internal',
+      published: false,
+      bodyHtml: '<p>Not approved yet.</p>',
+    }, 'postgres-test');
+    ids.push(draftInternal.id);
+
+    const staffRows = await listPublishedForStaff({ limit: 200 });
+    const staffIds = staffRows.map((row) => row.id);
+    expect(staffIds).toContain(publishedInternal.id);
+    expect(staffIds).not.toContain(draftInternal.id);
+
+    const authorRows = await listForAuthors({ limit: 200 });
+    const authorIds = authorRows.map((row) => row.id);
+    expect(authorIds).toContain(publishedInternal.id);
+    expect(authorIds).toContain(draftInternal.id);
+
+    // `published: false` is what the draft counter asks for; it must reach the
+    // database rather than being dropped on the way through.
+    const draftRows = await listForAuthors({ published: false, limit: 200 });
+    const draftIds = draftRows.map((row) => row.id);
+    expect(draftIds).toContain(draftInternal.id);
+    expect(draftIds).not.toContain(publishedInternal.id);
+
+    // The LEFT() bound is the reason the cast exists: prove it still truncates.
+    const summary = staffRows.find((row) => row.id === publishedInternal.id);
+    expect(summary?.excerpt.length).toBeLessThanOrEqual(221);
+    expect(summary).not.toHaveProperty('bodyHtml');
   });
 });
