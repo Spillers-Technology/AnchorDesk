@@ -82,7 +82,11 @@ beforeEach(() => {
   phone = false;
   installMatchMedia();
   vi.clearAllMocks();
-  api.listKbArticles.mockResolvedValue({ items: [articleSummary] });
+  // Filter-aware so the hidden-draft probe (`published: false`) is not answered
+  // with the published list, which would fake a draft count in every test.
+  api.listKbArticles.mockImplementation((options: { published?: boolean } = {}) =>
+    Promise.resolve({ items: options.published === false ? [] : [articleSummary] }),
+  );
   api.searchKbArticles.mockResolvedValue({ items: [] });
   api.getKbArticle.mockResolvedValue(article);
   api.createKbArticle.mockResolvedValue(article);
@@ -156,6 +160,60 @@ describe("KnowledgeBaseView", () => {
     await screen.findByRole("heading", { name: best.title });
     expect(screen.getByText("Use the IKE reset procedure.")).not.toBeNull();
     expect(document.querySelector("script")).toBeNull();
+  });
+
+  // The 2.7.0 shipping behaviour: an author saves an article, it defaults to a
+  // draft, Browse lists published rows only, and the article is simply gone with
+  // no explanation. The count is the explanation.
+  it("tells an author how many drafts Browse is hiding and switches to Manage", async () => {
+    const user = userEvent.setup();
+    const draft: KbArticleSummary = {
+      ...articleSummary,
+      id: 9,
+      slug: "nn",
+      title: "nn",
+      published: false,
+    };
+    // A store holding exactly one draft and nothing published: the author
+    // listing sees it, the published-only browse listing does not.
+    api.listKbArticles.mockImplementation(
+      (options: { includeUnpublished?: boolean; published?: boolean } = {}) => {
+        if (!options.includeUnpublished) return Promise.resolve({ items: [] });
+        return Promise.resolve({ items: options.published === true ? [] : [draft] });
+      },
+    );
+
+    renderInTheme(<KnowledgeBaseView canWrite />);
+
+    await waitFor(() => expect(api.listKbArticles).toHaveBeenCalledWith({
+      includeUnpublished: true,
+      published: false,
+      visibility: undefined,
+    }));
+    await screen.findByText(/1 unpublished draft is hidden from Browse/);
+    // Browse must not blame the wording when nothing is published.
+    expect(screen.queryByText(/Try different wording/)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Review drafts" }));
+    await screen.findByText(draft.title);
+    expect(screen.queryByText(/hidden from Browse/)).toBeNull();
+  });
+
+  it("stays quiet when every article is already published", async () => {
+    renderInTheme(<KnowledgeBaseView canWrite />);
+
+    await screen.findByText(article.title);
+    expect(screen.queryByText(/hidden from Browse/)).toBeNull();
+  });
+
+  it("never probes drafts for a reader who cannot author", async () => {
+    renderInTheme(<KnowledgeBaseView canWrite={false} />);
+
+    await screen.findByText(article.title);
+    expect(api.listKbArticles).not.toHaveBeenCalledWith(
+      expect.objectContaining({ published: false }),
+    );
+    expect(screen.queryByText(/hidden from Browse/)).toBeNull();
   });
 });
 

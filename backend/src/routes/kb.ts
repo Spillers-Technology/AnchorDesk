@@ -210,8 +210,32 @@ export async function kbRoutes(server: FastifyInstance) {
     if (includeUnpublished && !canAuthor(request)) {
       return reply.status(403).send({ error: 'Requires role: admin or technician' });
     }
+
+    const publication = singleQueryValue(request, 'published');
+    if (publication.error) return reply.status(400).send({ error: publication.error });
+    if (
+      publication.value !== undefined &&
+      publication.value !== 'true' &&
+      publication.value !== 'false'
+    ) {
+      return reply.status(400).send({ error: 'published must be true or false' });
+    }
+    // `published` narrows the author listing; the staff listing is hard-coded to
+    // published rows and cannot express it. Reject rather than silently ignore —
+    // a filter that quietly does nothing is exactly how a caller ends up
+    // believing an empty list means "no such articles".
+    if (publication.value !== undefined && !includeUnpublished) {
+      return reply
+        .status(400)
+        .send({ error: 'published requires includeUnpublished=true' });
+    }
+
     const items = includeUnpublished
-      ? await kb.listForAuthors({ visibility: visibility.value, limit: limit.value })
+      ? await kb.listForAuthors({
+          visibility: visibility.value,
+          published: publication.value === undefined ? undefined : publication.value === 'true',
+          limit: limit.value,
+        })
       : await kb.listPublishedForStaff({ visibility: visibility.value, limit: limit.value });
     return reply.send({ items });
   });
