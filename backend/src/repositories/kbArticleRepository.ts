@@ -28,6 +28,16 @@ const MAX_LIST_LIMIT = 500;
 const DEFAULT_SEARCH_LIMIT = 20;
 const MAX_SEARCH_LIMIT = 100;
 const EXCERPT_LENGTH = 220;
+/**
+ * `LEFT(text, ...)` length, cast to `int` at the call site.
+ *
+ * Prisma binds a JS number as `int8`, and Postgres defines only
+ * `left(text, integer)` — no `left(text, bigint)` overload exists, so an
+ * uncast parameter fails the whole statement with `42883` at plan time,
+ * regardless of how many rows it would have matched. That took out both KB
+ * list endpoints in 2.7.0/2.7.1.
+ */
+const EXCERPT_SQL_LENGTH = Prisma.sql`${EXCERPT_LENGTH + 1}::int`;
 
 export interface KbArticleInput {
   title: string;
@@ -412,7 +422,7 @@ export async function listPublishedForStaff(
       id,
       slug,
       title,
-      LEFT(body_text, ${EXCERPT_LENGTH + 1}) AS "bodyText",
+      LEFT(body_text, ${EXCERPT_SQL_LENGTH}) AS "bodyText",
       category,
       visibility,
       published,
@@ -445,7 +455,7 @@ export async function listForAuthors(
       id,
       slug,
       title,
-      LEFT(body_text, ${EXCERPT_LENGTH + 1}) AS "bodyText",
+      LEFT(body_text, ${EXCERPT_SQL_LENGTH}) AS "bodyText",
       category,
       visibility,
       published,

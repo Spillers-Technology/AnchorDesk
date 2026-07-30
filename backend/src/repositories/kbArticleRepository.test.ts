@@ -18,6 +18,7 @@ import {
   excerptAroundMatch,
   getPublishedPortalBySlug,
   listForAuthors,
+  listPublishedForStaff,
   remove,
   searchPublishedPortal,
   slugifyKbTitle,
@@ -258,6 +259,23 @@ describe('body-free article lists', () => {
     expect(query.text).toContain('LEFT(body_text,');
     expect(query.text).not.toContain('body_html');
     expect(query.values).toContain(221);
+  });
+
+  // Prisma binds a JS number as int8 and Postgres has no `left(text, bigint)`,
+  // so an uncast length fails the whole statement with 42883 at plan time. This
+  // asserts the cast is present, but note what it cannot do: a mocked
+  // $queryRaw accepts any SQL, valid or not. The proof that Postgres accepts
+  // these two statements lives in kbArticleRepository.postgres.test.ts.
+  it.each([
+    ['listForAuthors', listForAuthors],
+    ['listPublishedForStaff', listPublishedForStaff],
+  ])('casts the %s excerpt length so Postgres can resolve left()', async (_name, listFn) => {
+    mockPrisma.$queryRaw.mockResolvedValue([]);
+
+    await listFn();
+
+    const query = mockPrisma.$queryRaw.mock.calls[0][0] as { text: string };
+    expect(query.text).toMatch(/LEFT\(body_text,\s*\$\d+::int\)/);
   });
 });
 

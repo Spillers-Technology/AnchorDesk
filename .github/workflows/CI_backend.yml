@@ -38,3 +38,62 @@ jobs:
       - name: Build backend
         working-directory: backend
         run: npm run build
+
+  # The unit run mocks `$queryRaw`, which accepts any string as SQL — so a
+  # statement Postgres cannot even plan still passes there. That is exactly how
+  # `LEFT(body_text, $1)` shipped in 2.7.0: Prisma binds a JS number as int8 and
+  # there is no `left(text, bigint)`, so both KB list endpoints 500'd with 42883
+  # while CI stayed green. The opt-in real-Postgres suites are the only thing
+  # that catch this class, so they need to actually run.
+  #
+  # Kept as a separate job on purpose: it needs a service container, and if the
+  # runner cannot provide one that should be a visible failure here rather than
+  # a regression in the unit/build job above.
+  #
+  # Runs on ubuntu-latest, not arc-org: the self-hosted runner has no Docker
+  # daemon (`/var/run/docker.sock` is absent), so service containers cannot start
+  # there at all — `Initialize containers` fails in seconds before any step runs.
+  # publish-images.yml already uses ubuntu-latest for the same reason.
+  postgres-tests:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://anchordesk:anchordesk@127.0.0.1:5432/anchordesk
+      KB_POSTGRES_TESTS: "1"
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: anchordesk
+          POSTGRES_PASSWORD: anchordesk
+          POSTGRES_DB: anchordesk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U anchordesk"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Generate Prisma client and push schema
+        working-directory: backend
+        run: |
+          npx prisma generate
+          npx prisma db push --skip-generate
+
+      - name: Run Jest tests against PostgreSQL
+        working-directory: backend
+        run: npm test
