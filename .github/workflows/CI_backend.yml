@@ -49,8 +49,13 @@ jobs:
   # Kept as a separate job on purpose: it needs a service container, and if the
   # runner cannot provide one that should be a visible failure here rather than
   # a regression in the unit/build job above.
+  #
+  # Runs on ubuntu-latest, not arc-org: the self-hosted runner has no Docker
+  # daemon (`/var/run/docker.sock` is absent), so service containers cannot start
+  # there at all — `Initialize containers` fails in seconds before any step runs.
+  # publish-images.yml already uses ubuntu-latest for the same reason.
   postgres-tests:
-    runs-on: arc-org
+    runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://anchordesk:anchordesk@127.0.0.1:5432/anchordesk
       KB_POSTGRES_TESTS: "1"
