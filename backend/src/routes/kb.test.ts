@@ -240,3 +240,84 @@ describe('KB authoring access and validation', () => {
     }
   });
 });
+
+describe('KB draft listing', () => {
+  it('narrows the author listing to drafts so a hidden-draft count is exact', async () => {
+    const app = await appFor('technician');
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/kb/articles?includeUnpublished=true&published=false&visibility=internal',
+      });
+      expect(response.statusCode).toBe(200);
+      expect(mockedKb.listForAuthors).toHaveBeenCalledWith(
+        expect.objectContaining({ published: false, visibility: 'internal' }),
+      );
+      expect(mockedKb.listPublishedForStaff).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('leaves published undefined when the caller does not filter on it', async () => {
+    const app = await appFor('admin');
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/kb/articles?includeUnpublished=true',
+      });
+      expect(response.statusCode).toBe(200);
+      expect(mockedKb.listForAuthors).toHaveBeenCalledWith(
+        expect.objectContaining({ published: undefined }),
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  // The staff listing hard-codes published rows, so honouring `published=false`
+  // there would return an empty list that reads as "no drafts exist".
+  it('rejects published without includeUnpublished instead of ignoring it', async () => {
+    const app = await appFor('technician');
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/kb/articles?published=false',
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error).toMatch(/includeUnpublished/);
+      expect(mockedKb.listPublishedForStaff).not.toHaveBeenCalled();
+      expect(mockedKb.listForAuthors).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rejects a non-boolean published value', async () => {
+    const app = await appFor('technician');
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/kb/articles?includeUnpublished=true&published=yes',
+      });
+      expect(response.statusCode).toBe(400);
+      expect(mockedKb.listForAuthors).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('still refuses a readonly caller the draft listing', async () => {
+    const app = await appFor('readonly');
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/kb/articles?includeUnpublished=true&published=false',
+      });
+      expect(response.statusCode).toBe(403);
+      expect(mockedKb.listForAuthors).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+});

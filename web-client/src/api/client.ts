@@ -1840,10 +1840,13 @@ export function searchKbArticles(options: {
 
 export function listKbArticles(options: {
   includeUnpublished?: boolean;
+  /** Narrows the author listing; requires includeUnpublished. */
+  published?: boolean;
   visibility?: KbVisibility;
 } = {}) {
   const params = new URLSearchParams();
   if (options.includeUnpublished) params.set("includeUnpublished", "true");
+  if (options.published !== undefined) params.set("published", String(options.published));
   if (options.visibility) params.set("visibility", options.visibility);
   const query = params.toString();
   return request<{ items: KbArticleSummary[] }>(`/kb/articles${query ? `?${query}` : ""}`);

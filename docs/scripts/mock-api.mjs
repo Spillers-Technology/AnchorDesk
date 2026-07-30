@@ -2074,9 +2074,16 @@ export async function handleApi(route) {
   if (method === "GET" && apiPath === "/kb/articles") {
     const includeUnpublished = url.searchParams.get("includeUnpublished") === "true";
     const visibility = url.searchParams.get("visibility");
+    // Mirrors the route: `published` narrows the author listing only, and is
+    // rejected without includeUnpublished rather than silently ignored.
+    const publishedParam = url.searchParams.get("published");
+    if (publishedParam !== null && !includeUnpublished) {
+      return json(route, { error: "published requires includeUnpublished=true" }, 400);
+    }
     const items = kbArticles
       .filter((article) =>
         (includeUnpublished || article.published) &&
+        (publishedParam === null || article.published === (publishedParam === "true")) &&
         (!visibility || article.visibility === visibility)
       )
       .sort((a, b) =>

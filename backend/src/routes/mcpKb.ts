@@ -89,10 +89,11 @@ export function registerKbTools(
 
   server.tool(
     'list_kb_articles',
-    'List knowledge-base articles for browsing or administration. Draft inclusion is restricted to technicians and admins.',
+    'List knowledge-base articles for browsing or administration. Draft inclusion is restricted to technicians and admins. Set published to narrow the draft-inclusive listing (published=false returns only drafts); it requires includeUnpublished.',
     {
       visibility: visibility.optional(),
       includeUnpublished: z.boolean().optional().default(false),
+      published: z.boolean().optional(),
       limit: z.number().int().min(1).max(500).optional().default(100),
     },
     {
@@ -102,14 +103,20 @@ export function registerKbTools(
       idempotentHint: true,
       openWorldHint: false,
     },
-    async ({ visibility: requestedVisibility, includeUnpublished, limit }) => {
+    async ({ visibility: requestedVisibility, includeUnpublished, published, limit }) => {
       if (includeUnpublished) {
         const denied = requireAuthor(role);
         if (denied) return denied;
       }
+      // Mirrors the REST route: the staff listing is hard-coded to published
+      // rows, so it cannot honour `published` and must say so instead of
+      // returning an empty list an agent would read as "no drafts exist".
+      if (published !== undefined && !includeUnpublished) {
+        return textResult('published requires includeUnpublished=true', true);
+      }
       return jsonResult(
         includeUnpublished
-          ? await kb.listForAuthors({ visibility: requestedVisibility, limit })
+          ? await kb.listForAuthors({ visibility: requestedVisibility, published, limit })
           : await kb.listPublishedForStaff({ visibility: requestedVisibility, limit }),
       );
     },

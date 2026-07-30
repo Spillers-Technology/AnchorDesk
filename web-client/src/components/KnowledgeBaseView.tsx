@@ -95,6 +95,7 @@ export default function KnowledgeBaseView({
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [draftCount, setDraftCount] = useState(0);
 
   const selectedVisibility = visibility === "all" ? undefined : visibility;
 
@@ -148,6 +149,35 @@ export default function KnowledgeBaseView({
       window.clearTimeout(timer);
     };
   }, [manageMode, query, refreshKey, selectedVisibility]);
+
+  // Browse mode lists published articles only, which is right for a reader and
+  // silently wrong for the author who just saved a draft: the article they wrote
+  // is simply absent, and nothing on screen says why. Count the drafts hidden by
+  // the current filter so we can say so. Scoped to the same visibility filter as
+  // the list, so the number always matches what Manage would show.
+  useEffect(() => {
+    if (!canWrite || manageMode) {
+      setDraftCount(0);
+      return;
+    }
+    let active = true;
+    void (async () => {
+      try {
+        const response = await api.listKbArticles({
+          includeUnpublished: true,
+          published: false,
+          visibility: selectedVisibility,
+        });
+        if (active) setDraftCount(response.items.length);
+      } catch {
+        // A hint is not worth surfacing an error over; the list has its own.
+        if (active) setDraftCount(0);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [canWrite, manageMode, refreshKey, selectedVisibility]);
 
   const openArticle = async (row: ResultRow) => {
     setArticleLoading(true);
@@ -286,6 +316,27 @@ export default function KnowledgeBaseView({
 
       {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
 
+      {draftCount > 0 && (
+        <Alert
+          severity="info"
+          action={
+            <Button
+              size="small"
+              color="inherit"
+              onClick={() => changeMode("manage")}
+              sx={{ whiteSpace: "nowrap" }}
+            >
+              Review drafts
+            </Button>
+          }
+        >
+          {draftCount === 1
+            ? "1 unpublished draft is hidden from Browse."
+            : `${draftCount} unpublished drafts are hidden from Browse.`}{" "}
+          Readers only see published articles.
+        </Alert>
+      )}
+
       <Stack
         direction={{ xs: "column", md: "row" }}
         spacing={2}
@@ -311,9 +362,13 @@ export default function KnowledgeBaseView({
               <Typography variant="body2" sx={{ color: "text.secondary" }}>
                 {manageMode
                   ? "Try a broader filter or create a new article."
-                  : "Try different wording or clear the visibility filter."}
+                  : draftCount > 0
+                    // Never tell an author to reword the search when the real
+                    // reason the shelf is empty is that nothing is published.
+                    ? "Nothing is published yet — everything written so far is still a draft."
+                    : "Try different wording or clear the visibility filter."}
               </Typography>
-              {canWrite && manageMode && (
+              {canWrite && (
                 <Button
                   sx={{ mt: 2 }}
                   variant="outlined"
@@ -665,10 +720,21 @@ export function KbArticleEditorDialog({
               <MenuItem value="portal">Portal — requester-visible</MenuItem>
             </TextField>
           </Stack>
-          <FormControlLabel
-            control={<Checkbox checked={published} onChange={(event) => setPublished(event.target.checked)} />}
-            label={published ? "Published" : "Draft"}
-          />
+          <Box>
+            <FormControlLabel
+              control={<Checkbox checked={published} onChange={(event) => setPublished(event.target.checked)} />}
+              label={published ? "Published" : "Draft"}
+            />
+            {/* Drafts are the safe default, but saving one is invisible in Browse.
+                Say so here rather than letting the article seem to vanish. */}
+            <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+              {published
+                ? visibility === "portal"
+                  ? "Visible to staff and to requesters in the portal."
+                  : "Visible to staff in the knowledge base."
+                : "Drafts are visible only in Manage — not to readers browsing or searching."}
+            </Typography>
+          </Box>
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="subtitle2" sx={{ mb: 0.75 }}>Article body</Typography>
             <RichTextEditor value={bodyHtml} onChange={setBodyHtml} minHeight={260} />
