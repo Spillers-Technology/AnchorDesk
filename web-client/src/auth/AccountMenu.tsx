@@ -199,9 +199,9 @@ function PortalProfileDialog({ onClose }: { onClose: () => void }) {
             label="Show my name and avatar to portal customers"
             sx={{ alignItems: "flex-start", ml: 0 }}
           />
-          <TextField label="Display name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} inputProps={{ maxLength: 150 }} fullWidth />
-          <TextField label="Public email" type="email" value={publicEmail} onChange={(event) => setPublicEmail(event.target.value)} inputProps={{ maxLength: 255 }} fullWidth />
-          <TextField label="Public phone" value={publicPhone} onChange={(event) => setPublicPhone(event.target.value)} inputProps={{ maxLength: 50 }} fullWidth />
+          <TextField label="Display name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} slotProps={{ htmlInput: { maxLength: 150 } }} fullWidth />
+          <TextField label="Public email" type="email" value={publicEmail} onChange={(event) => setPublicEmail(event.target.value)} slotProps={{ htmlInput: { maxLength: 255 } }} fullWidth />
+          <TextField label="Public phone" value={publicPhone} onChange={(event) => setPublicPhone(event.target.value)} slotProps={{ htmlInput: { maxLength: 50 } }} fullWidth />
         </Stack>
       </DialogContent>
       <DialogActions>
