@@ -58,6 +58,7 @@ export const READ_ONLY_MCP_TOOLS = new Set([
   'report_sla_compliance',
   'report_backlog_age',
   'report_team_throughput',
+  'report_feedback',
   'report_assignee_throughput',
   'report_time_by_company',
   'get_time_day_spread',

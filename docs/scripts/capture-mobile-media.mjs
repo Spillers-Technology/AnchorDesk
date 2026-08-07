@@ -345,6 +345,7 @@ async function captureDevice(browser, device) {
       { view: "reports-sla", testId: "report-sla" },
       { view: "reports-backlog", testId: "report-backlog" },
       { view: "reports-team-throughput", testId: "report-team-throughput" },
+      { view: "reports-feedback", testId: "report-feedback" },
       { view: "reports-assignee-throughput", testId: "report-assignee-throughput" },
       { view: "reports-time-company", testId: "report-time-company" },
     ];

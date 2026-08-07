@@ -1669,6 +1669,14 @@ export interface TeamThroughput {
   resolved: number;
 }
 
+export interface FeedbackBreakdown {
+  companyId: number | null;
+  companyName: string | null;
+  positive: number;
+  neutral: number;
+  negative: number;
+}
+
 export interface AssigneeThroughput {
   assigneeId: number | null;
   assigneeName: string | null;
@@ -1793,6 +1801,12 @@ export function getBacklogAgeReport(filters: ReportFilters) {
 export function getTeamThroughputReport(filters: ReportFilters) {
   return request<ReportResponse<TeamThroughput[]>>(
     `/reports/throughput/team?${reportQuery(filters)}`
+  );
+}
+
+export function getFeedbackReport(filters: ReportFilters) {
+  return request<ReportResponse<FeedbackBreakdown[]>>(
+    `/reports/feedback?${reportQuery(filters)}`
   );
 }
 

@@ -41,6 +41,17 @@ jest.mock("../repositories/checklistTemplateRepository", () => ({
 jest.mock("../repositories/ticketFeedbackRepository", () => ({
   listForTicket: jest.fn(),
 }));
+jest.mock("../repositories/ticketEventRepository", () => ({
+  volumeByDay: jest.fn(),
+  durationPercentiles: jest.fn(),
+  slaCompliance: jest.fn(),
+  backlogAgeBuckets: jest.fn(),
+  throughputByTeam: jest.fn(),
+  feedbackBreakdown: jest.fn(),
+  throughputByAssignee: jest.fn(),
+  timeLoggedByCompany: jest.fn(),
+  ticketSlaTimeline: jest.fn(),
+}));
 jest.mock("../repositories/portalGrantRepository", () => ({
   listForContact: jest.fn(),
   grant: jest.fn(),
@@ -94,6 +105,7 @@ import * as checklist from "../repositories/checklistRepository";
 import * as checklistTemplates from "../repositories/checklistTemplateRepository";
 import * as portalRegistrations from "../repositories/portalRegistrationRepository";
 import * as kbArticles from "../repositories/kbArticleRepository";
+import * as reports from "../repositories/ticketEventRepository";
 import { buildMcpServer, MCP_SERVER_VERSION } from "./mcp";
 
 type ToolCallResult = {
@@ -135,6 +147,7 @@ const mockedKb = {
   remove: kbArticles.remove as jest.Mock,
 };
 const mockedFeedback = ticketFeedback.listForTicket as jest.Mock;
+const mockedFeedbackReport = reports.feedbackBreakdown as jest.Mock;
 const mockedPortalRegistrations = {
   list: portalRegistrations.list as jest.Mock,
   approve: portalRegistrations.approve as jest.Mock,
@@ -173,6 +186,16 @@ beforeEach(() => {
   mockedKb.searchPublishedStaff.mockResolvedValue([]);
   mockedKb.listPublishedForStaff.mockResolvedValue([]);
   mockedKb.listForAuthors.mockResolvedValue([]);
+  mockedFeedbackReport.mockResolvedValue({
+    data: [],
+    meta: {
+      from: new Date("2026-07-01T00:00:00.000Z"),
+      to: new Date("2026-08-01T00:00:00.000Z"),
+      includesReconstructed: false,
+      reconstructedFrom: null,
+      reconstructedThrough: null,
+    },
+  });
 });
 
 afterEach(async () => {
@@ -184,6 +207,34 @@ afterEach(async () => {
 });
 
 describe("MCP checklist protocol surface", () => {
+  it("advertises and calls the read-only customer feedback report", async () => {
+    const client = await connect("technician");
+    const { tools } = await client.listTools();
+    const feedback = tools.find((tool) => tool.name === "report_feedback");
+    expect(feedback?.annotations?.readOnlyHint).toBe(true);
+    expect(feedback?.inputSchema.properties).toEqual(expect.objectContaining({
+      from: expect.any(Object),
+      to: expect.any(Object),
+      companyId: expect.any(Object),
+      teamId: expect.any(Object),
+      assigneeId: expect.any(Object),
+    }));
+
+    const result = await call(client, "report_feedback", {
+      from: "2026-07-01T00:00:00.000Z",
+      to: "2026-08-01T00:00:00.000Z",
+      companyId: 3,
+    });
+    expect(result.isError).toBeUndefined();
+    expect(mockedFeedbackReport).toHaveBeenCalledWith({
+      from: new Date("2026-07-01T00:00:00.000Z"),
+      to: new Date("2026-08-01T00:00:00.000Z"),
+      companyId: 3,
+      teamId: undefined,
+      assigneeId: undefined,
+    });
+  });
+
   it("advertises the portal registration queue and enforces its admin boundary", async () => {
     const admin = await connect("admin");
     const { tools } = await admin.listTools();

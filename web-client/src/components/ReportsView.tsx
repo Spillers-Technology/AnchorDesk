@@ -52,6 +52,7 @@ interface ReportBundle {
   sla: api.ReportResponse<api.SlaComplianceRow[], api.SlaComplianceMeta>;
   backlog: api.ReportResponse<api.BacklogAgeBucket[]>;
   team: api.ReportResponse<api.TeamThroughput[]>;
+  feedback: api.ReportResponse<api.FeedbackBreakdown[]>;
   assignee: api.ReportResponse<api.AssigneeThroughput[]> | null;
   companyTime: api.ReportResponse<api.CompanyTimeLogged[]> | null;
 }
@@ -329,12 +330,13 @@ export default function ReportsView() {
       api.getSlaComplianceReport(filters),
       api.getBacklogAgeReport(filters),
       api.getTeamThroughputReport(filters),
+      api.getFeedbackReport(filters),
       isAdmin ? api.getAssigneeThroughputReport(filters) : Promise.resolve(null),
       isAdmin ? api.getTimeByCompanyReport(filters) : Promise.resolve(null),
     ])
-      .then(([volume, durations, sla, backlog, team, assignee, companyTime]) => {
+      .then(([volume, durations, sla, backlog, team, feedback, assignee, companyTime]) => {
         if (!active) return;
-        setData({ volume, durations, sla, backlog, team, assignee, companyTime });
+        setData({ volume, durations, sla, backlog, team, feedback, assignee, companyTime });
       })
       .catch((reason: unknown) => {
         if (active) setError(errorText(reason));
@@ -724,6 +726,47 @@ export default function ReportsView() {
                   label="Resolved tickets by team"
                   columns={["Team", "Resolved"]}
                   rows={data.team.data.map((row) => [row.teamName ?? "No team", row.resolved])}
+                />
+              }
+            />
+
+            <ReportCard
+              testId="report-feedback"
+              title="Customer satisfaction"
+              question="Which customers report a positive, neutral, or negative experience?"
+              meta={data.feedback.meta}
+              emptyMessage={data.feedback.data.length === 0 ? "No customer feedback was submitted in this range." : undefined}
+              chart={
+                <>
+                  <GroupedBarChart
+                    ariaLabel="Customer feedback by company and rating"
+                    categories={data.feedback.data.slice(0, 10).map((row) => ({
+                      label: row.companyName ?? "Unattributed",
+                      values: [row.positive, row.neutral, row.negative],
+                    }))}
+                    series={[
+                      { label: "Positive", slot: 1 },
+                      { label: "Neutral", slot: 2 },
+                      { label: "Negative", slot: 3 },
+                    ]}
+                  />
+                  {data.feedback.data.length > 10 && (
+                    <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                      Chart shows the top 10 of {data.feedback.data.length} companies. Table view includes every row.
+                    </Typography>
+                  )}
+                </>
+              }
+              table={
+                <DataTable
+                  label="Customer feedback by company and rating"
+                  columns={["Company", "Positive", "Neutral", "Negative"]}
+                  rows={data.feedback.data.map((row) => [
+                    row.companyName ?? "Unattributed",
+                    row.positive,
+                    row.neutral,
+                    row.negative,
+                  ])}
                 />
               }
             />

@@ -1435,6 +1435,23 @@ function assigneeThroughputReport(context) {
     .map((row) => ({ ...row, resolved: scaledCount(row.resolved, scale) }));
 }
 
+function feedbackReportData(context) {
+  const scale = reportScale(context, ["companyId", "teamId", "assigneeId"]);
+  const rows = [
+    { companyId: 1, companyName: "ACME Manufacturing", positive: 12, neutral: 3, negative: 1 },
+    { companyId: 2, companyName: "Northwind Clinic", positive: 6, neutral: 2, negative: 4 },
+    { companyId: null, companyName: null, positive: 1, neutral: 0, negative: 0 },
+  ];
+  return rows
+    .filter((row) => context.companyId === undefined || row.companyId === context.companyId)
+    .map((row) => ({
+      ...row,
+      positive: scaledCount(row.positive, scale),
+      neutral: scaledCount(row.neutral, scale),
+      negative: scaledCount(row.negative, scale),
+    }));
+}
+
 function companyTimeReport(context) {
   const scale = reportScale(context, ["companyId"]);
   const rows = [
@@ -1957,6 +1974,7 @@ export async function handleApi(route) {
     "/reports/backlog-age",
     "/reports/throughput/team",
     "/reports/throughput/assignee",
+    "/reports/feedback",
     "/reports/time-by-company",
     "/reports/time-by-company.csv",
   ]);
@@ -1988,6 +2006,21 @@ export async function handleApi(route) {
     }
     if (apiPath === "/reports/throughput/assignee") {
       return json(route, { data: assigneeThroughputReport(context), meta: context.meta });
+    }
+    if (apiPath === "/reports/feedback") {
+      // Unlike the event-sourced metrics above, customer feedback is
+      // boot-day-forward only (see backend's feedbackBreakdown()) and never
+      // carries the reconstructed-history banner.
+      return json(route, {
+        data: feedbackReportData(context),
+        meta: {
+          from: context.meta.from,
+          to: context.meta.to,
+          includesReconstructed: false,
+          reconstructedFrom: null,
+          reconstructedThrough: null,
+        },
+      });
     }
     if (apiPath === "/reports/time-by-company") {
       return json(route, { data: companyTimeReport(context), meta: context.meta });
