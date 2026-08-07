@@ -2,7 +2,7 @@ name: Publish images to GHCR
 
 # Builds and pushes the backend and web-client images to GitHub Container Registry.
 # - push to main      -> :main and :latest (+ :sha-xxxxxxx)
-# - push a vX.Y.Z tag -> :X.Y.Z, :X.Y, :latest
+# - push a vX.Y.Z tag -> :X.Y.Z, :X.Y, :latest, and a GitHub Release (below)
 # - manual run        -> via the Actions tab (workflow_dispatch)
 
 on:
@@ -62,3 +62,48 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Only fires on a vX.Y.Z tag, and only after both images have actually
+  # published — a Release implies "this was built and shipped," not just
+  # "someone pushed a tag." Manual workflow_dispatch runs and plain pushes to
+  # main are on a branch ref, not a tag ref, so they skip this job entirely.
+  create-release:
+    needs: build-push
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          NOTES_FILE="RELEASE_NOTES_v${VERSION}.md"
+
+          if [ -f "$NOTES_FILE" ]; then
+            # The release-notes file's own H1 is the title we've always used
+            # by hand (e.g. "AnchorDesk 2.8.0 — Access & Signal"); strip the
+            # leading "# " and the trailing "(minor|major|patch)" tag so the
+            # generated title matches every release created before this
+            # automation existed.
+            TITLE="$(sed -n '1s/^# *//p' "$NOTES_FILE" | sed -E 's/ \((major|minor|patch)\)$//')"
+            gh release create "$TAG" \
+              --title "${TITLE:-AnchorDesk $TAG}" \
+              --notes-file "$NOTES_FILE" \
+              --latest
+          else
+            # A tag pushed without a matching RELEASE_NOTES_vX.Y.Z.md still
+            # gets a Release — auto-generated notes beat no Release at all,
+            # and this is exactly the gap that let 2.7.1/2.7.2 ship with
+            # published images but no Release object.
+            echo "::warning::No $NOTES_FILE found; falling back to auto-generated notes."
+            gh release create "$TAG" \
+              --title "AnchorDesk $TAG" \
+              --generate-notes \
+              --latest
+          fi
