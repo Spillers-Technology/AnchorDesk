@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
 
@@ -37,9 +38,10 @@ export function findActive(contactId: number): Promise<PortalGrantRow | null> {
 export async function grant(
   input: { contactId: number; companyId: number; effectiveFrom?: Date },
   actorSub: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<PortalGrantRow> {
   const grantedAt = new Date();
-  const row = await prisma.portalGrant.create({
+  const row = await db.portalGrant.create({
     data: {
       contactId: input.contactId,
       companyId: input.companyId,
@@ -54,7 +56,7 @@ export async function grant(
     action: 'create',
     changedBy: actorSub,
     newValue: { contactId: row.contactId, companyId: row.companyId, effectiveFrom: row.effectiveFrom },
-  });
+  }, db);
   return row;
 }
 

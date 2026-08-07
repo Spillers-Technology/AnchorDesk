@@ -10,6 +10,7 @@ import {
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { usePortalAuth } from "./PortalAuthContext";
 import PortalLoginView from "./PortalLoginView";
+import PortalRegisterView from "./PortalRegisterView";
 import PortalNewTicketView from "./PortalNewTicketView";
 import PortalShell from "./PortalShell";
 import PortalTicketDetailView from "./PortalTicketDetailView";
@@ -54,6 +55,7 @@ export default function PortalApp() {
     return (
       <Routes>
         <Route path="/login" element={<PortalLoginView notice={notice} />} />
+        <Route path="/register" element={<PortalRegisterView />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );

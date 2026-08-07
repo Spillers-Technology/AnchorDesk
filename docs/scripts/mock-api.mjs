@@ -1783,6 +1783,12 @@ export async function handleApi(route) {
       202
     );
   }
+  if (method === "POST" && apiPath === "/portal/register") {
+    return json(route, {
+      ok: true,
+      message: "Check your email for an update on your portal access request.",
+    }, 202);
+  }
   if (method === "POST" && apiPath === "/portal/auth/verify") {
     return json(route, { requester: portalRequester });
   }
@@ -1894,6 +1900,22 @@ export async function handleApi(route) {
   const defaultPortalSettings = { enabled: false, ticketScope: "own", technicianIdentity: "anonymous", allowAttachments: true, allowSelfSolve: true };
   if (method === "GET" && apiPath === "/portal-settings") return json(route, defaultPortalSettings);
   if (method === "PATCH" && apiPath === "/portal-settings") return json(route, { ...defaultPortalSettings, enabled: true });
+  const portalRegistrations = [{
+    id: 7301,
+    email: "rita@acme.example",
+    companyId: 101,
+    status: "pending",
+    reviewedBy: null,
+    reviewedAt: null,
+    contactId: null,
+    createdAt: "2026-08-01T14:30:00.000Z",
+    company: { id: 101, name: "ACME Manufacturing", domain: "acme.example" },
+    contact: null,
+  }];
+  if (method === "GET" && apiPath === "/portal-registrations") return json(route, portalRegistrations);
+  if (method === "POST" && /^\/portal-registrations\/\d+\/(approve|reject)$/.test(apiPath)) {
+    return json(route, { ...portalRegistrations[0], status: apiPath.endsWith("/approve") ? "approved" : "rejected" });
+  }
   if (method === "GET" && apiPath === "/feedback-settings") return json(route, { enabled: true, promptOnSolve: true });
   if (method === "PATCH" && apiPath === "/feedback-settings") return json(route, { enabled: true, promptOnSolve: true });
 

@@ -42,7 +42,7 @@ export function toPublicRequesterIdentity(
   };
 }
 
-function bodyKey(
+export function bodyKey(
   prefix: string,
   value: unknown,
   caseInsensitive = false,

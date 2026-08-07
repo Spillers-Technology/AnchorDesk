@@ -761,6 +761,37 @@ export function revokePortalAccess(contactId: number) {
   return request<PortalGrant>(`/contacts/${contactId}/portal-grant/revoke`, { method: "POST" });
 }
 
+export interface PortalRegistration {
+  id: number;
+  email: string;
+  companyId: number | null;
+  status: "pending" | "approved" | "rejected";
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  contactId: number | null;
+  createdAt: string;
+  company: { id: number; name: string; domain: string | null } | null;
+  contact: { id: number; name: string; email: string | null; companyId: number } | null;
+}
+
+/** Public endpoint; kept here too so browser consumers share one typed API contract. */
+export function requestPortalRegistration(email: string) {
+  return request<{ ok: true; message: string }>("/portal/register", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+export function listPortalRegistrations(status?: PortalRegistration["status"]) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return request<PortalRegistration[]>(`/portal-registrations${query}`);
+}
+export function approvePortalRegistration(id: number) {
+  return request<PortalRegistration>(`/portal-registrations/${id}/approve`, { method: "POST" });
+}
+export function rejectPortalRegistration(id: number) {
+  return request<PortalRegistration>(`/portal-registrations/${id}/reject`, { method: "POST" });
+}
+
 // ─── Time tracking ──────────────────────────────────────────────────────────────
 
 export function getTicketTime(ticketId: number) {

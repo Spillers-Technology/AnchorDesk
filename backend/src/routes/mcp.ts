@@ -62,6 +62,7 @@ export const READ_ONLY_MCP_TOOLS = new Set([
   'get_time_day_spread',
   'get_ticket_sla_timeline',
   'list_portal_grants',
+  'list_portal_registrations',
 ] as const);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

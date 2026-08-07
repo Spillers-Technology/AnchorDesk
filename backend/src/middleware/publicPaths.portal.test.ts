@@ -7,6 +7,7 @@ describe('requester positive route allowlist', () => {
   it.each([
     ['GET', '/portal/auth/me'],
     ['POST', '/portal/auth/logout'],
+    ['POST', '/portal/register'],
     ['GET', '/portal/tickets'],
     ['POST', '/portal/tickets'],
     ['GET', '/portal/tickets/42'],
@@ -35,7 +36,9 @@ describe('requester positive route allowlist', () => {
   it('keeps public portal authentication endpoints method-specific', () => {
     expect(isPublic('/portal/auth/magic-link', 'POST')).toBe(true);
     expect(isPublic('/portal/auth/verify', 'POST')).toBe(true);
+    expect(isPublic('/portal/register', 'POST')).toBe(true);
     expect(isPublic('/portal/auth/magic-link', 'GET')).toBe(false);
     expect(isPublic('/portal/auth/verify', 'GET')).toBe(false);
+    expect(isPublic('/portal/register', 'GET')).toBe(false);
   });
 });

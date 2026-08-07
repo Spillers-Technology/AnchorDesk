@@ -77,6 +77,7 @@ describe('portalGrantRepository', () => {
         action: 'create',
         changedBy: 'alice',
       }),
+      prisma,
     );
   });
 

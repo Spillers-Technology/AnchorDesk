@@ -50,6 +50,7 @@ import TimerIcon from "@mui/icons-material/Timer";
 import LabelIcon from "@mui/icons-material/Label";
 import TuneIcon from "@mui/icons-material/Tune";
 import StorefrontIcon from "@mui/icons-material/Storefront";
+import HowToRegIcon from "@mui/icons-material/HowToReg";
 import GroupsIcon from "@mui/icons-material/Groups";
 import DynamicFormIcon from "@mui/icons-material/DynamicForm";
 import BoltIcon from "@mui/icons-material/Bolt";
@@ -63,6 +64,7 @@ import * as api from "../api/client";
 import { TICKET_PRIORITIES } from "../ticketVocab";
 import { useIsPhone } from "../theme/useIsPhone";
 import ChecklistTemplatesPanel from "./admin/ChecklistTemplatesPanel";
+import PortalRegistrationsPanel from "./admin/PortalRegistrationsPanel";
 import KbArticlesPanel from "./admin/KbArticlesPanel";
 import TicketSyncPanel from "./admin/TicketSyncPanel";
 import ConfirmDialog from "./admin/ConfirmDialog";
@@ -82,7 +84,7 @@ import {
 type AdminSection =
   | "overview" | "users" | "auth" | "integrations" | "interface" | "sla" | "mailboxes" | "mail" | "labels"
   | "teams" | "custom-fields" | "checklists" | "knowledge-base" | "automations" | "customer-portal"
-  | "ticket-sync" | "probes" | "devices" | "audit";
+  | "portal-registrations" | "ticket-sync" | "probes" | "devices" | "audit";
 
 /** Rail sections grouped the way admins think about them. */
 const NAV_GROUPS: { heading: string | null; items: { id: AdminSection; label: string; icon: React.ReactNode }[] }[] = [
@@ -116,6 +118,7 @@ const NAV_GROUPS: { heading: string | null; items: { id: AdminSection; label: st
       { id: "mailboxes", label: "Mailboxes", icon: <EmailIcon /> },
       { id: "mail", label: "Mail Identities", icon: <AlternateEmailIcon /> },
       { id: "customer-portal", label: "Customer Portal", icon: <StorefrontIcon /> },
+      { id: "portal-registrations", label: "Portal Requests", icon: <HowToRegIcon /> },
       { id: "ticket-sync", label: "Ticket Sync", icon: <SyncIcon /> },
       { id: "integrations", label: "Integrations", icon: <CableIcon /> },
     ],
@@ -180,6 +183,7 @@ export default function AdminView({ onOpenTickets }: { onOpenTickets?: () => voi
         {section === "integrations" && <IntegrationsPanel onNavigate={setSection} />}
         {section === "interface" && <InterfacePanel />}
         {section === "customer-portal" && <CustomerPortalPanel />}
+        {section === "portal-registrations" && <PortalRegistrationsPanel />}
         {section === "sla" && <SlaPanel />}
         {section === "mailboxes" && <MailboxesPanel />}
         {section === "mail" && <MailIdentitiesPanel />}

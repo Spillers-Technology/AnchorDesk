@@ -48,6 +48,13 @@ export function requestMagicLink(email: string) {
   });
 }
 
+export function requestPortalRegistration(email: string) {
+  return portalRequest<{ ok: true; message: string }>("/portal/register", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
 export function verifyMagicLink(token: string) {
   return portalRequest<{ requester: PortalRequesterDto }>("/portal/auth/verify", {
     method: "POST",

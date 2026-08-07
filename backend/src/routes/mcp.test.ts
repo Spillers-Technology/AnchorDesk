@@ -38,6 +38,23 @@ jest.mock("../repositories/checklistTemplateRepository", () => ({
   update: jest.fn(),
   remove: jest.fn(),
 }));
+jest.mock("../repositories/portalGrantRepository", () => ({
+  listForContact: jest.fn(),
+  grant: jest.fn(),
+  revoke: jest.fn(),
+}));
+jest.mock("../repositories/portalRegistrationRepository", () => ({
+  list: jest.fn(),
+  approve: jest.fn(),
+  reject: jest.fn(),
+  validatedRegistrationStatus: jest.fn((value: unknown) => (
+    typeof value === "string" && ["pending", "approved", "rejected"].includes(value.toLowerCase())
+      ? value.toLowerCase()
+      : null
+  )),
+  PortalRegistrationApprovalError: class PortalRegistrationApprovalError extends Error {},
+}));
+jest.mock("../repositories/companyRepository", () => ({ getContactById: jest.fn() }));
 jest.mock("../repositories/kbArticleRepository", () => ({
   KbArticleValidationError: class KbArticleValidationError extends Error {},
   searchPublishedStaff: jest.fn(),
@@ -55,6 +72,7 @@ jest.mock("../services/mail/ticketMail", () => ({
 jest.mock("../services/mail/SmtpMailTransport", () => ({
   mailTransport: { isConfigured: jest.fn(), send: jest.fn() },
 }));
+jest.mock("../services/auth/portalMagicLinks", () => ({ requestMagicLink: jest.fn() }));
 jest.mock("../middleware/auth", () => ({
   actorFor: (username: string, channel: string) => `${username} (${channel})`,
 }));
@@ -70,6 +88,7 @@ import * as tickets from "../repositories/ticketRepository";
 import * as notes from "../repositories/noteRepository";
 import * as checklist from "../repositories/checklistRepository";
 import * as checklistTemplates from "../repositories/checklistTemplateRepository";
+import * as portalRegistrations from "../repositories/portalRegistrationRepository";
 import * as kbArticles from "../repositories/kbArticleRepository";
 import { buildMcpServer, MCP_SERVER_VERSION } from "./mcp";
 
@@ -110,6 +129,11 @@ const mockedKb = {
   create: kbArticles.create as jest.Mock,
   update: kbArticles.update as jest.Mock,
   remove: kbArticles.remove as jest.Mock,
+};
+const mockedPortalRegistrations = {
+  list: portalRegistrations.list as jest.Mock,
+  approve: portalRegistrations.approve as jest.Mock,
+  reject: portalRegistrations.reject as jest.Mock,
 };
 
 async function connect(role: UserRole = "admin") {
@@ -154,6 +178,33 @@ afterEach(async () => {
 });
 
 describe("MCP checklist protocol surface", () => {
+  it("advertises the portal registration queue and enforces its admin boundary", async () => {
+    const admin = await connect("admin");
+    const { tools } = await admin.listTools();
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+    expect([...byName.keys()]).toEqual(expect.arrayContaining([
+      "list_portal_registrations",
+      "approve_portal_registration",
+      "reject_portal_registration",
+    ]));
+    expect(byName.get("list_portal_registrations")?.annotations?.readOnlyHint).toBe(true);
+    expect(byName.get("reject_portal_registration")?.annotations?.destructiveHint).toBe(true);
+
+    mockedPortalRegistrations.list.mockResolvedValue([{ id: 7, status: "pending" }]);
+    const listed = await call(admin, "list_portal_registrations", { status: "PENDING" });
+    expect(listed.isError).toBeUndefined();
+    expect(mockedPortalRegistrations.list).toHaveBeenCalledWith("pending");
+
+    mockedPortalRegistrations.approve.mockResolvedValue({ id: 7, email: "rita@example.com" });
+    await call(admin, "approve_portal_registration", { registrationId: 7 });
+    expect(mockedPortalRegistrations.approve).toHaveBeenCalledWith(7, actor);
+
+    const technician = await connect("technician");
+    const denied = await call(technician, "approve_portal_registration", { registrationId: 7 });
+    expect(denied.isError).toBe(true);
+    expect(resultText(denied)).toContain("Requires role: admin");
+  });
+
   it("preserves portal provenance in get_ticket and list_tickets", async () => {
     const portalTicket = {
       id: 42,

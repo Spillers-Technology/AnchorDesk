@@ -7,6 +7,7 @@ import type { UserRole } from '@prisma/client';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import * as portalGrants from '../repositories/portalGrantRepository';
+import * as portalRegistrations from '../repositories/portalRegistrationRepository';
 import * as companies from '../repositories/companyRepository';
 import { requestMagicLink } from '../services/auth/portalMagicLinks';
 
@@ -19,6 +20,10 @@ function textResult(text: string, isError = false) {
 
 function jsonResult(value: unknown) {
   return textResult(JSON.stringify(value, null, 2));
+}
+
+function requireAdmin(role: UserRole) {
+  return role === 'admin' ? null : textResult('Requires role: admin', true);
 }
 
 const readOnlyAnnotations = {
@@ -77,6 +82,67 @@ export function registerPortalTools(
     async ({ contactId }) => jsonResult(await portalGrants.listForContact(contactId)),
   );
 
-  // Registration-queue tools (list/approve/reject) are appended here in
-  // Phase 4 once portalRegistrationRepository exists.
+  // ─── Registration queue — provisioning CRM/portal access is admin-only ────
+  server.tool(
+    'list_portal_registrations',
+    'List portal self-registration requests, newest first. Filter by pending, approved, or rejected status. Administrator only.',
+    { status: z.string().optional() },
+    { title: 'List portal registrations', ...readOnlyAnnotations },
+    async ({ status }) => {
+      const denied = requireAdmin(role);
+      if (denied) return denied;
+      const normalized = status === undefined
+        ? undefined
+        : portalRegistrations.validatedRegistrationStatus(status);
+      if (status !== undefined && !normalized) {
+        return textResult('status must be pending, approved, or rejected', true);
+      }
+      return jsonResult(await portalRegistrations.list(normalized ?? undefined));
+    },
+  );
+
+  server.tool(
+    'approve_portal_registration',
+    'Approve one pending portal registration. This creates or reuses the exact-one Contact, grants portal access, and the REST workflow sends the sign-in email. Administrator only.',
+    { registrationId: z.number().int().positive() },
+    { title: 'Approve portal registration', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    async ({ registrationId }) => {
+      const denied = requireAdmin(role);
+      if (denied) return denied;
+      try {
+        const row = await portalRegistrations.approve(registrationId, actor);
+        if (!row) return textResult(`Portal registration ${registrationId} not found`, true);
+        // MCP is a complete provisioning surface as well. Match REST's
+        // non-blocking mail behavior without making SMTP part of the commit.
+        void requestMagicLink(row.email).catch(() => {});
+        return jsonResult(row);
+      } catch (error) {
+        if (error instanceof portalRegistrations.PortalRegistrationApprovalError) {
+          return textResult(error.message, true);
+        }
+        throw error;
+      }
+    },
+  );
+
+  server.tool(
+    'reject_portal_registration',
+    'Reject one pending portal registration without creating a Contact or portal grant. Administrator only.',
+    { registrationId: z.number().int().positive() },
+    { title: 'Reject portal registration', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    async ({ registrationId }) => {
+      const denied = requireAdmin(role);
+      if (denied) return denied;
+      try {
+        const row = await portalRegistrations.reject(registrationId, actor);
+        if (!row) return textResult(`Portal registration ${registrationId} not found`, true);
+        return jsonResult(row);
+      } catch (error) {
+        if (error instanceof portalRegistrations.PortalRegistrationApprovalError) {
+          return textResult(error.message, true);
+        }
+        throw error;
+      }
+    },
+  );
 }

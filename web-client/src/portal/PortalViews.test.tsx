@@ -95,7 +95,9 @@ describe("portal views", () => {
     });
     render(
       <ThemeProvider theme={theme}>
-        <PortalLoginView />
+        <MemoryRouter>
+          <PortalLoginView />
+        </MemoryRouter>
       </ThemeProvider>,
     );
 

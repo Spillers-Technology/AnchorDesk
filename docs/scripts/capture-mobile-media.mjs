@@ -139,6 +139,18 @@ async function captureDevice(browser, device) {
     await context.close();
   }
 
+  if (wanted("ANCHORDESK_CAPTURE_VIEWS", "portal-register")) {
+    const { context, page } = await newDeviceContext(browser, device, {
+      portalAuthenticated: false,
+      startPath: "/portal/register",
+    });
+    await page
+      .getByRole("button", { name: "Request access", exact: true })
+      .waitFor({ timeout: 20_000 });
+    await shootWithoutPageOverflow(page, device, "portal-register");
+    await context.close();
+  }
+
   const portalViews = [
     "portal-tickets",
     "portal-new-ticket",
@@ -464,7 +476,7 @@ async function captureDevice(browser, device) {
       }
     }
 
-    const adminViews = ["admin", "admin-teams", "admin-custom-fields", "admin-checklists", "checklist-template-editor", "admin-automations", "admin-ticket-sync", "ticket-sync-connection-editor", "ticket-sync-job-editor", "ticket-sync-run-history", "ticket-sync-run-detail", "admin-devices", "device-assets"];
+    const adminViews = ["admin", "admin-teams", "admin-custom-fields", "admin-checklists", "checklist-template-editor", "admin-automations", "admin-ticket-sync", "ticket-sync-connection-editor", "ticket-sync-job-editor", "ticket-sync-run-history", "ticket-sync-run-detail", "admin-devices", "device-assets", "admin-portal-registrations"];
     if (adminViews.some(view)) {
       await openDrawer(page, "Admin console");
       await page.getByText("Open tickets", { exact: false }).waitFor({ timeout: 20_000 });
@@ -479,6 +491,11 @@ async function captureDevice(browser, device) {
         await page.getByText("Custom Fields", { exact: true }).first().click();
         await page.getByText("Define structured fields", { exact: false }).waitFor({ timeout: 20_000 });
         await shoot(page, device, "admin-custom-fields");
+      }
+      if (view("admin-portal-registrations")) {
+        await page.getByText("Portal Requests", { exact: true }).first().click();
+        await page.getByText("Portal access requests", { exact: true }).waitFor({ timeout: 20_000 });
+        await shootWithoutPageOverflow(page, device, "admin-portal-registrations");
       }
       if (view("admin-checklists") || view("checklist-template-editor")) {
         await page.getByText("Checklists", { exact: true }).first().click();

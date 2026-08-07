@@ -27,6 +27,7 @@ const PUBLIC_AUTH = [
 const PUBLIC_PORTAL_AUTH = new Set([
   '/portal/auth/magic-link',
   '/portal/auth/verify',
+  '/portal/register',
 ]);
 
 export function isPublic(url: string, method?: string): boolean {
@@ -67,7 +68,8 @@ export function isPortalSessionAllowed(method: string, url: string): boolean {
   if (
     verb === 'POST' &&
     (path === '/portal/auth/magic-link' ||
-      path === '/portal/auth/verify')
+      path === '/portal/auth/verify' ||
+      path === '/portal/register')
   ) {
     return true;
   }
