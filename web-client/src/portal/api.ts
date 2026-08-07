@@ -1,5 +1,6 @@
 import type {
   PortalAttachment,
+  PortalClientConfig,
   PortalKbSearchItem,
   PortalNote,
   PortalRequesterDto,
@@ -56,14 +57,14 @@ export function requestPortalRegistration(email: string) {
 }
 
 export function verifyMagicLink(token: string) {
-  return portalRequest<{ requester: PortalRequesterDto }>("/portal/auth/verify", {
+  return portalRequest<{ requester: PortalRequesterDto; config: PortalClientConfig }>("/portal/auth/verify", {
     method: "POST",
     body: JSON.stringify({ token }),
   });
 }
 
 export function getPortalRequester() {
-  return portalRequest<{ requester: PortalRequesterDto }>("/portal/auth/me");
+  return portalRequest<{ requester: PortalRequesterDto; config: PortalClientConfig }>("/portal/auth/me");
 }
 
 export function logoutPortal() {
@@ -94,6 +95,23 @@ export function addPortalComment(ticketId: number, content: string) {
     method: "POST",
     body: JSON.stringify({ content }),
   });
+}
+
+export function submitPortalFeedback(
+  ticketId: number,
+  input: { rating: "positive" | "neutral" | "negative"; comment?: string },
+) {
+  return portalRequest<{ id: number; rating: string; comment: string | null; submittedAt: string }>(
+    `/portal/tickets/${ticketId}/feedback`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export function solvePortalTicket(ticketId: number) {
+  return portalRequest<{ id: number; status: string; updatedAt: string }>(
+    `/portal/tickets/${ticketId}/solve`,
+    { method: "POST" },
+  );
 }
 
 export async function uploadPortalAttachments(ticketId: number, files: File[]) {

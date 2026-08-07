@@ -1776,8 +1776,12 @@ export async function handleApi(route) {
   }
   if (debugCapture) console.log(`API ${method} ${apiPath}`);
 
+  // Phase 6 feature gates included with the authenticated portal bootstrap —
+  // captured "on" so the feedback widget and solve button are exercised by
+  // the mobile matrix, not left in an untested hidden state.
+  const portalClientConfig = { feedbackEnabled: true, promptOnSolve: true, allowSelfSolve: true };
   if (method === "GET" && apiPath === "/portal/auth/me") {
-    return json(route, { requester: portalRequester });
+    return json(route, { requester: portalRequester, config: portalClientConfig });
   }
   if (method === "POST" && apiPath === "/portal/auth/magic-link") {
     return json(
@@ -1796,7 +1800,7 @@ export async function handleApi(route) {
     }, 202);
   }
   if (method === "POST" && apiPath === "/portal/auth/verify") {
-    return json(route, { requester: portalRequester });
+    return json(route, { requester: portalRequester, config: portalClientConfig });
   }
   if (method === "POST" && apiPath === "/portal/auth/logout") {
     return json(route, { ok: true });
@@ -1874,6 +1878,27 @@ export async function handleApi(route) {
       },
       201
     );
+  }
+  portalMatch = apiPath.match(/^\/portal\/tickets\/(\d+)\/feedback$/);
+  if (method === "POST" && portalMatch) {
+    return json(
+      route,
+      {
+        id: 9001,
+        rating: body.rating,
+        comment: body.comment ?? null,
+        submittedAt: new Date().toISOString(),
+      },
+      201
+    );
+  }
+  portalMatch = apiPath.match(/^\/portal\/tickets\/(\d+)\/solve$/);
+  if (method === "POST" && portalMatch) {
+    return json(route, {
+      id: Number(portalMatch[1]),
+      status: "Resolved",
+      updatedAt: new Date().toISOString(),
+    });
   }
   portalMatch = apiPath.match(/^\/portal\/tickets\/(\d+)\/attachments$/);
   if (method === "POST" && portalMatch) {

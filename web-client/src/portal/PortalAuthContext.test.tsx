@@ -4,6 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as portalApi from "./api";
 import { PortalAuthProvider, usePortalAuth } from "./PortalAuthContext";
 
+const portalConfig = {
+  feedbackEnabled: true,
+  promptOnSolve: true,
+  allowSelfSolve: true,
+};
+
 vi.mock("./api", async () => {
   const actual = await vi.importActual<typeof import("./api")>("./api");
   return {
@@ -49,6 +55,7 @@ describe("PortalAuthProvider", () => {
   it("verifies a fragment token as a requester principal without consulting staff auth", async () => {
     mockedApi.verifyMagicLink.mockResolvedValue({
       requester: { displayName: "Maya Chen", email: "maya@example.com" },
+      config: portalConfig,
     });
 
     renderAuth("one-time-token");
@@ -73,6 +80,7 @@ describe("PortalAuthProvider", () => {
       .mockRejectedValueOnce(new portalApi.PortalApiError(503, "unavailable"))
       .mockResolvedValueOnce({
         requester: { displayName: "Maya Chen", email: "maya@example.com" },
+        config: portalConfig,
       });
 
     renderAuth("one-time-token");

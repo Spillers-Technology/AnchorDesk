@@ -15,8 +15,9 @@ import type {
   PortalTicket,
 } from "./types";
 
-const { refreshAuth } = vi.hoisted(() => ({
+const { refreshAuth, portalConfig } = vi.hoisted(() => ({
   refreshAuth: vi.fn(),
+  portalConfig: { feedbackEnabled: true, promptOnSolve: true, allowSelfSolve: true },
 }));
 
 vi.mock("./api", async () => {
@@ -28,13 +29,15 @@ vi.mock("./api", async () => {
     getPortalTicket: vi.fn(),
     createPortalTicket: vi.fn(),
     addPortalComment: vi.fn(),
+    submitPortalFeedback: vi.fn(),
+    solvePortalTicket: vi.fn(),
     uploadPortalAttachments: vi.fn(),
     searchPortalKnowledgeBase: vi.fn(),
   };
 });
 
 vi.mock("./PortalAuthContext", () => ({
-  usePortalAuth: () => ({ refresh: refreshAuth }),
+  usePortalAuth: () => ({ refresh: refreshAuth, config: portalConfig }),
 }));
 
 const mockedApi = vi.mocked(portalApi);
@@ -80,6 +83,8 @@ beforeEach(() => {
   mockedApi.getPortalTicket.mockReset();
   mockedApi.createPortalTicket.mockReset();
   mockedApi.addPortalComment.mockReset();
+  mockedApi.submitPortalFeedback.mockReset();
+  mockedApi.solvePortalTicket.mockReset();
   mockedApi.uploadPortalAttachments.mockReset();
   mockedApi.searchPortalKnowledgeBase.mockReset();
   mockedApi.searchPortalKnowledgeBase.mockResolvedValue(null);
@@ -260,5 +265,51 @@ describe("portal views", () => {
     });
     const attachmentLink = await screen.findByRole("link", { name: "vpn-screen.png" });
     expect(attachmentLink.getAttribute("href")).toBe("/api/portal/attachments/9/download");
+  });
+
+  it("submits optional feedback and offers a non-blocking solve action", async () => {
+    mockedApi.getPortalTicket.mockResolvedValue(baseTicket);
+    mockedApi.submitPortalFeedback.mockResolvedValue({
+      id: 8,
+      rating: "positive",
+      comment: "Great",
+      submittedAt: "2026-08-06T12:00:00.000Z",
+    });
+    mockedApi.solvePortalTicket.mockResolvedValue({
+      id: 42,
+      status: "Resolved",
+      updatedAt: "2026-08-06T12:01:00.000Z",
+    });
+
+    renderAt(<PortalTicketDetailView />, "/tickets/:ticketId", "/tickets/42");
+
+    await screen.findByText("How did we do?");
+    fireEvent.click(screen.getByRole("button", { name: "Positive rating" }));
+    fireEvent.change(screen.getByLabelText("Tell us more (optional)"), { target: { value: " Great " } });
+    fireEvent.click(screen.getByRole("button", { name: "Send feedback" }));
+    await waitFor(() => expect(mockedApi.submitPortalFeedback).toHaveBeenCalledWith(42, {
+      rating: "positive",
+      comment: "Great",
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark as solved" }));
+    await waitFor(() => expect(mockedApi.solvePortalTicket).toHaveBeenCalledWith(42));
+    expect(await screen.findByText("This request has been marked as solved.")).toBeTruthy();
+  });
+
+  it("prompts for optional feedback before solving when configured, without making it required", async () => {
+    mockedApi.getPortalTicket.mockResolvedValue(baseTicket);
+    mockedApi.solvePortalTicket.mockResolvedValue({
+      id: 42,
+      status: "Resolved",
+      updatedAt: "2026-08-06T12:01:00.000Z",
+    });
+    renderAt(<PortalTicketDetailView />, "/tickets/:ticketId", "/tickets/42");
+
+    await screen.findByText("How did we do?");
+    fireEvent.click(screen.getByRole("button", { name: "Mark as solved" }));
+    expect(await screen.findByText(/Would you like to leave a rating first/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Mark as solved without feedback" }));
+    await waitFor(() => expect(mockedApi.solvePortalTicket).toHaveBeenCalledWith(42));
   });
 });

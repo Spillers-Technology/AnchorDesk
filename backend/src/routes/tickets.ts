@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as ticketRepo from '../repositories/ticketRepository';
+import * as ticketFeedbackRepo from '../repositories/ticketFeedbackRepository';
 import * as noteRepo from '../repositories/noteRepository';
 import * as audit from '../repositories/auditRepository';
 import * as twoWaySync from '../services/twoWaySync';
@@ -303,9 +304,12 @@ export async function ticketRoutes(server: FastifyInstance) {
   server.get('/tickets/:id', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
     const id = parseId(req.params.id);
     if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
-    const ticket = await ticketRepo.getById(id);
+    const [ticket, feedback] = await Promise.all([
+      ticketRepo.getById(id),
+      ticketFeedbackRepo.listForTicket(id),
+    ]);
     if (!ticket) return reply.status(404).send({ error: 'Ticket not found' });
-    return reply.send(ticket);
+    return reply.send({ ...ticket, feedback });
   });
 
   // Create ticket

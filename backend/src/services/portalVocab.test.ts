@@ -1,4 +1,9 @@
-import { normalizeRegistrationStatus, REGISTRATION_STATUSES } from './portalVocab';
+import {
+  FEEDBACK_RATINGS,
+  normalizeFeedbackRating,
+  normalizeRegistrationStatus,
+  REGISTRATION_STATUSES,
+} from './portalVocab';
 
 describe('portal registration vocabulary', () => {
   it('normalizes canonical statuses case-insensitively', () => {
@@ -8,5 +13,16 @@ describe('portal registration vocabulary', () => {
 
   it('rejects unknown values', () => {
     expect(normalizeRegistrationStatus('waiting')).toBeNull();
+  });
+});
+
+describe('feedback vocabulary', () => {
+  it('normalizes canonical ratings case-insensitively', () => {
+    expect(FEEDBACK_RATINGS).toEqual(['positive', 'neutral', 'negative']);
+    expect(normalizeFeedbackRating(' NEUTRAL ')).toBe('neutral');
+  });
+
+  it('rejects unknown ratings', () => {
+    expect(normalizeFeedbackRating('excellent')).toBeNull();
   });
 });

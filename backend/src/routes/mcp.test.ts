@@ -38,6 +38,9 @@ jest.mock("../repositories/checklistTemplateRepository", () => ({
   update: jest.fn(),
   remove: jest.fn(),
 }));
+jest.mock("../repositories/ticketFeedbackRepository", () => ({
+  listForTicket: jest.fn(),
+}));
 jest.mock("../repositories/portalGrantRepository", () => ({
   listForContact: jest.fn(),
   grant: jest.fn(),
@@ -85,6 +88,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as tickets from "../repositories/ticketRepository";
+import * as ticketFeedback from "../repositories/ticketFeedbackRepository";
 import * as notes from "../repositories/noteRepository";
 import * as checklist from "../repositories/checklistRepository";
 import * as checklistTemplates from "../repositories/checklistTemplateRepository";
@@ -130,6 +134,7 @@ const mockedKb = {
   update: kbArticles.update as jest.Mock,
   remove: kbArticles.remove as jest.Mock,
 };
+const mockedFeedback = ticketFeedback.listForTicket as jest.Mock;
 const mockedPortalRegistrations = {
   list: portalRegistrations.list as jest.Mock,
   approve: portalRegistrations.approve as jest.Mock,
@@ -162,6 +167,7 @@ function resultText(result: ToolCallResult) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockedTickets.getById.mockResolvedValue({ id: 42, title: "Test ticket" });
+  mockedFeedback.mockResolvedValue([]);
   mockedChecklist.listForTicket.mockResolvedValue([]);
   mockedTemplates.list.mockResolvedValue([]);
   mockedKb.searchPublishedStaff.mockResolvedValue([]);
@@ -228,6 +234,7 @@ describe("MCP checklist protocol surface", () => {
     const listed = JSON.parse(resultText(await call(client, "list_tickets", {})));
 
     expect(detail.ticket.source).toBe("portal");
+    expect(detail.feedback).toEqual([]);
     expect(listed.items[0].source).toBe("portal");
   });
 

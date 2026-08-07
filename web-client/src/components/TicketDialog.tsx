@@ -923,6 +923,8 @@ const TicketDialog: React.FC<TicketDialogProps> = ({
               </CardContent>
             </Card>
 
+            <TicketFeedbackCard feedback={Array.isArray(full?.feedback) ? full.feedback : []} />
+
             {/* Time tracking */}
             <TimeCard minutes={timeMinutes} entries={timeEntries} onLog={logTime} onLogRange={logTimeRange} onDelete={deleteTimeEntry} onEdit={editTimeEntry} />
 
@@ -1129,6 +1131,49 @@ const TicketDialog: React.FC<TicketDialogProps> = ({
     </Dialog>
   );
 };
+
+interface TicketFeedbackDisplayRow {
+  id: number;
+  rating: string;
+  comment: string | null;
+  submittedAt: string;
+  contact?: { name?: string; email?: string | null };
+}
+
+/** Read-only CSAT trail. Feedback is intentionally never editable by staff. */
+function TicketFeedbackCard({ feedback }: { feedback: unknown[] }) {
+  const rows = feedback.filter((value): value is TicketFeedbackDisplayRow => (
+    Boolean(value)
+    && typeof value === "object"
+    && typeof (value as TicketFeedbackDisplayRow).id === "number"
+    && typeof (value as TicketFeedbackDisplayRow).rating === "string"
+    && typeof (value as TicketFeedbackDisplayRow).submittedAt === "string"
+  ));
+  if (rows.length === 0) return null;
+
+  return (
+    <Card sx={{ mt: 2 }}>
+      <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+        <Typography variant="subtitle2" gutterBottom sx={{ color: "text.secondary" }}>
+          Customer feedback
+        </Typography>
+        <Stack spacing={1.25}>
+          {rows.map((entry) => (
+            <Box key={entry.id} sx={{ overflowWrap: "anywhere" }}>
+              <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
+                <Chip size="small" label={entry.rating} variant="outlined" />
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  {entry.contact?.name || entry.contact?.email || "Customer"} · {new Date(entry.submittedAt).toLocaleString()}
+                </Typography>
+              </Stack>
+              {entry.comment && <Typography variant="body2" sx={{ mt: 0.5 }}>{entry.comment}</Typography>}
+            </Box>
+          ))}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
 
 interface RelatedTicketSummary {
   id: number;

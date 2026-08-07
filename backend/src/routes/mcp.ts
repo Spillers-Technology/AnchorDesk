@@ -6,6 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
 import * as tickets from '../repositories/ticketRepository';
+import * as ticketFeedback from '../repositories/ticketFeedbackRepository';
 import * as notes from '../repositories/noteRepository';
 import * as audit from '../repositories/auditRepository';
 import * as labels from '../repositories/labelRepository';
@@ -187,11 +188,12 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     async ({ id }) => {
       const ticket = await tickets.getById(id);
       if (!ticket) return { content: [{ type: 'text', text: `Ticket ${id} not found` }], isError: true };
-      const [ticketNotes, checklistItems] = await Promise.all([
+      const [ticketNotes, checklistItems, feedback] = await Promise.all([
         notes.listForTicket(id),
         checklist.listForTicket(id),
+        ticketFeedback.listForTicket(id),
       ]);
-      return { content: [{ type: 'text', text: JSON.stringify({ ticket, notes: ticketNotes, checklist: checklistItems }, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ ticket, notes: ticketNotes, checklist: checklistItems, feedback }, null, 2) }] };
     },
   );
 

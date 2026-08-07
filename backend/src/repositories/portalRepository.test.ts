@@ -4,6 +4,9 @@ jest.mock('../db/prisma', () => ({
       findMany: jest.fn(),
       count: jest.fn(),
       findFirst: jest.fn(),
+      findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+      update: jest.fn(),
     },
     attachment: {
       findFirst: jest.fn(),
@@ -32,6 +35,12 @@ jest.mock('./portalGrantRepository', () => ({
   findActive: jest.fn(),
 }));
 
+jest.mock('./ticketFeedbackRepository', () => ({ create: jest.fn() }));
+jest.mock('./auditRepository', () => ({ record: jest.fn() }));
+jest.mock('../services/merge/mergeService', () => ({ resolveMergeTarget: jest.fn() }));
+jest.mock('../services/realtime/eventBus', () => ({ publish: jest.fn() }));
+jest.mock('../services/twoWaySync', () => ({ reconcileTicket: jest.fn() }));
+
 jest.mock('../services/settingsService', () => ({
   getPortal: jest.fn(),
 }));
@@ -43,6 +52,11 @@ import * as tickets from './ticketRepository';
 import * as notes from './noteRepository';
 import * as attachments from './attachmentRepository';
 import * as portalGrants from './portalGrantRepository';
+import * as ticketFeedback from './ticketFeedbackRepository';
+import * as audit from './auditRepository';
+import { resolveMergeTarget } from '../services/merge/mergeService';
+import { publish } from '../services/realtime/eventBus';
+import { reconcileTicket } from '../services/twoWaySync';
 import { getPortal } from '../services/settingsService';
 import {
   addComment,
@@ -52,6 +66,8 @@ import {
   getVisibleAttachment,
   listTickets,
   requesterTicketWhere,
+  solveTicket,
+  submitFeedback,
 } from './portalRepository';
 
 const principal: RequesterPrincipal = {
@@ -64,6 +80,11 @@ const principal: RequesterPrincipal = {
 
 const tx = {
   $queryRaw: jest.fn(),
+  ticket: {
+    findUnique: jest.fn(),
+    findUniqueOrThrow: jest.fn(),
+    update: jest.fn(),
+  },
 };
 
 const ticketFindMany = prisma.ticket.findMany as jest.Mock;
@@ -78,6 +99,11 @@ const publishCreatedNote = notes.publishCreatedNote as jest.Mock;
 const attachmentCreate = attachments.create as jest.Mock;
 const findActiveGrant = portalGrants.findActive as jest.Mock;
 const mockedGetPortal = getPortal as jest.Mock;
+const feedbackCreate = ticketFeedback.create as jest.Mock;
+const recordAudit = audit.record as jest.Mock;
+const resolveTarget = resolveMergeTarget as jest.Mock;
+const publishEvent = publish as jest.Mock;
+const mockedReconcileTicket = reconcileTicket as jest.Mock;
 
 function expectedRequesterScope(id?: number) {
   return {
@@ -114,6 +140,7 @@ beforeEach(() => {
   contactFindFirst.mockResolvedValue({ id: principal.contactId });
   mockedGetPortal.mockResolvedValue({ enabled: true, ticketScope: 'own', technicianIdentity: 'anonymous', allowAttachments: true, allowSelfSolve: true });
   findActiveGrant.mockResolvedValue(null);
+  resolveTarget.mockImplementation(async (id: number) => id);
 });
 
 describe('portal ticket ownership scope', () => {
@@ -329,6 +356,108 @@ describe('portal mutations and attachment reads', () => {
           },
         ],
       },
+    });
+  });
+
+  it('submits feedback only inside the ownership lock, then publishes after commit', async () => {
+    feedbackCreate.mockResolvedValue({ id: 12, ticketId: 42, rating: 'positive' });
+
+    await expect(submitFeedback(principal, 42, { rating: 'positive', comment: 'Fast' }, 'requester:9 (portal)'))
+      .resolves.toEqual({ id: 12, ticketId: 42, rating: 'positive' });
+
+    expect(feedbackCreate).toHaveBeenCalledWith(
+      { ticketId: 42, rating: 'positive', comment: 'Fast', contactId: 9 },
+      'requester:9 (portal)',
+      tx,
+    );
+    expect(publishEvent).toHaveBeenCalledWith({
+      type: 'feedback.submitted',
+      ticketId: 42,
+      feedback: { id: 12, ticketId: 42, rating: 'positive' },
+      actor: 'requester:9 (portal)',
+    });
+  });
+
+  it('resolves merge tombstones before taking the owned solve lock and writes canonical Resolved', async () => {
+    resolveTarget.mockResolvedValue(51);
+    const before = {
+      id: 51,
+      status: 'In Progress',
+      externalId: null,
+      externalProvider: null,
+    };
+    const solved = {
+      ...before,
+      status: TICKET_STATUSES[4],
+      companyId: 7,
+      teamId: null,
+      assigneeId: null,
+      priority: 'Medium',
+      updatedAt: new Date('2026-08-06T12:00:00.000Z'),
+    };
+    tx.ticket.findUniqueOrThrow.mockResolvedValue(before);
+    tx.ticket.update.mockResolvedValue(solved);
+    recordAudit.mockResolvedValue({ id: 99n });
+
+    await expect(solveTicket(principal, 42, 'requester:9 (portal)')).resolves.toEqual(solved);
+
+    expect(resolveTarget).toHaveBeenCalledWith(42);
+    expect(tx.ticket.update).toHaveBeenCalledWith({
+      where: { id: 51 },
+      data: { status: 'Resolved' },
+    });
+    expect(publishEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'ticket.updated',
+      ticketId: 51,
+      metric: expect.objectContaining({ status: { from: 'In Progress', to: 'Resolved' } }),
+    }));
+    expect(mockedReconcileTicket).not.toHaveBeenCalled();
+  });
+
+  it('kicks a fire-and-forget reconcile after solving an externally-synced ticket', async () => {
+    resolveTarget.mockResolvedValue(51);
+    const before = {
+      id: 51,
+      status: 'In Progress',
+      externalId: 'HELP-1',
+      externalProvider: 'jira',
+      syncState: 'synced',
+    };
+    const solved = {
+      ...before,
+      status: TICKET_STATUSES[4],
+      syncState: 'pending',
+      syncRevision: 2,
+      companyId: 7,
+      teamId: null,
+      assigneeId: null,
+      priority: 'Medium',
+      updatedAt: new Date('2026-08-06T12:00:00.000Z'),
+    };
+    tx.ticket.findUniqueOrThrow.mockResolvedValue(before);
+    tx.ticket.update.mockResolvedValue(solved);
+    recordAudit.mockResolvedValue({ id: 100n });
+    mockedReconcileTicket.mockResolvedValue(undefined);
+
+    await solveTicket(principal, 42, 'requester:9 (portal)');
+
+    expect(tx.ticket.update).toHaveBeenCalledWith({
+      where: { id: 51 },
+      data: { status: 'Resolved', syncRevision: { increment: 1 }, syncState: 'pending' },
+    });
+    expect(mockedReconcileTicket).toHaveBeenCalledWith(51, { actor: 'requester:9 (portal)' });
+  });
+
+  it('does not let a failed reconcile dispatch surface as a solve error', async () => {
+    resolveTarget.mockResolvedValue(51);
+    const before = { id: 51, status: 'In Progress', externalId: 'HELP-1', externalProvider: 'jira' };
+    tx.ticket.findUniqueOrThrow.mockResolvedValue(before);
+    tx.ticket.update.mockResolvedValue({ ...before, status: TICKET_STATUSES[4] });
+    recordAudit.mockResolvedValue({ id: 101n });
+    mockedReconcileTicket.mockRejectedValue(new Error('remote unreachable'));
+
+    await expect(solveTicket(principal, 42, 'requester:9 (portal)')).resolves.toMatchObject({
+      status: TICKET_STATUSES[4],
     });
   });
 });

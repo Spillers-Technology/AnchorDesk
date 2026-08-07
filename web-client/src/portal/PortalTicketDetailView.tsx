@@ -19,6 +19,9 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SendIcon from "@mui/icons-material/Send";
+import ThumbDownAltOutlinedIcon from "@mui/icons-material/ThumbDownAltOutlined";
+import ThumbUpAltOutlinedIcon from "@mui/icons-material/ThumbUpAltOutlined";
+import RemoveIcon from "@mui/icons-material/Remove";
 import HtmlContent from "../components/HtmlContent";
 import * as portalApi from "./api";
 import { usePortalAuth } from "./PortalAuthContext";
@@ -44,7 +47,7 @@ export default function PortalTicketDetailView() {
   const ticketId = positiveTicketId(ticketIdParam);
   const location = useLocation();
   const navigationState = (location.state ?? {}) as DetailNavigationState;
-  const { refresh: refreshAuth } = usePortalAuth();
+  const { refresh: refreshAuth, config } = usePortalAuth();
   const [ticket, setTicket] = useState<PortalTicket | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<LoadError>(null);
@@ -53,6 +56,14 @@ export default function PortalTicketDetailView() {
   const [commentError, setCommentError] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState(false);
+  const [rating, setRating] = useState<"positive" | "neutral" | "negative" | null>(null);
+  const [feedbackComment, setFeedbackComment] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackError, setFeedbackError] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [solveBusy, setSolveBusy] = useState(false);
+  const [solveError, setSolveError] = useState(false);
+  const [solveFeedbackPrompt, setSolveFeedbackPrompt] = useState(false);
   const [success, setSuccess] = useState<string | null>(navigationState.notice ?? null);
   const [warning, setWarning] = useState<string | null>(navigationState.warning ?? null);
   const attachmentInput = useRef<HTMLInputElement>(null);
@@ -124,6 +135,51 @@ export default function PortalTicketDetailView() {
       else setUploadError(true);
     } finally {
       setUploadBusy(false);
+    }
+  };
+
+  const submitFeedback = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!rating || ticketId === null) return;
+    setFeedbackBusy(true);
+    setFeedbackError(false);
+    setSuccess(null);
+    try {
+      await portalApi.submitPortalFeedback(ticketId, {
+        rating,
+        ...(feedbackComment.trim() ? { comment: feedbackComment.trim() } : {}),
+      });
+      setRating(null);
+      setFeedbackComment("");
+      setFeedbackSubmitted(true);
+      setSuccess("Thank you for your feedback.");
+    } catch (error) {
+      if (portalApi.isPortalAuthError(error)) await refreshAuth();
+      else setFeedbackError(true);
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
+
+  const solveTicket = async () => {
+    if (ticketId === null) return;
+    if (config.feedbackEnabled && config.promptOnSolve && !rating && !feedbackSubmitted && !solveFeedbackPrompt) {
+      setSolveFeedbackPrompt(true);
+      return;
+    }
+    setSolveBusy(true);
+    setSolveError(false);
+    setSuccess(null);
+    try {
+      const solved = await portalApi.solvePortalTicket(ticketId);
+      setTicket((current) => current ? { ...current, status: solved.status, updatedAt: solved.updatedAt } : current);
+      setSolveFeedbackPrompt(false);
+      setSuccess("This request has been marked as solved.");
+    } catch (error) {
+      if (portalApi.isPortalAuthError(error)) await refreshAuth();
+      else setSolveError(true);
+    } finally {
+      setSolveBusy(false);
     }
   };
 
@@ -206,6 +262,81 @@ export default function PortalTicketDetailView() {
           </Stack>
         </CardContent>
       </Card>
+
+      {(config.allowSelfSolve || config.feedbackEnabled) && (
+        <Card>
+          <CardContent sx={{ p: { xs: 2, sm: 3 }, "&:last-child": { pb: { xs: 2, sm: 3 } } }}>
+            <Stack spacing={1.5}>
+              {config.feedbackEnabled && (
+                <Box component="form" onSubmit={(event) => void submitFeedback(event)}>
+                  <Stack spacing={1.25}>
+                    <Box>
+                      <Typography component="h2" variant="h6">How did we do?</Typography>
+                      <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                        Your feedback helps us improve.
+                      </Typography>
+                    </Box>
+                    {feedbackError && <Alert severity="error" onClose={() => setFeedbackError(false)}>Your feedback was not submitted. Please try again.</Alert>}
+                    <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                      {([
+                        ["positive", "Positive", <ThumbUpAltOutlinedIcon />],
+                        ["neutral", "Neutral", <RemoveIcon />],
+                        ["negative", "Negative", <ThumbDownAltOutlinedIcon />],
+                      ] as const).map(([value, label, icon]) => (
+                        <Button
+                          key={value}
+                          type="button"
+                          variant={rating === value ? "contained" : "outlined"}
+                          aria-label={`${label} rating`}
+                          onClick={() => setRating(value)}
+                          sx={{ minWidth: 44, minHeight: 44, px: 1.25 }}
+                        >
+                          {icon}
+                        </Button>
+                      ))}
+                    </Stack>
+                    <TextField
+                      label="Tell us more (optional)"
+                      value={feedbackComment}
+                      onChange={(event) => setFeedbackComment(event.target.value)}
+                      multiline
+                      minRows={2}
+                      fullWidth
+                    />
+                    <Button
+                      type="submit"
+                      variant="outlined"
+                      disabled={!rating || feedbackBusy}
+                      sx={{ minHeight: 44, alignSelf: { xs: "stretch", sm: "flex-start" } }}
+                    >
+                      {feedbackBusy ? "Sending…" : "Send feedback"}
+                    </Button>
+                  </Stack>
+                </Box>
+              )}
+              {config.allowSelfSolve && (
+                <Stack spacing={1}>
+                  {solveError && <Alert severity="error" onClose={() => setSolveError(false)}>This request could not be marked as solved. Please try again.</Alert>}
+                  {solveFeedbackPrompt && (
+                    <Alert severity="info">
+                      Would you like to leave a rating first? Feedback is optional.
+                    </Alert>
+                  )}
+                  <Button
+                    variant="contained"
+                    color="success"
+                    onClick={() => void solveTicket()}
+                    disabled={solveBusy || ticket.status === "Resolved" || ticket.status === "Closed"}
+                    sx={{ minHeight: 44, alignSelf: { xs: "stretch", sm: "flex-start" } }}
+                  >
+                    {solveBusy ? "Marking solved…" : solveFeedbackPrompt ? "Mark as solved without feedback" : "Mark as solved"}
+                  </Button>
+                </Stack>
+              )}
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
 
       <Box>
         <Typography component="h2" variant="h5">Conversation</Typography>

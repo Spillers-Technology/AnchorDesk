@@ -5,8 +5,13 @@ import * as ticketRepository from './ticketRepository';
 import * as noteRepository from './noteRepository';
 import * as attachmentRepository from './attachmentRepository';
 import * as portalGrantRepository from './portalGrantRepository';
+import * as ticketFeedbackRepository from './ticketFeedbackRepository';
 import { getPortal } from '../services/settingsService';
 import { TICKET_PRIORITIES, TICKET_STATUSES } from '../services/ticketVocab';
+import * as audit from './auditRepository';
+import { resolveMergeTarget } from '../services/merge/mergeService';
+import { publish } from '../services/realtime/eventBus';
+import * as twoWaySync from '../services/twoWaySync';
 
 export interface PortalListOptions {
   page?: number;
@@ -426,6 +431,108 @@ export async function createAttachments(
       return rows;
     },
   );
+}
+
+/**
+ * Submit one immutable feedback response after taking the same requester and
+ * ticket ownership locks used for comments and attachments. The event is
+ * intentionally published only after that transaction commits.
+ */
+export async function submitFeedback(
+  principal: RequesterPrincipal,
+  ticketId: number,
+  input: { rating: string; comment?: string },
+  actor: string,
+) {
+  const scope = await resolvePortalTicketScope(principal);
+  if (!scope) return null;
+  const feedback = await mutateOwnedTicket(
+    principal,
+    ticketId,
+    scope,
+    (transaction) => ticketFeedbackRepository.create(
+      { ticketId, rating: input.rating, comment: input.comment, contactId: principal.contactId },
+      actor,
+      transaction,
+    ),
+  );
+  if (feedback) {
+    publish({ type: 'feedback.submitted', ticketId, feedback, actor });
+  }
+  return feedback;
+}
+
+/**
+ * Resolve the supplied id before entering the requester-owned mutation path:
+ * a ticket can be merged between the portal page loading and this POST, and a
+ * self-solve must never write a merge tombstone. The target is then subjected
+ * to the normal scope-aware row lock, so resolution never widens access.
+ */
+export async function solveTicket(
+  principal: RequesterPrincipal,
+  ticketId: number,
+  actor: string,
+) {
+  const targetId = await resolveMergeTarget(ticketId);
+  const scope = await resolvePortalTicketScope(principal);
+  if (!scope) return null;
+  const result = await mutateOwnedTicket(
+    principal,
+    targetId,
+    scope,
+    async (transaction) => {
+      const before = await transaction.ticket.findUniqueOrThrow({ where: { id: targetId } });
+      const data: Prisma.TicketUncheckedUpdateInput = {
+        status: TICKET_STATUSES[4],
+      };
+      // A portal solve is still a local status change to an externally-backed
+      // ticket. Preserve the ordinary ticket-update sync semantics without
+      // attempting a nested transaction while the ownership lock is held.
+      if (before.externalId && before.externalProvider) {
+        data.syncRevision = { increment: 1 };
+        if (before.syncState !== 'conflict') data.syncState = 'pending';
+      }
+      const ticket = await transaction.ticket.update({ where: { id: targetId }, data });
+      const auditRow = await audit.record({
+        entityType: 'ticket',
+        entityId: targetId,
+        action: 'update',
+        changedBy: actor,
+        oldValue: before as unknown as Record<string, unknown>,
+        newValue: ticket as unknown as Record<string, unknown>,
+      }, transaction);
+      return { ticket, before, auditId: auditRow?.id.toString() };
+    },
+  );
+  if (!result) return null;
+
+  publish({
+    type: 'ticket.updated',
+    ticketId: targetId,
+    ticket: result.ticket,
+    actor,
+    auditId: result.auditId,
+    metric: {
+      context: {
+        companyId: result.ticket.companyId,
+        teamId: result.ticket.teamId,
+        assigneeId: result.ticket.assigneeId,
+        priority: result.ticket.priority,
+        status: result.ticket.status,
+        occurredAt: result.ticket.updatedAt,
+      },
+      status: { from: result.before.status, to: result.ticket.status },
+    },
+  });
+  // Same fire-and-forget push the staff PATCH route makes after a synced-field
+  // edit: the scheduler would eventually reconcile a 'pending' ticket on its
+  // own (syncService's stranded-pending fallback), but a customer-visible
+  // solve deserves the same snappy remote reflection a staff edit gets, not a
+  // silent wait for the next tick.
+  if (result.ticket.externalId && result.ticket.externalProvider) {
+    void twoWaySync.reconcileTicket(targetId, { actor }).catch(() => {});
+  }
+  return result.ticket;
 }
 
 export async function getVisibleAttachment(
