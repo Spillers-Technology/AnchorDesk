@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
+import { revokeContactPortalCredentials } from './portalIdentityRepository';
 
 export interface PortalGrantRow {
   id: number;
@@ -62,22 +63,29 @@ export async function grant(
 
 /** Revoked, not deleted — the row stays as the record of what happened.
  * Returns null if there is no active grant to revoke (idempotent no-op from
- * the caller's perspective; the route 404s or treats as already-revoked). */
+ * the caller's perspective; the route 404s or treats as already-revoked).
+ * "Revocation means revoked" (portal v2 design): a live session or an
+ * unredeemed magic link must not outlive the grant they depend on, so both
+ * are torn down in the same transaction as the revocation itself, reusing
+ * the exact credential sweep the ambiguous-identity path already trusts. */
 export async function revoke(contactId: number, actorSub: string): Promise<PortalGrantRow | null> {
   const active = await findActive(contactId);
   if (!active) return null;
   const revokedAt = new Date();
-  const row = await prisma.portalGrant.update({
-    where: { id: active.id },
-    data: { revokedBy: actorSub, revokedAt },
+  return prisma.$transaction(async (tx) => {
+    const row = await tx.portalGrant.update({
+      where: { id: active.id },
+      data: { revokedBy: actorSub, revokedAt },
+    });
+    await revokeContactPortalCredentials(tx, [contactId]);
+    await audit.record({
+      entityType: 'portal_grant',
+      entityId: row.id,
+      action: 'update',
+      changedBy: actorSub,
+      oldValue: { revokedAt: null },
+      newValue: { revokedAt },
+    }, tx);
+    return row;
   });
-  await audit.record({
-    entityType: 'portal_grant',
-    entityId: row.id,
-    action: 'update',
-    changedBy: actorSub,
-    oldValue: { revokedAt: null },
-    newValue: { revokedAt },
-  });
-  return row;
 }

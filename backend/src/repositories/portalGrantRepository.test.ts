@@ -1,3 +1,7 @@
+const tx = {
+  portalGrant: { update: jest.fn() },
+};
+
 jest.mock('../db/prisma', () => ({
   prisma: {
     portalGrant: {
@@ -6,14 +10,19 @@ jest.mock('../db/prisma', () => ({
       create: jest.fn(),
       update: jest.fn(),
     },
+    $transaction: jest.fn(),
   },
 }));
 jest.mock('./auditRepository', () => ({
   record: jest.fn(),
 }));
+jest.mock('./portalIdentityRepository', () => ({
+  revokeContactPortalCredentials: jest.fn(),
+}));
 
 import { prisma } from '../db/prisma';
 import * as audit from './auditRepository';
+import { revokeContactPortalCredentials } from './portalIdentityRepository';
 import { findActive, grant, listForContact, revoke } from './portalGrantRepository';
 
 const db = prisma as unknown as {
@@ -23,12 +32,15 @@ const db = prisma as unknown as {
     create: jest.Mock;
     update: jest.Mock;
   };
+  $transaction: jest.Mock;
 };
 const recordAudit = audit.record as jest.Mock;
+const mockedRevokeCredentials = revokeContactPortalCredentials as jest.Mock;
 
 describe('portalGrantRepository', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    db.$transaction.mockImplementation((callback: (client: typeof tx) => unknown) => callback(tx));
   });
 
   it('lists every grant for a contact, newest first', async () => {
@@ -88,26 +100,32 @@ describe('portalGrantRepository', () => {
     expect(db.portalGrant.create.mock.calls[0][0].data.effectiveFrom).toEqual(past);
   });
 
-  it('revokes the active grant rather than deleting it', async () => {
+  it('revokes the active grant rather than deleting it, and tears down live credentials', async () => {
     db.portalGrant.findFirst.mockResolvedValue({ id: 5, contactId: 7, revokedAt: null });
-    db.portalGrant.update.mockResolvedValue({ id: 5, revokedBy: 'bob', revokedAt: new Date() });
+    tx.portalGrant.update.mockResolvedValue({ id: 5, revokedBy: 'bob', revokedAt: new Date() });
 
     const row = await revoke(7, 'bob');
 
     expect(row?.revokedBy).toBe('bob');
-    expect(db.portalGrant.update).toHaveBeenCalledWith({
+    expect(tx.portalGrant.update).toHaveBeenCalledWith({
       where: { id: 5 },
       data: expect.objectContaining({ revokedBy: 'bob' }),
     });
+    // "Revocation means revoked" — a live session or unspent magic link must
+    // not outlive the grant, so the same sweep the ambiguous-identity path
+    // uses runs in the same transaction as the revocation itself.
+    expect(mockedRevokeCredentials).toHaveBeenCalledWith(tx, [7]);
     expect(recordAudit).toHaveBeenCalledWith(
       expect.objectContaining({ entityType: 'portal_grant', entityId: 5, action: 'update' }),
+      tx,
     );
   });
 
   it('is a no-op when there is nothing active to revoke', async () => {
     db.portalGrant.findFirst.mockResolvedValue(null);
     await expect(revoke(7, 'bob')).resolves.toBeNull();
-    expect(db.portalGrant.update).not.toHaveBeenCalled();
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(mockedRevokeCredentials).not.toHaveBeenCalled();
     expect(recordAudit).not.toHaveBeenCalled();
   });
 });

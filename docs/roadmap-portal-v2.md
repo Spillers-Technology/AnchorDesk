@@ -1,6 +1,7 @@
 # Portal v2 — self-registration, approval, and the customer conversation
 
-Status: **design accepted, awaiting Workstream C landing** (2026-07-26).
+Status: **shipped in 2.8.0** (2026-08-07). This remains the pre-implementation
+design record; bracketed notes mark places where the implementation differed.
 
 Workstream C ([roadmap-2.7.md](roadmap-2.7.md)) builds the portal substrate:
 magic-link auth, Contact-bound sessions, and the field-allowlist serializer.
@@ -52,7 +53,9 @@ everything below is an application of it rather than an addition to it:
 > inherited, never implied by a row's existence, and never cached into a claim.**
 
 That principle is visible in every choice it made: a note is unpublished until
-someone publishes it (`portalVisible` defaults false); a contact who moves
+someone publishes it (`portalVisible` defaults false) [Shipped as
+`Note.visibility` (`NoteVisibility` enum), not a `portalVisible` field; Phase 1
+wired the checkbox to that existing field.]; a contact who moves
 company does not thereby acquire the old conversation (transfer quarantine); a
 session is staff **xor** portal as a database CHECK rather than as a convention;
 a magic link is a selector plus a separately-hashed verifier so it can be looked
@@ -87,6 +90,7 @@ The flow:
    whether it exists.
 4. **A technician approves**, which adds them as a `Contact` on the company and
    sets portal access.
+   [Editorial correction: the shipped approval route is admin-only.]
 5. **Granting access auto-sends the login email.** Access without a way in is a
    support ticket we created for ourselves.
 
@@ -137,7 +141,10 @@ model PortalGrant {
 A grant is never edited, only revoked and re-issued — so the sequence of grants
 is a legible history rather than a mutated cell. Workstream C's
 `Contact.portalAccessRevokedAt` collapses into `PortalGrant.revokedAt`, which
-says the same thing and also records *who*.
+says the same thing and also records *who*. [Editorial correction:
+`Contact.portalAccessRevokedAt` did not ship; the existing transfer-quarantine
+field is `Ticket.portalAccessRevokedAt`, and it is unrelated to per-contact
+grant revocation.]
 
 ### History scope — where your design and codex's instinct meet
 
@@ -167,6 +174,16 @@ to expire. Portal sessions bound to a revoked grant are rejected at the auth
 hook, not merely hidden in the UI. A boolean checked at login time could not
 promise that.
 
+[Editorial correction: this held as designed once reviewed. The first shipped
+draft only blocked *future* magic-link requests via `findUniqueRequesterByEmail`,
+leaving an already-redeemed session and any unspent magic link live for up to
+24h after revocation — a real gap against this section's own promise, caught
+in review. `portalGrantRepository.revoke()` now runs in the same transaction
+as `portalIdentityRepository.revokeContactPortalCredentials()`, deleting the
+contact's live portal sessions and unredeemed magic links atomically with the
+revocation, reusing the exact sweep the ambiguous-identity path already
+trusted. Revocation now takes effect immediately, matching this section.]
+
 ---
 
 ## 2. What a customer sees: the company, not just themselves
@@ -182,6 +199,9 @@ person.
 
 Workstream C already landed the correct model:
 `Note.portalVisible Boolean @default(false)`.
+
+[Editorial correction: shipped as `Note.visibility: NoteVisibility`
+(`internal`/`public`), rather than a `Note.portalVisible` Boolean.]
 
 **The default polarity is the whole safety argument, and it must not be
 inverted.** A note is internal unless someone deliberately publishes it. The
@@ -243,6 +263,11 @@ model UserPortalProfile {
 }
 ```
 
+[Editorial correction: the shipped profile stores `avatarStorageKey`,
+`avatarContentType`, and `avatarStorageBackend` directly rather than an
+`avatarId`; the backend column ensures a later storage-default change does not
+orphan an existing avatar.]
+
 `User.email` is a **login credential and may be a personal address**; it must
 never be published implicitly. `publicEmail`/`publicPhone` are separate, opt-in,
 and blank by default. Avatars reuse the existing `AttachmentStorage` strategy
@@ -261,6 +286,10 @@ friendlier portal.
 Resolution order for what renders: technician opted out, or flag off → "Support".
 Otherwise `displayName` (falling back to the staff display name) plus avatar,
 plus whichever public contact fields that technician filled in.
+
+[Editorial correction: the shipped portal note DTO exposes the opted-in name and
+avatar only; `publicEmail` and `publicPhone` are profile fields but are not
+serialized to portal customers.]
 
 Per-company overrides (named techs for premium clients, anonymous for the rest)
 are a plausible later refinement and explicitly out of scope for v1.
@@ -304,12 +333,18 @@ model TicketFeedback {
 }
 ```
 
+[Editorial correction: 2.8.0 also records denormalized `companyId`, `teamId`,
+and `assigneeId` at submission for reporting.]
+
 Design calls worth making explicitly:
 
 - **Multiple entries per ticket are allowed**, ordered by time. A ticket that is
   resolved, reopened, and resolved again earns a second rating; forcing one row
   per ticket would either lose the second or overwrite the first. Reports read
   the latest and can show the trail.
+
+  [Editorial correction: the shipped CSAT breakdown counts every submitted row
+  by company and rating; staff ticket reads retain the ordered trail.]
 - **Staff can read feedback but never edit or delete it.** It is the customer's
   word. Enforced at the repository, not by convention, and audited.
 - **Feedback never pushes to Jira or ConnectWise**, for the same reason merge
