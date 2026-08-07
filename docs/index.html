@@ -4,12 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>AnchorDesk - the ticketing system that syncs with your whole stack</title>
-<meta name="description" content="AnchorDesk is a modern, self-hosted ticketing system for MSPs and IT teams. Two-way sync with ConnectWise and Jira, devices from Tactical RMM, NinjaOne, and Datto, email-to-ticket, SLA automation, and AI-agent access — with your data in your PostgreSQL." />
+<meta name="description" content="AnchorDesk is a modern, self-hosted ticketing system for MSPs and IT teams. Reviewable customer self-service, two-way ConnectWise and Jira sync, multi-RMM device context, email-to-ticket, SLA automation, and AI-agent access — with your data in your PostgreSQL." />
 <meta name="theme-color" content="#4f46e5" />
 
 <meta property="og:type" content="website" />
 <meta property="og:title" content="AnchorDesk - the ticketing system that syncs with your whole stack" />
-<meta property="og:description" content="A modern, self-hosted service desk with two-way PSA sync, multi-RMM device context, email-to-ticket, SLA automation, and AI-agent access. Free and open source." />
+<meta property="og:description" content="A modern, self-hosted service desk with customer self-service you control, two-way PSA sync, multi-RMM device context, email-to-ticket, SLA automation, and AI-agent access. Free and open source." />
 <meta property="og:url" content="https://spillerstech.us/AnchorDesk/" />
 <meta property="og:image" content="https://spillerstech.us/AnchorDesk/assets/screenshots/anchordesk-board.jpg" />
 
@@ -502,6 +502,7 @@
     <a class="brand" href="#top" aria-label="AnchorDesk home"><svg><use href="#logo"/></svg> AnchorDesk</a>
     <nav class="nav" aria-label="Primary">
       <a href="#why">Why AnchorDesk</a>
+      <a href="#portal">Portal</a>
       <a href="#views">Screenshots</a>
       <a href="#quickstart">Get started</a>
       <a href="documentation.html">Documentation</a>
@@ -517,7 +518,7 @@
       <div class="hero-content">
         <div class="release"><span></span> Free &amp; open source &middot; MIT &middot; v2.8.0 now shipping</div>
         <h1 id="hero-title">The ticketing system that syncs with your whole stack.</h1>
-        <p class="lead">AnchorDesk is a modern, self-hosted service desk built for MSPs and IT teams. Two-way ticket sync with the PSAs you already use, device context from every RMM you run, email that becomes tickets — and your data stays on your hardware.</p>
+        <p class="lead">AnchorDesk is a modern, self-hosted service desk built for MSPs and IT teams. Two-way ticket sync with the PSAs you already use, device context from every RMM you run, email that becomes tickets, and customer self-service you control — while your data stays on your hardware.</p>
         <div class="actions">
           <a class="btn primary" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Get started free</a>
           <a class="btn secondary" href="https://spillerstech.us/#products">Get it hosted for you</a>
@@ -526,6 +527,7 @@
           <span>Two-way PSA sync</span>
           <span>Multi-RMM devices</span>
           <span>Email-to-ticket</span>
+          <span>Customer portal</span>
           <span>SLA + automation</span>
           <span>AI-agent ready</span>
           <span>Works on your phone</span>
@@ -568,13 +570,43 @@
         <article class="pillar">
           <div class="icon">⚡</div>
           <h3>Move faster with less clicking</h3>
-          <p>Email becomes threaded tickets automatically. SLA clocks, manual deadlines, and automation rules keep promises visible and escalations hands-free. Customers can submit and track requests through a self-service portal, request access for administrator approval, and leave CSAT feedback. Live updates hit every screen instantly, it all works from a phone, and AI agents connect securely over MCP to work tickets like a technician.</p>
+          <p>Email becomes threaded tickets automatically. SLA clocks, manual deadlines, and automation rules keep promises visible and escalations hands-free. Live updates hit every screen instantly, it all works from a phone, and AI agents connect securely over MCP to work tickets like a technician.</p>
         </article>
       </div>
     </div>
   </section>
 
-  <section id="views" class="band">
+  <section id="portal" class="band" aria-labelledby="portal-title">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">Customer portal</div>
+        <h2 id="portal-title">A front door for customers. You still hold the keys.</h2>
+        <p>Give customers one place to submit requests, follow the work, and tell you how support went — inside the same self-hosted AnchorDesk stack you own. You decide when the portal opens, who gets in, what they can see, and whether technicians who opt in can add a name and face to replies.</p>
+      </div>
+      <div class="pillars">
+        <article class="pillar">
+          <div class="icon" aria-hidden="true">🛡️</div>
+          <h3>Customers ask. An admin approves.</h3>
+          <p>Customers can request access themselves, but registration never opens the door on its own. Administrators review each request and choose whether to approve or reject it; a matching email never grants access by itself, a company-domain match is only a review hint, and the portal is off by default.</p>
+        </article>
+        <article class="pillar">
+          <div class="icon" aria-hidden="true">👥</div>
+          <h3>The right view, with a human voice</h3>
+          <p>Customers see their own tickets by default. Company-wide visibility is a deliberate admin choice and begins when their access takes effect; their own older requests stay visible. Replies remain “Support” by default. A name appears only when you enable named identities and the technician separately opts in; a photo appears only if they add one.</p>
+        </article>
+        <article class="pillar">
+          <div class="icon" aria-hidden="true">📊</div>
+          <h3>End with a signal, not a guess</h3>
+          <p>When customer feedback is enabled, customers can rate the support they received — positive, neutral, or negative, with an optional comment. Separately, you can let them mark a ticket they can access as solved. Their feedback cannot be edited or deleted. The Reports view tracks customer satisfaction company by company for the date range you choose.</p>
+        </article>
+      </div>
+      <div class="actions">
+        <a class="btn primary" href="documentation.html#release">Read the Portal v2 overview</a>
+      </div>
+    </div>
+  </section>
+
+  <section id="views">
     <div class="wrap">
       <div class="section-head">
         <div class="kicker">See it in action</div>
@@ -616,7 +648,7 @@
     </div>
   </section>
 
-  <section id="quickstart">
+  <section id="quickstart" class="band">
     <div class="wrap">
       <div class="section-head">
         <div class="kicker">Get started</div>
