@@ -86,6 +86,15 @@ async function main() {
     await assertNoHorizontalPageScroll(page, "reports");
     await page.screenshot({ path: path.join(outDir, "anchordesk-reports.jpg"), type: "jpeg", quality: 90 });
 
+    console.log("Rendering Customer satisfaction report...");
+    const feedbackCard = reportsRoot.getByTestId("report-feedback");
+    await feedbackCard.scrollIntoViewIfNeeded();
+    await feedbackCard.getByText("Customer satisfaction", { exact: true }).waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(300);
+    await assertNoHorizontalPageScroll(page, "reports-feedback");
+    await feedbackCard.screenshot({ path: path.join(outDir, "anchordesk-feedback.jpg"), type: "jpeg", quality: 90 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+
     console.log("Rendering TIME day spread...");
     await openDrawer(page, "TIME calendar");
     const daySpread = page.getByTestId("time-day-spread");

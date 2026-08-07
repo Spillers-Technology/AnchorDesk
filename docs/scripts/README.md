@@ -7,9 +7,10 @@ mocked `/api/*` responses (no backend or database needed):
   [`docs/assets/screenshots/`](../assets/screenshots/). These are the images
   used by the README and the docs site (with the lightbox in
   `docs/assets/lightbox.js`). Captured views: **board**, **ticket modal**,
-  **Reports**, both **TIME calendar** modes, **Companies**, **Network**, and
-  **Sync**. The old `anchordesk-my-day.jpg` path is retained as an alias capture
-  of the TIME day spread so existing documentation links do not break.
+  **Reports**, the **Customer satisfaction** report card, both **TIME calendar**
+  modes, **Companies**, **Network**, and **Sync**. The old `anchordesk-my-day.jpg`
+  path is retained as an alias capture of the TIME day spread so existing
+  documentation links do not break.
 - **`capture-mobile-media.mjs`** — the **mobile verification matrix**
   ([docs/mobile.md](../mobile.md)): **login**, **board**, **saved views**,
   **Kanban columns**, **advanced filters**, **ticket**, **ticket history**,
