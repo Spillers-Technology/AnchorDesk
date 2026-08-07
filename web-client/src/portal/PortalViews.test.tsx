@@ -202,6 +202,8 @@ describe("portal views", () => {
       htmlContent: null,
       direction: "outbound",
       authorKind: "support",
+      authorName: "Alex",
+      authorAvatarUrl: "/api/portal-profile-avatar/18.signed-avatar-token",
       createdAt: "2026-07-21T14:00:00.000Z",
     };
     const requesterNote: PortalNote = {
@@ -210,6 +212,8 @@ describe("portal views", () => {
       htmlContent: null,
       direction: "inbound",
       authorKind: "you",
+      authorName: null,
+      authorAvatarUrl: null,
       createdAt: "2026-07-21T16:00:00.000Z",
     };
     const uploaded: PortalAttachment = {
@@ -233,6 +237,8 @@ describe("portal views", () => {
     renderAt(<PortalTicketDetailView />, "/tickets/:ticketId", "/tickets/42");
 
     expect(await screen.findByText("We are checking the VPN gateway.")).toBeTruthy();
+    expect(screen.getByText("Alex")).toBeTruthy();
+    expect(document.querySelector('img[src="/api/portal-profile-avatar/18.signed-avatar-token"]')).toBeTruthy();
     expect(screen.getByText("Support request")).toBeTruthy();
     expect(screen.queryByText("null")).toBeNull();
 

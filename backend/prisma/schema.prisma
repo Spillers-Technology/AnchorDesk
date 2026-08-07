@@ -42,8 +42,8 @@ model User {
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
 
-  assignedTickets Ticket[]       @relation("AssignedTickets")
-  authoredNotes   Note[]         @relation("AuthoredNotes")
+  assignedTickets Ticket[]           @relation("AssignedTickets")
+  authoredNotes   Note[]             @relation("AuthoredNotes")
   sessions        Session[]
   notifications   Notification[]
   mailIdentities  MailIdentity[]
@@ -335,14 +335,14 @@ model Ticket {
   createdAt             DateTime     @default(now()) @map("created_at")
   updatedAt             DateTime     @updatedAt @map("updated_at")
 
-  assigneeUser  User?           @relation("AssignedTickets", fields: [assigneeId], references: [id])
+  assigneeUser  User?            @relation("AssignedTickets", fields: [assigneeId], references: [id])
   // Deletion is routed through repositories so each affected ticket gets an
   // audited metric-context transition. Restrict prevents a direct delete from
   // silently nulling dimensions behind the reporting spine.
-  team          Team?           @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  company       Company?        @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  contact       Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  slaPolicy     SlaPolicy?      @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
+  team          Team?            @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  company       Company?         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  contact       Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  slaPolicy     SlaPolicy?       @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
   notes         Note[]
   syncEntries   SyncLog[]
   deviceLinks   DeviceLink[]
@@ -1306,11 +1306,11 @@ model PortalRegistration {
 /// covers, or whether it still should. Never edited, only revoked and
 /// re-issued, so the sequence of grants is a legible history.
 model PortalGrant {
-  id        Int      @id @default(autoincrement())
-  contactId Int      @map("contact_id")
-  companyId Int      @map("company_id") // denormalised: company as at grant time
-  grantedBy String   @map("granted_by") @db.VarChar(255)
-  grantedAt DateTime @default(now()) @map("granted_at")
+  id            Int       @id @default(autoincrement())
+  contactId     Int       @map("contact_id")
+  companyId     Int       @map("company_id") // denormalised: company as at grant time
+  grantedBy     String    @map("granted_by") @db.VarChar(255)
+  grantedAt     DateTime  @default(now()) @map("granted_at")
   // Company-scope reads (see portal.ticketScope) only reach tickets created on
   // or after this instant, unless the contact was personally the requester.
   // Defaults to grantedAt; a technician can widen it to the full history as a
@@ -1332,13 +1332,17 @@ model PortalGrant {
 // AttachmentStorage strategy directly (storage key + content type), not the
 // ticket-scoped Attachment table, since an avatar isn't attached to a ticket.
 model UserPortalProfile {
-  userId            Int     @id @map("user_id")
-  displayName       String? @map("display_name") @db.VarChar(150)
-  avatarStorageKey  String? @map("avatar_storage_key") @db.VarChar(500)
-  avatarContentType String? @map("avatar_content_type") @db.VarChar(150)
-  publicEmail       String? @map("public_email") @db.VarChar(255)
-  publicPhone       String? @map("public_phone") @db.VarChar(50)
-  optedIn           Boolean @default(false) @map("opted_in")
+  userId               Int     @id @map("user_id")
+  displayName          String? @map("display_name") @db.VarChar(150)
+  avatarStorageKey     String? @map("avatar_storage_key") @db.VarChar(500)
+  avatarContentType    String? @map("avatar_content_type") @db.VarChar(150)
+  // Same reasoning as Attachment.storageBackend: uploads write to the admin's
+  // current default, but reads/deletes must target the backend an avatar was
+  // actually written to, so switching storage later doesn't orphan it.
+  avatarStorageBackend String? @map("avatar_storage_backend") @db.VarChar(20)
+  publicEmail          String? @map("public_email") @db.VarChar(255)
+  publicPhone          String? @map("public_phone") @db.VarChar(50)
+  optedIn              Boolean @default(false) @map("opted_in")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

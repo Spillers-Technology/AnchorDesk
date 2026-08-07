@@ -141,6 +141,22 @@ const portalNoteFields = {
   visibility: true,
   via: true,
   createdAt: true,
+  // A portal serializer gets this explicitly selected, consent-gated identity
+  // source rather than a whole User record. It never needs login email or any
+  // other staff fields.
+  authorUser: {
+    select: {
+      id: true,
+      displayName: true,
+      portalProfile: {
+        select: {
+          displayName: true,
+          avatarStorageKey: true,
+          optedIn: true,
+        },
+      },
+    },
+  },
 } satisfies Prisma.NoteSelect;
 
 const portalAttachmentFields = {

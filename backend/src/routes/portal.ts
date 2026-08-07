@@ -21,7 +21,7 @@ import { isPlainRecord } from '../util/objects';
 import * as twoWaySync from '../services/twoWaySync';
 import { sanitizeSyncError } from '../repositories/syncRunRepository';
 import { RequesterIdentityChangedError } from '../repositories/ticketRepository';
-import { isPortalEnabled } from '../services/settingsService';
+import { getPortal, isPortalEnabled } from '../services/settingsService';
 
 interface IdParam {
   id: string;
@@ -142,8 +142,9 @@ export async function portalRoutes(server: FastifyInstance) {
     }
     const pageSize = Math.min(requestedPageSize, 50);
     const result = await portalRepository.listTickets(principal, { page, pageSize });
+    const portalConfig = await getPortal();
     return reply.send({
-      items: result.items.map(serializePortalTicket),
+      items: result.items.map((ticket) => serializePortalTicket(ticket, portalConfig)),
       total: result.total,
       page: result.page,
       pageSize: result.pageSize,
@@ -180,7 +181,7 @@ export async function portalRoutes(server: FastifyInstance) {
     if (ticketId === null) return reply.status(400).send({ error: 'invalid ticket id' });
     const ticket = await portalRepository.getTicket(requester(req), ticketId);
     if (!ticket) return reply.status(404).send({ error: 'Ticket not found' });
-    return reply.send(serializePortalTicket(ticket));
+    return reply.send(serializePortalTicket(ticket, await getPortal()));
   });
 
   server.post<{ Params: IdParam }>(
@@ -211,7 +212,7 @@ export async function portalRoutes(server: FastifyInstance) {
           'portal note push-out failed',
         );
       });
-      return reply.status(201).send(serializePortalNote(note));
+      return reply.status(201).send(serializePortalNote(note, await getPortal()));
     },
   );
 

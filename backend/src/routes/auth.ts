@@ -9,6 +9,7 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../config/config';
 import * as userRepo from '../repositories/userRepository';
+import * as portalProfileRepo from '../repositories/userPortalProfileRepository';
 import { verifyPassword, hashPassword, MIN_PASSWORD_LENGTH } from '../services/auth/password';
 import { createSession, destroySession, SESSION_COOKIE } from '../services/auth/sessions';
 import { getAuthSettings, toLoginOptions, oidcRedirectUri } from '../services/auth/authConfig';
@@ -17,6 +18,15 @@ import * as samlService from '../services/auth/samlService';
 import * as totp from '../services/auth/totp';
 import { resolveSession } from '../services/auth/sessions';
 import { sanitizeEmailHtml } from '../services/mail/sanitizeHtml';
+import { currentStorage, storageForBackend } from '../services/storage';
+import {
+  buildPortalProfileAvatarKey,
+  isPortalProfileAvatarContentType,
+  PORTAL_PROFILE_AVATAR_MAX_BYTES,
+  portalProfileAvatarUrl,
+  verifiesPortalProfileAvatarToken,
+} from '../services/portalProfileAvatar';
+import { getPortal } from '../services/settingsService';
 
 const OIDC_TX_COOKIE = 'mt_oidc_tx';
 const MFA_COOKIE = 'mt_mfa';
@@ -34,6 +44,60 @@ const THEME_IDS = new Set([
 ]);
 
 type MfaScope = 'verify' | 'enroll';
+
+interface AvatarTokenParam {
+  token: string;
+}
+
+function profileDto(profile: {
+  userId: number;
+  displayName: string | null;
+  avatarStorageKey: string | null;
+  publicEmail: string | null;
+  publicPhone: string | null;
+  optedIn: boolean;
+}) {
+  return {
+    displayName: profile.displayName,
+    avatarUrl: profile.avatarStorageKey
+      ? portalProfileAvatarUrl(profile.userId, profile.avatarStorageKey)
+      : null,
+    publicEmail: profile.publicEmail,
+    publicPhone: profile.publicPhone,
+    optedIn: profile.optedIn,
+  };
+}
+
+function optionalTrimmedString(value: unknown, field: string, maxLength: number): string | null | Error {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') return new Error(`${field} must be a string or null`);
+  const trimmed = value.trim();
+  if (trimmed.length > maxLength) return new Error(`${field} must be at most ${maxLength} characters`);
+  return trimmed || null;
+}
+
+function portalProfileBody(value: unknown):
+  | { displayName: string | null; publicEmail: string | null; publicPhone: string | null; optedIn: boolean }
+  | Error {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return new Error('request body must be an object');
+  }
+  const body = value as Record<string, unknown>;
+  const supported = new Set(['displayName', 'publicEmail', 'publicPhone', 'optedIn']);
+  const unexpected = Object.keys(body).filter((key) => !supported.has(key));
+  if (unexpected.length) return new Error(`unsupported field${unexpected.length === 1 ? '' : 's'}: ${unexpected.join(', ')}`);
+  if (typeof body.optedIn !== 'boolean') return new Error('optedIn must be a boolean');
+  const displayName = optionalTrimmedString(body.displayName, 'displayName', 150);
+  const publicEmail = optionalTrimmedString(body.publicEmail, 'publicEmail', 255);
+  const publicPhone = optionalTrimmedString(body.publicPhone, 'publicPhone', 50);
+  if (displayName instanceof Error) return displayName;
+  if (publicEmail instanceof Error) return publicEmail;
+  if (publicPhone instanceof Error) return publicPhone;
+  if (publicEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(publicEmail)) {
+    return new Error('publicEmail must be a valid email address');
+  }
+  return { displayName, publicEmail, publicPhone, optedIn: body.optedIn };
+}
 
 /** Identify the acting user from either a live session or a pre-session MFA cookie. */
 async function mfaActor(
@@ -278,6 +342,128 @@ export async function authRoutes(server: FastifyInstance) {
     const value = cleaned.length > 0 ? cleaned : null;
     if (req.user.id !== 0) await userRepo.setKanbanColumns(req.user.id, value);
     return reply.send({ kanbanColumns: value });
+  });
+
+  // Technician-owned portal identity. Login email is deliberately absent from
+  // this surface: publishing it is an explicit, separate choice.
+  server.get('/auth/portal-profile', async (req: FastifyRequest, reply: FastifyReply) => {
+    if (req.user.id === 0) {
+      return reply.send(profileDto({
+        userId: 0,
+        displayName: null,
+        avatarStorageKey: null,
+        publicEmail: null,
+        publicPhone: null,
+        optedIn: false,
+      }));
+    }
+    const profile = await portalProfileRepo.findForUser(req.user.id);
+    return reply.send(profileDto(profile ?? {
+      userId: req.user.id,
+      displayName: null,
+      avatarStorageKey: null,
+      publicEmail: null,
+      publicPhone: null,
+      optedIn: false,
+    }));
+  });
+
+  server.put('/auth/portal-profile', async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = portalProfileBody(req.body);
+    if (body instanceof Error) return reply.status(400).send({ error: body.message });
+    if (req.user.id === 0) {
+      return reply.send(profileDto({ userId: 0, avatarStorageKey: null, ...body }));
+    }
+    const profile = await portalProfileRepo.updateForUser(req.user.id, body, req.actorSub);
+    return reply.send(profileDto(profile));
+  });
+
+  server.post('/auth/portal-profile/avatar', async (req: FastifyRequest, reply: FastifyReply) => {
+    if (req.user.id === 0) return reply.status(409).send({ error: 'Portal profile avatars are unavailable for the dev account' });
+    if (!req.isMultipart()) return reply.status(400).send({ error: 'Expected multipart/form-data' });
+
+    let upload: { filename: string; contentType: string; buffer: Buffer } | null = null;
+    try {
+      for await (const part of req.files()) {
+        if (upload) {
+          part.file.resume();
+          return reply.status(400).send({ error: 'Upload exactly one avatar image' });
+        }
+        const contentType = part.mimetype.toLowerCase();
+        if (!isPortalProfileAvatarContentType(contentType)) {
+          part.file.resume();
+          return reply.status(400).send({ error: 'Avatar must be a PNG, JPEG, GIF, or WebP image' });
+        }
+        const buffer = await part.toBuffer();
+        if (buffer.length > PORTAL_PROFILE_AVATAR_MAX_BYTES) {
+          return reply.status(413).send({ error: 'Avatar must be 2 MB or smaller' });
+        }
+        upload = { filename: part.filename, contentType, buffer };
+      }
+    } catch (error) {
+      const uploadError = error as { code?: string };
+      if (uploadError.code === 'FST_REQ_FILE_TOO_LARGE') {
+        return reply.status(413).send({ error: 'Avatar must be 2 MB or smaller' });
+      }
+      req.log.warn({ err: error }, 'Portal profile avatar upload failed');
+      return reply.status(400).send({ error: 'Avatar upload failed' });
+    }
+    if (!upload) return reply.status(400).send({ error: 'Upload exactly one avatar image' });
+
+    const storage = await currentStorage();
+    const storageKey = buildPortalProfileAvatarKey(req.user.id, upload.filename);
+    await storage.put(storageKey, upload.buffer, upload.contentType);
+    try {
+      const { profile, previousStorageKey, previousStorageBackend } = await portalProfileRepo.setAvatarForUser(
+        req.user.id,
+        { storageKey, contentType: upload.contentType, storageBackend: storage.backend },
+        req.actorSub,
+      );
+      if (previousStorageKey && previousStorageKey !== storageKey) {
+        // The prior avatar may have been written under a different admin-
+        // selected default; delete it from the backend it actually lives on,
+        // not whichever backend is current now.
+        const previousStorage = await storageForBackend(previousStorageBackend ?? 'local');
+        await previousStorage.delete(previousStorageKey).catch((error) => {
+          req.log.warn({ err: error }, 'Previous portal profile avatar cleanup failed');
+        });
+      }
+      return reply.status(201).send(profileDto(profile));
+    } catch (error) {
+      await storage.delete(storageKey).catch(() => undefined);
+      throw error;
+    }
+  });
+
+  // This endpoint is intentionally public. A response is admitted only while
+  // both the shop's named-identity setting and the technician's opt-in remain
+  // true; its HMAC URL is unguessable and no-store makes either revocation take
+  // effect on the next image request.
+  server.get<{ Params: AvatarTokenParam }>('/portal-profile-avatar/:token', async (req, reply) => {
+    const match = /^(\d+)\.[A-Za-z0-9_-]{43}$/.exec(req.params.token);
+    if (!match) return reply.status(404).send({ error: 'Avatar not found' });
+    const userId = Number(match[1]);
+    if (!Number.isSafeInteger(userId) || userId <= 0) return reply.status(404).send({ error: 'Avatar not found' });
+    const [portal, profile] = await Promise.all([getPortal(), portalProfileRepo.findPublicAvatar(userId)]);
+    if (
+      portal.technicianIdentity !== 'named' ||
+      !profile?.avatarStorageKey ||
+      !profile.avatarContentType ||
+      !verifiesPortalProfileAvatarToken(req.params.token, userId, profile.avatarStorageKey)
+    ) {
+      return reply.status(404).send({ error: 'Avatar not found' });
+    }
+    try {
+      const storage = await storageForBackend(profile.avatarStorageBackend ?? 'local');
+      const stream = await storage.get(profile.avatarStorageKey);
+      reply.header('Content-Type', profile.avatarContentType);
+      reply.header('X-Content-Type-Options', 'nosniff');
+      reply.header('Cache-Control', 'no-store');
+      return reply.send(stream);
+    } catch (error) {
+      req.log.warn({ err: error }, 'Portal profile avatar fetch failed');
+      return reply.status(404).send({ error: 'Avatar not found' });
+    }
   });
 
   // Change own password (local accounts only).

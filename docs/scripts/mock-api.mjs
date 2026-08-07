@@ -109,6 +109,12 @@ const portalTickets = [
         htmlContent: null,
         direction: "outbound",
         authorKind: "support",
+        // Exercises the Phase 5 named-technician rendering (portal.technicianIdentity
+        // = named, opted-in): a small inline SVG avatar so the mobile capture proves
+        // real layout, not just a URL that resolves elsewhere.
+        authorName: "Jess",
+        authorAvatarUrl:
+          "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCI+PHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4IiBmaWxsPSIjNGY0NmU1Ii8+PHRleHQgeD0iNTAlIiB5PSI1NSUiIGZvbnQtc2l6ZT0iMjIiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIj5KPC90ZXh0Pjwvc3ZnPg==",
         createdAt: daysFromNow(0, 10, 35),
       },
     ],

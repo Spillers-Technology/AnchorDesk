@@ -48,6 +48,9 @@ export function isPublic(url: string, method?: string): boolean {
     // dependency-free path checks used by existing unit tests.
     return method === undefined || method.toUpperCase() === 'POST';
   }
+  if (method?.toUpperCase() === 'GET' && /^\/portal-profile-avatar\/[1-9]\d*\.[A-Za-z0-9_-]{43}$/.test(path)) {
+    return true;
+  }
   return PUBLIC_AUTH.includes(path);
 }
 
@@ -92,6 +95,14 @@ export function isPortalSessionAllowed(method: string, url: string): boolean {
   if (
     verb === 'GET' &&
     /^\/portal\/attachments\/[1-9]\d*\/download$/.test(path)
+  ) {
+    return true;
+  }
+  // Public signed avatar URLs are also admissible with a requester cookie: an
+  // <img> request naturally includes it, and the handler re-checks consent.
+  if (
+    verb === 'GET' &&
+    /^\/portal-profile-avatar\/[1-9]\d*\.[A-Za-z0-9_-]{43}$/.test(path)
   ) {
     return true;
   }

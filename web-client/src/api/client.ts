@@ -47,6 +47,17 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function requestForm<T>(path: string, body: FormData, method = "POST"): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  const res = await fetch(`/api${path}`, { method, body, headers, credentials: "same-origin" });
+  if (!res.ok) {
+    const responseBody = await res.text();
+    throw new ApiError(res.status, responseBody, `API ${method} ${path} → ${res.status}: ${responseBody}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 async function requestBlob(path: string): Promise<Blob> {
   const headers: Record<string, string> = {};
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
@@ -759,6 +770,31 @@ export function grantPortalAccess(contactId: number, effectiveFrom?: string) {
 }
 export function revokePortalAccess(contactId: number) {
   return request<PortalGrant>(`/contacts/${contactId}/portal-grant/revoke`, { method: "POST" });
+}
+
+export interface PortalProfile {
+  displayName: string | null;
+  avatarUrl: string | null;
+  publicEmail: string | null;
+  publicPhone: string | null;
+  optedIn: boolean;
+}
+
+export function getMyPortalProfile() {
+  return request<PortalProfile>("/auth/portal-profile");
+}
+
+export function setMyPortalProfile(data: Omit<PortalProfile, "avatarUrl">) {
+  return request<PortalProfile>("/auth/portal-profile", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function uploadMyPortalProfileAvatar(file: File) {
+  const body = new FormData();
+  body.append("avatar", file, file.name);
+  return requestForm<PortalProfile>("/auth/portal-profile/avatar", body);
 }
 
 export interface PortalRegistration {

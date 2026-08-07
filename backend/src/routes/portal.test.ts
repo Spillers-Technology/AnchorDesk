@@ -3,6 +3,7 @@
 // the default-off behaviour.
 jest.mock('../services/settingsService', () => ({
   isPortalEnabled: jest.fn().mockResolvedValue(true),
+  getPortal: jest.fn().mockResolvedValue({ technicianIdentity: 'anonymous' }),
 }));
 
 jest.mock('../repositories/portalRepository', () => ({
@@ -235,6 +236,8 @@ describe('portal requester route boundary', () => {
         direction: null,
         createdAt: '2026-07-26T13:00:00.000Z',
         authorKind: 'you',
+        authorName: null,
+        authorAvatarUrl: null,
       });
     } finally {
       await app.close();

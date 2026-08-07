@@ -14,6 +14,7 @@ describe('requester positive route allowlist', () => {
     ['POST', '/portal/tickets/42/comments'],
     ['POST', '/portal/tickets/42/attachments'],
     ['GET', '/portal/attachments/17/download'],
+    ['GET', '/portal-profile-avatar/12.abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO12'],
     ['GET', '/kb/search?q=printer&visibility=portal&limit=5'],
   ])('admits only the published requester operation: %s %s', (method, url) => {
     expect(isPortalSessionAllowed(method, url)).toBe(true);
@@ -40,5 +41,12 @@ describe('requester positive route allowlist', () => {
     expect(isPublic('/portal/auth/magic-link', 'GET')).toBe(false);
     expect(isPublic('/portal/auth/verify', 'GET')).toBe(false);
     expect(isPublic('/portal/register', 'GET')).toBe(false);
+  });
+
+  it('makes only signed avatar reads public', () => {
+    const token = '12.abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO12';
+    expect(isPublic(`/portal-profile-avatar/${token}`, 'GET')).toBe(true);
+    expect(isPublic(`/portal-profile-avatar/${token}`, 'POST')).toBe(false);
+    expect(isPublic('/portal-profile-avatar/12', 'GET')).toBe(false);
   });
 });

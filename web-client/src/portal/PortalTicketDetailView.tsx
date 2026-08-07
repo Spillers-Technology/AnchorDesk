@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from
 import { Link as RouterLink, useLocation, useParams } from "react-router-dom";
 import {
   Alert,
+  Avatar,
   Box,
   Button,
   Card,
@@ -227,10 +228,15 @@ export default function PortalTicketDetailView() {
               }}
             >
               <Stack spacing={1}>
-                <Stack direction="row" spacing={1} sx={{ justifyContent: "space-between", gap: 1 }}>
-                  <Typography variant="subtitle2">
-                    {note.authorKind === "you" ? "You" : "Support"}
-                  </Typography>
+                <Stack direction="row" spacing={1} sx={{ justifyContent: "space-between", gap: 1, alignItems: "center" }}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
+                    {note.authorKind === "support" && note.authorAvatarUrl && (
+                      <Avatar src={note.authorAvatarUrl} alt="" sx={{ width: 24, height: 24, flexShrink: 0 }} />
+                    )}
+                    <Typography variant="subtitle2" sx={{ overflowWrap: "anywhere" }}>
+                      {note.authorKind === "you" ? "You" : (note.authorName || "Support")}
+                    </Typography>
+                  </Stack>
                   <Typography variant="caption" sx={{ color: "text.secondary", textAlign: "right" }}>
                     {formatPortalDate(note.createdAt)}
                   </Typography>

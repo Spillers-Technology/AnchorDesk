@@ -21,6 +21,8 @@ export interface PortalNote {
   htmlContent: string | null;
   direction: string | null;
   authorKind: "you" | "support";
+  authorName: string | null;
+  authorAvatarUrl: string | null;
   createdAt: string;
 }
 
