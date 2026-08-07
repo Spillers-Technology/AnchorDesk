@@ -31,6 +31,7 @@ import { userRoutes } from './routes/users';
 import { integrationRoutes } from './routes/integrations';
 import { uiSettingsRoutes } from './routes/uiSettings';
 import { portalSettingsRoutes } from './routes/portalSettings';
+import { feedbackSettingsRoutes } from './routes/feedbackSettings';
 import { adminRoutes } from './routes/admin';
 import { companyRoutes } from './routes/companies';
 import { registerAuthHook } from './middleware/auth';
@@ -120,6 +121,7 @@ async function start() {
   // Interface preferences (read by all authed users; written by admins).
   server.register(uiSettingsRoutes);
   server.register(portalSettingsRoutes);
+  server.register(feedbackSettingsRoutes);
   // Admin: console overview + audit-log viewer.
   server.register(adminRoutes);
 

@@ -1891,8 +1891,11 @@ export async function handleApi(route) {
   if (method === "GET" && apiPath === "/ui-settings") return json(route, { legacyTableView: false });
   // Captured in its default state: off is what a fresh install actually looks
   // like, and the panel's warning copy differs between the two.
-  if (method === "GET" && apiPath === "/portal-settings") return json(route, { enabled: false });
-  if (method === "PATCH" && apiPath === "/portal-settings") return json(route, { enabled: true });
+  const defaultPortalSettings = { enabled: false, ticketScope: "own", technicianIdentity: "anonymous", allowAttachments: true, allowSelfSolve: true };
+  if (method === "GET" && apiPath === "/portal-settings") return json(route, defaultPortalSettings);
+  if (method === "PATCH" && apiPath === "/portal-settings") return json(route, { ...defaultPortalSettings, enabled: true });
+  if (method === "GET" && apiPath === "/feedback-settings") return json(route, { enabled: true, promptOnSolve: true });
+  if (method === "PATCH" && apiPath === "/feedback-settings") return json(route, { enabled: true, promptOnSolve: true });
 
   const reportPaths = new Set([
     "/reports/volume",

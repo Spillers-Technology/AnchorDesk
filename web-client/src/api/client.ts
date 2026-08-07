@@ -486,6 +486,10 @@ export function updateUiSettings(data: Partial<UiSettings>) {
 
 export interface PortalSettings {
   enabled: boolean;
+  ticketScope: "own" | "company";
+  technicianIdentity: "anonymous" | "named";
+  allowAttachments: boolean;
+  allowSelfSolve: boolean;
 }
 
 /** Admin-only in both directions, unlike ui-settings. */
@@ -495,6 +499,22 @@ export function getPortalSettings() {
 
 export function updatePortalSettings(data: Partial<PortalSettings>) {
   return request<PortalSettings>("/portal-settings", {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export interface FeedbackSettings {
+  enabled: boolean;
+  promptOnSolve: boolean;
+}
+
+export function getFeedbackSettings() {
+  return request<FeedbackSettings>("/feedback-settings");
+}
+
+export function updateFeedbackSettings(data: Partial<FeedbackSettings>) {
+  return request<FeedbackSettings>("/feedback-settings", {
     method: "PATCH",
     body: JSON.stringify(data),
   });

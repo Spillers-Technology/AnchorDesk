@@ -540,20 +540,29 @@ function InterfacePanel() {
  */
 function CustomerPortalPanel() {
   const { data, loading, error, reload } = useAsync(() => api.getPortalSettings());
+  const feedback = useAsync(() => api.getFeedbackSettings());
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const setEnabled = async (enabled: boolean) => {
+  const update = async (patch: Partial<api.PortalSettings>, note?: string) => {
     setSaving(true);
     setMsg(null);
     try {
-      await api.updatePortalSettings({ enabled });
+      await api.updatePortalSettings(patch);
       reload();
-      setMsg(
-        enabled
-          ? "Customer portal is live. Contacts can request a sign-in link at /portal."
-          : "Customer portal is off. Portal sign-in and portal article reads now refuse.",
-      );
+      if (note) setMsg(note);
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateFeedback = async (patch: Partial<api.FeedbackSettings>) => {
+    setSaving(true);
+    try {
+      await api.updateFeedbackSettings(patch);
+      feedback.reload();
     } catch (e) {
       setMsg((e as Error).message);
     } finally {
@@ -587,7 +596,12 @@ function CustomerPortalPanel() {
           <Switch
             checked={data.enabled}
             disabled={saving}
-            onChange={(e) => void setEnabled(e.target.checked)}
+            onChange={(e) => void update(
+              { enabled: e.target.checked },
+              e.target.checked
+                ? "Customer portal is live. Approved contacts can request a sign-in link at /portal."
+                : "Customer portal is off. Portal sign-in and portal article reads now refuse.",
+            )}
             slotProps={{ input: { "aria-label": "Enable the customer portal" } }}
           />
         </Stack>
@@ -595,10 +609,11 @@ function CustomerPortalPanel() {
         <Alert severity={data.enabled ? "warning" : "info"} sx={{ mt: 2 }}>
           {data.enabled ? (
             <>
-              While this is on, any contact whose email matches exactly one CRM record can
-              request a sign-in link, and knowledge-base articles marked{" "}
+              While this is on, a contact with an <strong>active portal access grant</strong> (Companies →
+              a contact → the key icon) can request a sign-in link, and knowledge-base articles marked{" "}
               <strong>portal</strong> visibility are readable without a staff login.
-              Internal articles, drafts, and every staff route stay closed.
+              Internal articles, drafts, and every staff route stay closed. Existing contacts start
+              with no grant — turning this on does not hand anyone access by itself.
             </>
           ) : (
             <>
@@ -611,6 +626,76 @@ function CustomerPortalPanel() {
 
         {msg && <Alert severity="info" sx={{ mt: 2 }}>{msg}</Alert>}
       </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1.5 }}>What an approved contact can do</Typography>
+        <Stack spacing={2}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ alignItems: { xs: "flex-start", sm: "center" }, justifyContent: "space-between" }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="body2">Ticket visibility</Typography>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                "Own tickets" matches today's behavior. "Company-wide" also shows every other
+                approved contact at their company their tickets from the grant date onward — the
+                more common expectation, but not every shop wants contacts seeing each other's tickets.
+              </Typography>
+            </Box>
+            <Select
+              size="small"
+              value={data.ticketScope}
+              disabled={saving}
+              onChange={(e) => void update({ ticketScope: e.target.value as api.PortalSettings["ticketScope"] })}
+            >
+              <MenuItem value="own">Own tickets only</MenuItem>
+              <MenuItem value="company">Company-wide</MenuItem>
+            </Select>
+          </Stack>
+
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ alignItems: { xs: "flex-start", sm: "center" }, justifyContent: "space-between" }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="body2">Technician identity</Typography>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                "Anonymous" renders every reply as "Support" (today's behavior). "Named" shows a
+                technician's display name and avatar when they've opted in under Account → Portal
+                profile — never their login email or phone unless they add those separately.
+              </Typography>
+            </Box>
+            <Select
+              size="small"
+              value={data.technicianIdentity}
+              disabled={saving}
+              onChange={(e) => void update({ technicianIdentity: e.target.value as api.PortalSettings["technicianIdentity"] })}
+            >
+              <MenuItem value="anonymous">Anonymous ("Support")</MenuItem>
+              <MenuItem value="named">Named (opted-in technicians)</MenuItem>
+            </Select>
+          </Stack>
+
+          <FormControlLabel
+            control={<Checkbox checked={data.allowAttachments} disabled={saving} onChange={(e) => void update({ allowAttachments: e.target.checked })} />}
+            label="Allow contacts to attach files to tickets and comments"
+          />
+          <FormControlLabel
+            control={<Checkbox checked={data.allowSelfSolve} disabled={saving} onChange={(e) => void update({ allowSelfSolve: e.target.checked })} />}
+            label='Allow contacts to mark their own ticket "solved"'
+          />
+        </Stack>
+      </Paper>
+
+      {!feedback.loading && feedback.data && (
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Feedback (CSAT)</Typography>
+          <Stack spacing={1}>
+            <FormControlLabel
+              control={<Checkbox checked={feedback.data.enabled} disabled={saving} onChange={(e) => void updateFeedback({ enabled: e.target.checked })} />}
+              label="Let contacts rate a ticket (positive / neutral / negative, plus an optional comment)"
+            />
+            <FormControlLabel
+              control={<Checkbox checked={feedback.data.promptOnSolve} disabled={saving || !feedback.data.enabled} onChange={(e) => void updateFeedback({ promptOnSolve: e.target.checked })} />}
+              label='Prompt for a rating when a contact marks their ticket "solved"'
+            />
+          </Stack>
+        </Paper>
+      )}
     </Stack>
   );
 }

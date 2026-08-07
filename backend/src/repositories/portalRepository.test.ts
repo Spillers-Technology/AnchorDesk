@@ -8,6 +8,9 @@ jest.mock('../db/prisma', () => ({
     attachment: {
       findFirst: jest.fn(),
     },
+    contact: {
+      findFirst: jest.fn(),
+    },
     $transaction: jest.fn(),
   },
 }));
@@ -25,12 +28,22 @@ jest.mock('./attachmentRepository', () => ({
   create: jest.fn(),
 }));
 
+jest.mock('./portalGrantRepository', () => ({
+  findActive: jest.fn(),
+}));
+
+jest.mock('../services/settingsService', () => ({
+  getPortal: jest.fn(),
+}));
+
 import { prisma } from '../db/prisma';
 import type { RequesterPrincipal } from '../types/principal';
 import { TICKET_PRIORITIES, TICKET_STATUSES } from '../services/ticketVocab';
 import * as tickets from './ticketRepository';
 import * as notes from './noteRepository';
 import * as attachments from './attachmentRepository';
+import * as portalGrants from './portalGrantRepository';
+import { getPortal } from '../services/settingsService';
 import {
   addComment,
   createAttachments,
@@ -57,11 +70,14 @@ const ticketFindMany = prisma.ticket.findMany as jest.Mock;
 const ticketCount = prisma.ticket.count as jest.Mock;
 const ticketFindFirst = prisma.ticket.findFirst as jest.Mock;
 const attachmentFindFirst = prisma.attachment.findFirst as jest.Mock;
+const contactFindFirst = prisma.contact.findFirst as jest.Mock;
 const transaction = prisma.$transaction as jest.Mock;
 const ticketCreate = tickets.create as jest.Mock;
 const noteCreate = notes.create as jest.Mock;
 const publishCreatedNote = notes.publishCreatedNote as jest.Mock;
 const attachmentCreate = attachments.create as jest.Mock;
+const findActiveGrant = portalGrants.findActive as jest.Mock;
+const mockedGetPortal = getPortal as jest.Mock;
 
 function expectedRequesterScope(id?: number) {
   return {
@@ -91,6 +107,13 @@ beforeEach(() => {
     async (callback: (db: typeof tx) => Promise<unknown>) => callback(tx),
   );
   tx.$queryRaw.mockResolvedValue([{ id: 42 }]);
+  // Default: requester identity re-validates, and portal.ticketScope is the
+  // default 'own' — resolveTicketWhere then falls back to
+  // requesterTicketWhere's own predicate byte-for-byte, so every pre-existing
+  // assertion in this file keeps its exact expected shape.
+  contactFindFirst.mockResolvedValue({ id: principal.contactId });
+  mockedGetPortal.mockResolvedValue({ enabled: true, ticketScope: 'own', technicianIdentity: 'anonymous', allowAttachments: true, allowSelfSolve: true });
+  findActiveGrant.mockResolvedValue(null);
 });
 
 describe('portal ticket ownership scope', () => {
@@ -307,5 +330,75 @@ describe('portal mutations and attachment reads', () => {
         ],
       },
     });
+  });
+});
+
+describe('company-wide portal ticket scope (portal.ticketScope = company)', () => {
+  const effectiveFrom = new Date('2026-01-01T00:00:00.000Z');
+
+  beforeEach(() => {
+    mockedGetPortal.mockResolvedValue({ enabled: true, ticketScope: 'company', technicianIdentity: 'anonymous', allowAttachments: true, allowSelfSolve: true });
+    findActiveGrant.mockResolvedValue({ id: 1, contactId: 9, companyId: 7, effectiveFrom, revokedAt: null });
+  });
+
+  it('widens list reads to company plus the grant effectiveFrom, or personally-requested tickets of any age', async () => {
+    ticketFindMany.mockResolvedValue([]);
+    ticketCount.mockResolvedValue(0);
+
+    await listTickets(principal, {});
+
+    expect(ticketFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        companyId: 7,
+        status: { not: 'Deleted' },
+        portalAccessRevokedAt: null,
+        mergedIntoId: null,
+        mergesAsTarget: { none: { unmergedAt: null } },
+        OR: [
+          { contactId: 9 },
+          { createdAt: { gte: effectiveFrom } },
+        ],
+      },
+    }));
+  });
+
+  it('falls back to own-only scope when the setting is company but the requester has no active grant', async () => {
+    findActiveGrant.mockResolvedValue(null);
+    ticketFindMany.mockResolvedValue([]);
+    ticketCount.mockResolvedValue(0);
+
+    await listTickets(principal, {});
+
+    expect(ticketFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expectedRequesterScope(),
+    }));
+  });
+
+  it('fails closed to nothing (not merely own-only) when the requester identity no longer re-validates', async () => {
+    contactFindFirst.mockResolvedValue(null);
+
+    await expect(listTickets(principal, {})).resolves.toEqual({ items: [], total: 0, page: 1, pageSize: 20 });
+    expect(ticketFindMany).not.toHaveBeenCalled();
+
+    await expect(getTicket(principal, 42)).resolves.toBeNull();
+    await expect(getVisibleAttachment(principal, 88)).resolves.toBeNull();
+  });
+
+  it('widens the comment lock predicate to the company/grant window, still requiring FOR UPDATE', async () => {
+    noteCreate.mockResolvedValue({ id: 5 });
+
+    await expect(addComment(principal, 42, 'Any update?', 'requester:9 (portal)')).resolves.toEqual({ id: 5 });
+
+    const lockSql = tx.$queryRaw.mock.calls[1][0];
+    const sql = lockSql.strings.join(' ');
+    expect(sql).toContain('ticket.company_id');
+    expect(sql).toContain('ticket.created_at >=');
+    expect(sql).toContain('FOR UPDATE');
+  });
+
+  it('still allows commenting on a personally-requested ticket older than the grant window', async () => {
+    noteCreate.mockResolvedValue({ id: 6 });
+    await expect(addComment(principal, 42, 'Old ticket, still mine', 'requester:9 (portal)')).resolves.toEqual({ id: 6 });
+    expect(noteCreate).toHaveBeenCalled();
   });
 });
