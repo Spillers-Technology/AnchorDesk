@@ -1,4 +1,5 @@
 import { sanitizeEmailHtml } from './mail/sanitizeHtml';
+import { portalProfileAvatarUrl } from './portalProfileAvatar';
 
 export interface PortalNoteDto {
   id: number;
@@ -7,6 +8,13 @@ export interface PortalNoteDto {
   direction: string | null;
   createdAt: string;
   authorKind: 'you' | 'support';
+  /** Present only for a named, opted-in technician. */
+  authorName: string | null;
+  authorAvatarUrl: string | null;
+}
+
+export interface PortalSerializerOptions {
+  technicianIdentity?: 'anonymous' | 'named';
 }
 
 export interface PortalAttachmentDto {
@@ -97,7 +105,10 @@ function portalAttachmentUrls(html: string): string {
   );
 }
 
-export function serializePortalNote(value: unknown): PortalNoteDto {
+export function serializePortalNote(
+  value: unknown,
+  options: PortalSerializerOptions = {},
+): PortalNoteDto {
   const note = record(value);
   const via = text(note.via) || (note.noteType === 'email' ? 'email' : 'staff');
   const direction = text(note.direction);
@@ -105,6 +116,19 @@ export function serializePortalNote(value: unknown): PortalNoteDto {
     via === 'portal' || (note.noteType === 'email' && direction === 'inbound')
       ? 'you'
       : 'support';
+  const authorUser = record(note.authorUser);
+  const profile = record(authorUser.portalProfile);
+  const isNamedTechnician =
+    authorKind === 'support' &&
+    options.technicianIdentity === 'named' &&
+    profile.optedIn === true;
+  const displayName = isNamedTechnician
+    ? (nullableText(profile.displayName) || nullableText(authorUser.displayName))
+    : null;
+  const avatarStorageKey = isNamedTechnician ? nullableText(profile.avatarStorageKey) : null;
+  const authorAvatarUrl = avatarStorageKey && typeof authorUser.id === 'number'
+    ? portalProfileAvatarUrl(integer(authorUser.id), avatarStorageKey)
+    : null;
   const rawHtml = nullableText(note.htmlContent);
 
   return {
@@ -114,6 +138,8 @@ export function serializePortalNote(value: unknown): PortalNoteDto {
     direction: nullableText(note.direction),
     createdAt: iso(note.createdAt),
     authorKind,
+    authorName: displayName,
+    authorAvatarUrl,
   };
 }
 
@@ -134,10 +160,13 @@ export function serializePortalAttachment(value: unknown): PortalAttachmentDto {
  * This is the security boundary: an explicit object literal, never a spread of a
  * Prisma Ticket. New Ticket fields therefore remain private by default.
  */
-export function serializePortalTicket(value: unknown): PortalTicketDto {
+export function serializePortalTicket(
+  value: unknown,
+  options: PortalSerializerOptions = {},
+): PortalTicketDto {
   const ticket = record(value);
   const notes = Array.isArray(ticket.notes)
-    ? ticket.notes.filter(isPortalVisibleNote).map(serializePortalNote)
+    ? ticket.notes.filter(isPortalVisibleNote).map((note) => serializePortalNote(note, options))
     : [];
   const attachments = Array.isArray(ticket.attachments)
     ? ticket.attachments

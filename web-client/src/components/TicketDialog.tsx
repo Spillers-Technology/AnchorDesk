@@ -41,6 +41,8 @@ import NoteAddIcon from "@mui/icons-material/NoteAdd";
 import HistoryIcon from "@mui/icons-material/History";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import MergeIcon from "@mui/icons-material/Merge";
+import LockIcon from "@mui/icons-material/Lock";
+import NorthEastIcon from "@mui/icons-material/NorthEast";
 import { Ticket, Note } from "../interfaces";
 import NotesSection from "./NotesSection";
 import ChecklistSection from "./ChecklistSection";
@@ -462,12 +464,13 @@ const TicketDialog: React.FC<TicketDialogProps> = ({
   };
   const canEditNote = (note: Note) => note.type === "note" && !!currentUser?.canWrite;
 
-  const createTicketNote = async (html: string) => {
+  const createTicketNote = async (html: string, visibleToCustomer: boolean) => {
     if (ticket.localId == null) return;
     await api.createNote(ticket.localId, {
       content: htmlToPlainText(html) || "Note",
       htmlContent: html,
       noteType: "note",
+      visibility: visibleToCustomer ? "public" : "internal",
     });
     onNotesChanged?.();
   };
@@ -920,6 +923,8 @@ const TicketDialog: React.FC<TicketDialogProps> = ({
               </CardContent>
             </Card>
 
+            <TicketFeedbackCard feedback={Array.isArray(full?.feedback) ? full.feedback : []} />
+
             {/* Time tracking */}
             <TimeCard minutes={timeMinutes} entries={timeEntries} onLog={logTime} onLogRange={logTimeRange} onDelete={deleteTimeEntry} onEdit={editTimeEntry} />
 
@@ -1126,6 +1131,49 @@ const TicketDialog: React.FC<TicketDialogProps> = ({
     </Dialog>
   );
 };
+
+interface TicketFeedbackDisplayRow {
+  id: number;
+  rating: string;
+  comment: string | null;
+  submittedAt: string;
+  contact?: { name?: string; email?: string | null };
+}
+
+/** Read-only CSAT trail. Feedback is intentionally never editable by staff. */
+function TicketFeedbackCard({ feedback }: { feedback: unknown[] }) {
+  const rows = feedback.filter((value): value is TicketFeedbackDisplayRow => (
+    Boolean(value)
+    && typeof value === "object"
+    && typeof (value as TicketFeedbackDisplayRow).id === "number"
+    && typeof (value as TicketFeedbackDisplayRow).rating === "string"
+    && typeof (value as TicketFeedbackDisplayRow).submittedAt === "string"
+  ));
+  if (rows.length === 0) return null;
+
+  return (
+    <Card sx={{ mt: 2 }}>
+      <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+        <Typography variant="subtitle2" gutterBottom sx={{ color: "text.secondary" }}>
+          Customer feedback
+        </Typography>
+        <Stack spacing={1.25}>
+          {rows.map((entry) => (
+            <Box key={entry.id} sx={{ overflowWrap: "anywhere" }}>
+              <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
+                <Chip size="small" label={entry.rating} variant="outlined" />
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  {entry.contact?.name || entry.contact?.email || "Customer"} · {new Date(entry.submittedAt).toLocaleString()}
+                </Typography>
+              </Stack>
+              {entry.comment && <Typography variant="body2" sx={{ mt: 0.5 }}>{entry.comment}</Typography>}
+            </Box>
+          ))}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
 
 interface RelatedTicketSummary {
   id: number;
@@ -2102,16 +2150,20 @@ function DescriptionEditor({
   );
 }
 
-function AddNoteComposer({ onSave }: { onSave: (html: string) => Promise<void> }) {
+function AddNoteComposer({ onSave }: { onSave: (html: string, visibleToCustomer: boolean) => Promise<void> }) {
   const [expanded, setExpanded] = useState(false);
   const [html, setHtml] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Internal unless deliberately published — the failure (an unpublish-able
+  // note reaching a customer) is unrecoverable, so the default stays safe.
+  const [visibleToCustomer, setVisibleToCustomer] = useState(false);
 
   const reset = () => {
     setHtml("");
     setError(null);
     setExpanded(false);
+    setVisibleToCustomer(false);
   };
 
   const submit = async () => {
@@ -2119,7 +2171,7 @@ function AddNoteComposer({ onSave }: { onSave: (html: string) => Promise<void> }
     setSaving(true);
     setError(null);
     try {
-      await onSave(html);
+      await onSave(html, visibleToCustomer);
       reset();
     } catch (err) {
       setError((err as Error).message);
@@ -2143,7 +2195,19 @@ function AddNoteComposer({ onSave }: { onSave: (html: string) => Promise<void> }
   }
 
   return (
-    <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 1.25, mb: 2, bgcolor: "background.paper" }}>
+    <Box
+      sx={(theme) => ({
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1,
+        p: 1.25,
+        mb: 2,
+        // Internal is a restriction, not a good outcome — never green. A
+        // muted neutral tint distinguishes it from the normal surface used
+        // for customer-visible notes; the label is what actually says which.
+        bgcolor: visibleToCustomer ? "background.paper" : theme.palette.action.hover,
+      })}
+    >
       <Stack
         direction="row"
         sx={{
@@ -2161,6 +2225,23 @@ function AddNoteComposer({ onSave }: { onSave: (html: string) => Promise<void> }
       <Stack spacing={1.25}>
         {error && <Alert severity="error">{error}</Alert>}
         <RichTextEditor value={html} onChange={setHtml} minHeight={150} />
+        <FormControlLabel
+          control={
+            <Checkbox
+              size="small"
+              checked={visibleToCustomer}
+              onChange={(e) => setVisibleToCustomer(e.target.checked)}
+            />
+          }
+          label={
+            <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+              {visibleToCustomer ? <NorthEastIcon fontSize="small" /> : <LockIcon fontSize="small" />}
+              <Typography variant="body2">
+                {visibleToCustomer ? "Visible to customer" : "Internal — not visible to customer"}
+              </Typography>
+            </Stack>
+          }
+        />
         <Stack direction="row" spacing={1} sx={{
           justifyContent: "flex-end"
         }}>

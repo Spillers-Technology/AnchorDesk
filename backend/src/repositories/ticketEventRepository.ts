@@ -879,6 +879,76 @@ export function throughputByTeam(
   return withMeta(filters, query);
 }
 
+export interface FeedbackBreakdown {
+  companyId: number | null;
+  companyName: string | null;
+  positive: number;
+  neutral: number;
+  negative: number;
+}
+
+/**
+ * Customer feedback is recorded only from Portal v2 onward. Unlike ticket
+ * events, it has no upgrade backfill, so these facts never need reconstructed
+ * history provenance. Keep the normal report envelope for the shared REST,
+ * MCP, and chart contracts, but make that absence explicit without querying
+ * ticket_events through reportProvenance().
+ */
+export async function feedbackBreakdown(
+  filters: ReportFilters,
+): Promise<ReportResult<FeedbackBreakdown[]>> {
+  validateFilters(filters);
+  const rows = await prisma.ticketFeedback.groupBy({
+    by: ['companyId', 'rating'],
+    where: {
+      submittedAt: { gte: filters.from, lt: filters.to },
+      ...(filters.companyId === undefined ? {} : { companyId: filters.companyId }),
+      ...(filters.teamId === undefined ? {} : { teamId: filters.teamId }),
+      ...(filters.assigneeId === undefined ? {} : { assigneeId: filters.assigneeId }),
+    },
+    _count: { _all: true },
+  });
+  const companyIds = [...new Set(
+    rows.flatMap((row) => row.companyId === null ? [] : [row.companyId]),
+  )];
+  const companies = companyIds.length === 0
+    ? []
+    : await prisma.company.findMany({
+      where: { id: { in: companyIds } },
+      select: { id: true, name: true },
+    });
+  const companyNames = new Map(companies.map((company) => [company.id, company.name]));
+  const breakdowns = new Map<number | null, FeedbackBreakdown>();
+  for (const row of rows) {
+    const breakdown = breakdowns.get(row.companyId) ?? {
+      companyId: row.companyId,
+      companyName: row.companyId === null ? null : companyNames.get(row.companyId) ?? null,
+      positive: 0,
+      neutral: 0,
+      negative: 0,
+    };
+    if (row.rating === 'positive' || row.rating === 'neutral' || row.rating === 'negative') {
+      breakdown[row.rating] = row._count._all;
+    }
+    breakdowns.set(row.companyId, breakdown);
+  }
+  const data = [...breakdowns.values()].sort((left, right) => {
+    const leftTotal = left.positive + left.neutral + left.negative;
+    const rightTotal = right.positive + right.neutral + right.negative;
+    return rightTotal - leftTotal || (left.companyId ?? Number.MAX_SAFE_INTEGER) - (right.companyId ?? Number.MAX_SAFE_INTEGER);
+  });
+  return {
+    data,
+    meta: {
+      from: filters.from,
+      to: filters.to,
+      includesReconstructed: false,
+      reconstructedFrom: null,
+      reconstructedThrough: null,
+    },
+  };
+}
+
 export interface CompanyTimeLogged {
   companyId: number | null;
   companyName: string | null;

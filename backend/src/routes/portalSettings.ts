@@ -29,8 +29,20 @@ export async function portalSettingsRoutes(server: FastifyInstance) {
       const body = (req.body ?? {}) as Record<string, unknown>;
       // Only ever accept a real boolean. A stray string would be truthy and
       // switch a customer-facing surface on by accident.
-      if ('enabled' in body && typeof body.enabled !== 'boolean') {
-        return reply.status(400).send({ error: 'enabled must be a boolean' });
+      for (const field of ['enabled', 'allowAttachments', 'allowSelfSolve'] as const) {
+        if (field in body && typeof body[field] !== 'boolean') {
+          return reply.status(400).send({ error: `${field} must be a boolean` });
+        }
+      }
+      if ('ticketScope' in body && body.ticketScope !== 'own' && body.ticketScope !== 'company') {
+        return reply.status(400).send({ error: 'ticketScope must be own or company' });
+      }
+      if (
+        'technicianIdentity' in body &&
+        body.technicianIdentity !== 'anonymous' &&
+        body.technicianIdentity !== 'named'
+      ) {
+        return reply.status(400).send({ error: 'technicianIdentity must be anonymous or named' });
       }
       await settings.updateSetting('portal', body);
       return reply.send(await settings.getPortal());

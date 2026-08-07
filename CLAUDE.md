@@ -255,6 +255,62 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 >   container so an unavailable runner fails visibly instead of skipping
 >   silently. Asserting on composed SQL text is not coverage.
 
+> **As of 2.8.0 ("Access & Signal"):** Portal v2 makes customer access a
+> reviewable record, then closes the conversation with feedback rather than a
+> silent auto-login or an untraceable score.
+> - **Registration is a queue, not an entitlement.** `POST /portal/register`
+>   always returns the same accepted response before matching or persistence;
+>   it is throttled independently by normalized email and IP, and a domain match
+>   is only a review hint. Admin-only `PortalRegistration` review atomically
+>   reuses an exact-one Contact or creates one on the matched Company, records
+>   the review, and creates the access record; no match or an ambiguous legacy
+>   identity 409s rather than guessing. The magic link is dispatched after the
+>   transaction, so SMTP latency cannot roll back an audited approval.
+> - **`PortalGrant` is the access record.** It retains the contact/company as at
+>   grant time, who granted/revoked it, both instants, and `effectiveFrom`; it is
+>   audited and its history is listed per contact. `findUniqueRequesterByEmail`
+>   now requires an active grant, so a uniquely matching CRM email alone no
+>   longer becomes portal access when `portal.enabled` is switched on.
+>   Revocation means revoked immediately, not just for the next login:
+>   `portalGrantRepository.revoke()` deletes the contact's live portal
+>   sessions and unredeemed magic links in the same transaction as the grant
+>   update, reusing the credential sweep the ambiguous-identity path already
+>   trusted, so a revoked contact cannot keep browsing on an existing cookie.
+> - **The note default was a live safety bug, not a cosmetic checkbox.**
+>   `POST /tickets/:id/notes` previously inferred `public` and sync-pending from
+>   `noteType: 'note'`; because the composer had no visibility control, an
+>   ordinary staff note silently became customer-visible and eligible to push to
+>   Jira/ConnectWise. `visibility` now defaults to `internal`; only an explicit
+>   `public` value queues/pushes it, and TicketDialog's unchecked lock-labelled
+>   **Visible to customer** control makes that polarity visible at composition.
+> - **Company scope is an opt-in widening, not an upgrade surprise.**
+>   `portal.ticketScope` remains `own` unless an admin selects `company`; then
+>   `portalRepository.resolveTicketWhere()` admits the requester's company
+>   tickets from their active grant's `effectiveFrom`, plus their personally
+>   requested tickets at any age. It re-validates the Contact/session identity
+>   first and fails closed to no tickets if that identity no longer holds.
+> - **Named technicians require both consents.** `portal.technicianIdentity`
+>   stays anonymous by default, and `UserPortalProfile.optedIn` is the
+>   technician's separate publication choice. `portalSerializer` selects an
+>   explicit profile allowlist rather than login email; avatar URLs bind
+>   `userId` and storage key with an HMAC-SHA256 signature, and their public
+>   handler re-checks both named identity and opt-in on every read. Profiles
+>   retain `avatarStorageBackend` because an avatar must still be read/deleted
+>   from the backend it was written to after the storage default changes.
+> - **CSAT is immutable customer input with a local close loop.**
+>   `TicketFeedback` has a create/read-only repository surface, permits multiple
+>   ratings per ticket, and snapshots ticket company/team/assignee at submission;
+>   `feedback.submitted` notifies the assignee. Requesters can submit positive,
+>   neutral, or negative feedback and — when enabled — mark a ticket Resolved;
+>   self-solve resolves merge tombstones to their target before taking the same
+>   scope-aware ownership lock.
+> - **The report is recorded facts, not reconstructed history.**
+>   `feedbackBreakdown()` groups submitted ratings by company and returns the
+>   normal report envelope with reconstruction explicitly false; `/reports/feedback`
+>   and `report_feedback` expose it, while ReportsView renders a grouped
+>   positive/neutral/negative chart for the top ten companies and a table for
+>   every returned row.
+
 Key design goals:
 - Excellent standalone ticketing experience first
 - Sync to/from external platforms second
@@ -444,6 +500,8 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | GET | `/auth/me` · POST `/auth/logout` · POST `/auth/password` | Current user / logout / change own password |
 | PUT | `/auth/theme` | Save the current user's validated palette id |
 | PUT | `/auth/kanban-columns` | Save/reset the current user's ordered board statuses |
+| GET/PUT | `/auth/portal-profile` | Technician's opt-in portal display profile (login email is not published) |
+| POST | `/auth/portal-profile/avatar` | Technician avatar upload (PNG/JPEG/GIF/WebP; 2 MiB maximum) |
 | GET/POST | `/auth/tokens` · DELETE `/auth/tokens/:id` | Self-service personal access tokens (list / mint / revoke) |
 | * | `/users`, `/users/:id`, `/users/:id/password` | Admin user CRUD (admin role) |
 | GET/PATCH | `/auth/settings` | Admin: view/edit auth config (admin role) |
@@ -454,7 +512,7 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 |---|---|---|
 | GET | `/tickets` | List tickets — **paged** `{ items, total, page, pageSize }` (filters include status, assignee, company, label, `teamId`, typed `cf.<key>` equality, q, closed visibility, `parentId`, `hasParent`, `includeMerged`, page, pageSize) |
 | GET | `/tickets/search?q=` | **Postgres full-text search** (ranked) |
-| GET | `/tickets/:id` | Get one ticket with notes |
+| GET | `/tickets/:id` | Get one ticket with notes and its read-only feedback trail |
 | POST | `/tickets` | Create ticket (`dueAt`: optional ISO 8601 manual deadline) |
 | PATCH | `/tickets/:id` | Update ticket fields (`dueAt`: ISO 8601, or `null` to restore the SLA resolution target) |
 | DELETE | `/tickets/:id` | Soft-delete (status → Deleted) |
@@ -464,12 +522,27 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | POST | `/tickets/:id/unmerge` | Replays the merge ledger exactly; 422 if that ledger is unreadable |
 | GET | `/tickets/:id/children` | Child tickets (one level) |
 | GET | `/tickets/:id/notes` | List notes |
-| POST | `/tickets/:id/notes` | Add note |
+| POST | `/tickets/:id/notes` | Add note; internal unless `visibility: 'public'` is explicit |
 | PATCH | `/tickets/:id/notes/:noteId` | Edit note |
 | DELETE | `/tickets/:id/notes/:noteId` | Delete note |
 | GET | `/tickets/:id/time` · POST | Total logged minutes / log time (duration **or** `start`+`stop`) |
 | POST | `/tickets/:id/email` | Send HTML email from the ticket — sanitized, threaded, recorded as an `email` note |
 | GET | `/mail/status` | SMTP config status for the composer (no credentials) |
+
+### Customer portal (2.8.0)
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/portal/register` | Public, portal-enabled self-registration; returns one generic accepted response and is rate-limited by email and IP |
+| GET | `/portal-registrations?status=` | Admin: review queue (`pending`, `approved`, or `rejected`) |
+| POST | `/portal-registrations/:id/approve` · `/reject` | Admin: approve atomically (Contact + grant + post-commit magic link) or reject one pending request |
+| GET | `/contacts/:id/portal-grants` | Portal-grant history for a contact, newest first |
+| POST | `/contacts/:id/portal-grant` · `/revoke` | Grant a contact access (optional `effectiveFrom`) or revoke its active grant |
+| GET/PATCH | `/portal-settings` | Admin: portal gate plus `ticketScope`, technician identity, attachment, and self-solve settings |
+| GET/PATCH | `/feedback-settings` | Admin: CSAT enablement and solve-time prompt settings |
+| GET | `/portal-profile-avatar/:token` | Public HMAC-signed avatar read; returns only while named identity and technician opt-in remain live |
+| POST | `/portal/tickets/:id/feedback` | Requester: submit positive/neutral/negative feedback with an optional comment (when CSAT is enabled) |
+| POST | `/portal/tickets/:id/solve` | Requester: mark an accessible ticket Resolved (when self-solve is enabled) |
 
 ### Teams, fields, automation, and views (2.1.0)
 
@@ -482,6 +555,12 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | GET/POST/PATCH/DELETE | `/automations/*` | Admin event-rule management, including SLA escalation rules |
 | GET/POST/PATCH/DELETE | `/views/*` | Own plus shared saved filters; only admins may publish/edit shared views |
 | GET/POST/DELETE | `/devices/:id/external-refs/*` | Provider identities attached to one physical device |
+
+### Reporting (2.8.0)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/reports/feedback` | Staff: recorded positive/neutral/negative feedback counts by company; accepts the normal report filters |
 
 ### External ticket sync (2.5.0)
 
@@ -520,6 +599,9 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | `backend/src/repositories/noteRepository.ts` | All note DB operations + audit recording |
 | `backend/src/repositories/auditRepository.ts` | Audit log write + query |
 | `backend/src/repositories/userRepository.ts` | User CRUD + SSO upsert + TOTP helpers (secrets never serialized) |
+| `backend/src/repositories/portalGrantRepository.ts` · `portalRegistrationRepository.ts` | Audited portal access provenance and the admin-reviewed self-registration queue |
+| `backend/src/repositories/userPortalProfileRepository.ts` | Technician-owned portal identity/profile and avatar storage coordinates |
+| `backend/src/repositories/ticketFeedbackRepository.ts` | Immutable customer-feedback writes and staff read trail |
 | `backend/src/repositories/teamRepository.ts` · `customFieldRepository.ts` · `savedViewRepository.ts` | Team queues, custom-field definitions, and owner-scoped saved filters |
 | `backend/src/services/automation/` · `automationRepository.ts` | Pure rule evaluation + event-driven, audited actions and SLA escalation |
 | `backend/src/repositories/deviceRepository.ts` | Local asset record, provider-reference identity/merge, and ticket links |
@@ -536,6 +618,8 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | `backend/src/services/mail/MailTransport.ts` | **Strategy interface** for outbound mail (SMTP impl alongside) |
 | `backend/src/services/mail/ticketMail.ts` | Send + thread + record an email on a ticket (route delegates here) |
 | `backend/src/services/mail/threading.ts` · `sanitizeHtml.ts` | Pure RFC 5322 threading helpers · shared inbound/outbound HTML sanitizer |
+| `backend/src/services/portalVocab.ts` | Canonical portal-registration and feedback-rating vocabularies |
+| `backend/src/services/portalProfileAvatar.ts` | HMAC-signed portal-avatar URL, validation, and storage-key helpers |
 | `backend/src/routes/tickets.ts` | CRUD + full-text search for local tickets |
 | `web-client/src/api/client.ts` | Frontend API client — all fetch calls go here |
 | `web-client/src/auth/` | `AuthContext`, `LoginView`, `AccountMenu` |

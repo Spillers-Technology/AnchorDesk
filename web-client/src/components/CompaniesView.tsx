@@ -19,6 +19,7 @@ import {
   CardContent,
   InputAdornment,
   Tooltip,
+  Popover,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -31,6 +32,9 @@ import SearchIcon from "@mui/icons-material/Search";
 import BusinessIcon from "@mui/icons-material/Business";
 import ComputerIcon from "@mui/icons-material/Computer";
 import HubIcon from "@mui/icons-material/Hub";
+import VpnKeyIcon from "@mui/icons-material/VpnKey";
+import VpnKeyOffIcon from "@mui/icons-material/VpnKeyOff";
+import HistoryIcon from "@mui/icons-material/History";
 import * as api from "../api/client";
 import { statusColor } from "../ticketVocab";
 
@@ -300,6 +304,32 @@ function ContactRow({ contact, onChanged }: { contact: api.Contact; onChanged: (
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ name: contact.name, title: contact.title ?? "", email: contact.email ?? "", phone: contact.phone ?? "" });
+  const [grants, setGrants] = useState<api.PortalGrant[] | null>(null);
+  const [historyAnchor, setHistoryAnchor] = useState<HTMLElement | null>(null);
+
+  const loadGrants = useCallback(() => {
+    api.listContactPortalGrants(contact.id).then(setGrants).catch(() => setGrants([]));
+  }, [contact.id]);
+
+  useEffect(() => { loadGrants(); }, [loadGrants]);
+
+  const activeGrant = grants?.find((g) => !g.revokedAt) ?? null;
+
+  const togglePortalAccess = async () => {
+    setBusy(true);
+    try {
+      if (activeGrant) {
+        await api.revokePortalAccess(contact.id);
+      } else {
+        await api.grantPortalAccess(contact.id);
+      }
+      loadGrants();
+    } catch {
+      // Leave state as-is; the toggle simply reflects whatever loadGrants finds next.
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const startEdit = () => {
     setForm({ name: contact.name, title: contact.title ?? "", email: contact.email ?? "", phone: contact.phone ?? "" });
@@ -385,6 +415,41 @@ function ContactRow({ contact, onChanged }: { contact: api.Contact; onChanged: (
           </span>
         </Tooltip>
       )}
+      {grants && grants.length > 0 && (
+        <Tooltip title="Portal access history">
+          <IconButton size="small" onClick={(e) => setHistoryAnchor(e.currentTarget)}>
+            <HistoryIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
+      <Popover
+        open={!!historyAnchor}
+        anchorEl={historyAnchor}
+        onClose={() => setHistoryAnchor(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+      >
+        <Stack spacing={1} sx={{ p: 1.5, minWidth: 260, maxWidth: 360 }}>
+          <Typography variant="subtitle2">Portal access history</Typography>
+          {(grants ?? []).map((g) => (
+            <Box key={g.id}>
+              <Typography variant="caption" sx={{ display: "block" }}>
+                {g.revokedAt ? "Revoked" : "Granted"} by {g.revokedAt ? g.revokedBy : g.grantedBy}
+              </Typography>
+              <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
+                Granted {new Date(g.grantedAt).toLocaleString()}
+                {g.revokedAt && ` · Revoked ${new Date(g.revokedAt).toLocaleString()}`}
+              </Typography>
+            </Box>
+          ))}
+        </Stack>
+      </Popover>
+      <Tooltip title={activeGrant ? "Portal access granted — click to revoke" : "No portal access — click to grant"}>
+        <span>
+          <IconButton size="small" color={activeGrant ? "primary" : "default"} onClick={togglePortalAccess} disabled={busy || grants === null}>
+            {activeGrant ? <VpnKeyIcon fontSize="small" /> : <VpnKeyOffIcon fontSize="small" />}
+          </IconButton>
+        </span>
+      </Tooltip>
       <Tooltip title="Edit">
         <IconButton size="small" onClick={startEdit} disabled={busy}><EditIcon fontSize="small" /></IconButton>
       </Tooltip>

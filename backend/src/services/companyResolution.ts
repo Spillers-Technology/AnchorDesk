@@ -65,6 +65,21 @@ export async function findOrCreateCompanyForEmail(email: string, actor: string):
 }
 
 /**
+ * Read-only counterpart for portal self-registration: a domain is a *hint*,
+ * never an entitlement, so an unregistered domain must never spring a new
+ * Company into existence just because someone typed an email address at it.
+ * Unlike inbound IMAP (a real support request already happened), a
+ * registration is unauthenticated input from a stranger on the internet.
+ */
+export async function findCompanyForEmailDomain(email: string): Promise<Company | null> {
+  const candidate = companyFromEmail(email);
+  if (!candidate) return null;
+  return prisma.company.findFirst({
+    where: { domain: { equals: candidate.domain, mode: 'insensitive' } },
+  });
+}
+
+/**
  * Resolve the mandatory company link for a ticket. Explicit ids win, legacy
  * names are promoted into Company rows, and truly unclassified work lands in
  * the internal company rather than becoming an orphan.

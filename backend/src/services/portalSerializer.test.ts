@@ -26,6 +26,8 @@ const NOTE_KEYS = [
   'direction',
   'createdAt',
   'authorKind',
+  'authorName',
+  'authorAvatarUrl',
 ].sort();
 
 const ATTACHMENT_KEYS = [
@@ -189,7 +191,7 @@ describe('portal serialization security boundary', () => {
     }
   });
 
-  it('classifies requester and support authors without exposing identities', () => {
+  it('classifies requester and support authors without exposing identities by default', () => {
     const createdAt = new Date('2026-07-26T12:00:00.000Z');
     expect(serializePortalNote({
       id: 1,
@@ -220,6 +222,45 @@ describe('portal serialization security boundary', () => {
       noteType: 'note',
       createdAt,
     })).not.toHaveProperty('via');
+  });
+
+  it('resolves a named, opted-in technician through the explicit portal allowlist', () => {
+    const dto = serializePortalNote({
+      id: 5,
+      content: 'I have applied the update.',
+      via: 'web',
+      visibility: 'public',
+      createdAt: new Date('2026-07-26T12:00:00.000Z'),
+      authorUser: {
+        id: 18,
+        displayName: 'Alex Staff',
+        email: 'SECRET_LOGIN_EMAIL@example.test',
+        portalProfile: {
+          optedIn: true,
+          displayName: 'Alex',
+          avatarStorageKey: 'SECRET_AVATAR_STORAGE_KEY',
+          avatarContentType: 'image/png',
+          publicEmail: 'SECRET_PUBLIC_EMAIL@example.test',
+          publicPhone: 'SECRET_PHONE',
+        },
+      },
+    }, { technicianIdentity: 'named' });
+    expect(Object.keys(dto).sort()).toEqual(NOTE_KEYS);
+    expect(dto.authorKind).toBe('support');
+    expect(dto.authorName).toBe('Alex');
+    expect(dto.authorAvatarUrl).toMatch(/^\/api\/portal-profile-avatar\/18\./);
+    expect(JSON.stringify(dto)).not.toContain('SECRET_');
+
+    const anonymous = serializePortalNote({
+      id: 6,
+      content: 'Still private.',
+      via: 'web',
+      visibility: 'public',
+      createdAt: new Date('2026-07-26T12:00:00.000Z'),
+      authorUser: { id: 18, displayName: 'Alex Staff', portalProfile: { optedIn: false } },
+    }, { technicianIdentity: 'named' });
+    expect(anonymous.authorName).toBeNull();
+    expect(anonymous.authorAvatarUrl).toBeNull();
   });
 
   it('uses an owned portal URL and never emits attachment storage coordinates', () => {

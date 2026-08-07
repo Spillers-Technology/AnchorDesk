@@ -3,6 +3,8 @@
 // the default-off behaviour.
 jest.mock('../services/settingsService', () => ({
   isPortalEnabled: jest.fn().mockResolvedValue(true),
+  getPortal: jest.fn().mockResolvedValue({ technicianIdentity: 'anonymous', allowSelfSolve: true }),
+  getFeedback: jest.fn().mockResolvedValue({ enabled: true, promptOnSolve: true }),
 }));
 
 jest.mock('../repositories/portalRepository', () => ({
@@ -10,6 +12,8 @@ jest.mock('../repositories/portalRepository', () => ({
   getTicket: jest.fn(),
   createTicket: jest.fn(),
   addComment: jest.fn(),
+  submitFeedback: jest.fn(),
+  solveTicket: jest.fn(),
   ownsTicket: jest.fn(),
   createAttachments: jest.fn(),
   getVisibleAttachment: jest.fn(),
@@ -235,6 +239,68 @@ describe('portal requester route boundary', () => {
         direction: null,
         createdAt: '2026-07-26T13:00:00.000Z',
         authorKind: 'you',
+        authorName: null,
+        authorAvatarUrl: null,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('accepts normalized feedback only through the requester-owned repository mutation', async () => {
+    mockedPortal.submitFeedback.mockResolvedValue({
+      id: 11,
+      rating: 'positive',
+      comment: 'Fast help',
+      submittedAt: new Date('2026-08-06T12:00:00.000Z'),
+    } as never);
+    const app = await appWithPrincipal();
+    try {
+      const invalid = await app.inject({
+        method: 'POST',
+        url: '/portal/tickets/42/feedback',
+        payload: { rating: 'excellent' },
+      });
+      expect(invalid.statusCode).toBe(400);
+      expect(mockedPortal.submitFeedback).not.toHaveBeenCalled();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/tickets/42/feedback',
+        payload: { rating: ' POSITIVE ', comment: '  Fast help  ' },
+      });
+      expect(response.statusCode).toBe(201);
+      expect(mockedPortal.submitFeedback).toHaveBeenCalledWith(
+        requester,
+        42,
+        { rating: 'positive', comment: 'Fast help' },
+        'requester:9 (portal)',
+      );
+      expect(response.json()).toMatchObject({ id: 11, rating: 'positive', comment: 'Fast help' });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('uses the portal repository self-solve path and returns the resolved ticket state', async () => {
+    mockedPortal.solveTicket.mockResolvedValue({
+      id: 42,
+      status: 'Resolved',
+      updatedAt: new Date('2026-08-06T12:00:00.000Z'),
+    } as never);
+    const app = await appWithPrincipal();
+    try {
+      const response = await app.inject({ method: 'POST', url: '/portal/tickets/42/solve' });
+      expect(response.statusCode).toBe(200);
+      expect(mockedPortal.solveTicket).toHaveBeenCalledWith(
+        requester,
+        42,
+        'requester:9 (portal)',
+      );
+      expect(response.json()).toEqual({
+        id: 42,
+        status: 'Resolved',
+        updatedAt: '2026-08-06T12:00:00.000Z',
       });
     } finally {
       await app.close();

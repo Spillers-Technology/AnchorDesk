@@ -25,7 +25,8 @@ export type IntegrationKey =
   | "storage"
   | "tickets"
   | "ui"
-  | "portal";
+  | "portal"
+  | "feedback";
 
 export interface SmtpConfig {
   host: string;
@@ -90,6 +91,32 @@ export interface TicketsConfig {
  */
 export interface PortalConfig {
   enabled: boolean;
+  /**
+   * 'own' (default) matches today's shipped behavior exactly, so upgrading
+   * never silently widens what an existing requester can see — same reasoning
+   * as `enabled` itself defaulting off. 'company' widens a requester's reads
+   * to every ticket at their company (see portalRepository.requesterTicketWhere),
+   * bounded by their PortalGrant's effectiveFrom unless they were personally
+   * the requester on an older ticket.
+   */
+  ticketScope: "own" | "company";
+  /** Settled per docs/roadmap-portal-v2.md: some shops sell "your engineer is
+   *  Jess", others protect techs from direct contact. Defaults anonymous — the
+   *  behaviour that ships today. Per-technician opt-in (UserPortalProfile)
+   *  sits underneath this: the admin enables the *capability*, the technician
+   *  controls what is *published about them*. */
+  technicianIdentity: "anonymous" | "named";
+  /** Some shops refuse inbound customer files outright. */
+  allowAttachments: boolean;
+  /** "Mark my case as solved" is not universally wanted. */
+  allowSelfSolve: boolean;
+}
+
+/** CSAT. Off/on both default true — plenty of shops do not want to ask, or
+ *  want to ask elsewhere, but that's a real disagreement, not a safety call. */
+export interface FeedbackConfig {
+  enabled: boolean;
+  promptOnSolve: boolean;
 }
 
 export interface UiConfig {
@@ -117,6 +144,7 @@ const SECRET_FIELDS: Record<IntegrationKey, string[]> = {
   tickets: [],
   ui: [],
   portal: [],
+  feedback: [],
 };
 
 function envDefaults(key: IntegrationKey): Record<string, unknown> {
@@ -140,7 +168,9 @@ function envDefaults(key: IntegrationKey): Record<string, unknown> {
     case "ui":
       return { legacyTableView: false };
     case "portal":
-      return { enabled: false };
+      return { enabled: false, ticketScope: "own", technicianIdentity: "anonymous", allowAttachments: true, allowSelfSolve: true };
+    case "feedback":
+      return { enabled: true, promptOnSolve: true };
   }
 }
 
@@ -174,6 +204,7 @@ export async function seedSettings(): Promise<void> {
     "tickets",
     "ui",
     "portal",
+    "feedback",
   ] as IntegrationKey[]) {
     const existing = await prisma.setting.findUnique({ where: { key } });
     if (!existing) {
@@ -312,7 +343,13 @@ export async function getTickets(): Promise<TicketsConfig> {
 
 export async function getPortal(): Promise<PortalConfig> {
   const v = await load("portal");
-  return { enabled: Boolean(v.enabled ?? false) };
+  return {
+    enabled: Boolean(v.enabled ?? false),
+    ticketScope: v.ticketScope === "company" ? "company" : "own",
+    technicianIdentity: v.technicianIdentity === "named" ? "named" : "anonymous",
+    allowAttachments: Boolean(v.allowAttachments ?? true),
+    allowSelfSolve: Boolean(v.allowSelfSolve ?? true),
+  };
 }
 
 /** Cheap gate for hot paths (auth middleware runs this per request). `load`
@@ -320,6 +357,14 @@ export async function getPortal(): Promise<PortalConfig> {
  *  lookup after first read. */
 export async function isPortalEnabled(): Promise<boolean> {
   return (await getPortal()).enabled;
+}
+
+export async function getFeedback(): Promise<FeedbackConfig> {
+  const v = await load("feedback");
+  return {
+    enabled: Boolean(v.enabled ?? true),
+    promptOnSolve: Boolean(v.promptOnSolve ?? true),
+  };
 }
 
 export async function getUi(): Promise<UiConfig> {

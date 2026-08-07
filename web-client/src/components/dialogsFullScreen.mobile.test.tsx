@@ -16,6 +16,7 @@ import TicketDialog from "./TicketDialog";
 import MergeTicketDialog from "./MergeTicketDialog";
 import { ConnectionEditorDialog, JobEditorDialog } from "./admin/TicketSyncPanel";
 import SyncRunHistoryDialog from "./admin/SyncRunHistoryDialog";
+import { RegistrationDialog } from "./admin/PortalRegistrationsPanel";
 import type { Ticket } from "../interfaces";
 
 vi.mock("../api/client", () => ({
@@ -157,6 +158,31 @@ describe("dialogs at phone width", () => {
             latestRun: null,
           },
         }}
+      />
+    );
+    expect(document.querySelector(".MuiDialog-paperFullScreen")).not.toBeNull();
+  });
+
+  // Portal v2 — an admin approving/rejecting a portal access request from a
+  // phone must get the same full-screen treatment as every other core dialog.
+  it("PortalRegistrationsPanel's RegistrationDialog renders full-screen", () => {
+    renderInTheme(
+      <RegistrationDialog
+        registration={{
+          id: 1,
+          email: "rita@acme.example",
+          companyId: 4,
+          status: "pending",
+          reviewedBy: null,
+          reviewedAt: null,
+          contactId: null,
+          createdAt: "2026-08-01T14:30:00.000Z",
+          company: { id: 4, name: "ACME Manufacturing", domain: "acme.example" },
+          contact: null,
+        }}
+        busy={false}
+        onClose={noop}
+        onReview={async () => {}}
       />
     );
     expect(document.querySelector(".MuiDialog-paperFullScreen")).not.toBeNull();

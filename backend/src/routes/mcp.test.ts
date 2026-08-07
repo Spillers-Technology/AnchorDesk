@@ -38,6 +38,37 @@ jest.mock("../repositories/checklistTemplateRepository", () => ({
   update: jest.fn(),
   remove: jest.fn(),
 }));
+jest.mock("../repositories/ticketFeedbackRepository", () => ({
+  listForTicket: jest.fn(),
+}));
+jest.mock("../repositories/ticketEventRepository", () => ({
+  volumeByDay: jest.fn(),
+  durationPercentiles: jest.fn(),
+  slaCompliance: jest.fn(),
+  backlogAgeBuckets: jest.fn(),
+  throughputByTeam: jest.fn(),
+  feedbackBreakdown: jest.fn(),
+  throughputByAssignee: jest.fn(),
+  timeLoggedByCompany: jest.fn(),
+  ticketSlaTimeline: jest.fn(),
+}));
+jest.mock("../repositories/portalGrantRepository", () => ({
+  listForContact: jest.fn(),
+  grant: jest.fn(),
+  revoke: jest.fn(),
+}));
+jest.mock("../repositories/portalRegistrationRepository", () => ({
+  list: jest.fn(),
+  approve: jest.fn(),
+  reject: jest.fn(),
+  validatedRegistrationStatus: jest.fn((value: unknown) => (
+    typeof value === "string" && ["pending", "approved", "rejected"].includes(value.toLowerCase())
+      ? value.toLowerCase()
+      : null
+  )),
+  PortalRegistrationApprovalError: class PortalRegistrationApprovalError extends Error {},
+}));
+jest.mock("../repositories/companyRepository", () => ({ getContactById: jest.fn() }));
 jest.mock("../repositories/kbArticleRepository", () => ({
   KbArticleValidationError: class KbArticleValidationError extends Error {},
   searchPublishedStaff: jest.fn(),
@@ -55,6 +86,7 @@ jest.mock("../services/mail/ticketMail", () => ({
 jest.mock("../services/mail/SmtpMailTransport", () => ({
   mailTransport: { isConfigured: jest.fn(), send: jest.fn() },
 }));
+jest.mock("../services/auth/portalMagicLinks", () => ({ requestMagicLink: jest.fn() }));
 jest.mock("../middleware/auth", () => ({
   actorFor: (username: string, channel: string) => `${username} (${channel})`,
 }));
@@ -67,10 +99,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as tickets from "../repositories/ticketRepository";
+import * as ticketFeedback from "../repositories/ticketFeedbackRepository";
 import * as notes from "../repositories/noteRepository";
 import * as checklist from "../repositories/checklistRepository";
 import * as checklistTemplates from "../repositories/checklistTemplateRepository";
+import * as portalRegistrations from "../repositories/portalRegistrationRepository";
 import * as kbArticles from "../repositories/kbArticleRepository";
+import * as reports from "../repositories/ticketEventRepository";
 import { buildMcpServer, MCP_SERVER_VERSION } from "./mcp";
 
 type ToolCallResult = {
@@ -111,6 +146,13 @@ const mockedKb = {
   update: kbArticles.update as jest.Mock,
   remove: kbArticles.remove as jest.Mock,
 };
+const mockedFeedback = ticketFeedback.listForTicket as jest.Mock;
+const mockedFeedbackReport = reports.feedbackBreakdown as jest.Mock;
+const mockedPortalRegistrations = {
+  list: portalRegistrations.list as jest.Mock,
+  approve: portalRegistrations.approve as jest.Mock,
+  reject: portalRegistrations.reject as jest.Mock,
+};
 
 async function connect(role: UserRole = "admin") {
   const server = buildMcpServer(actor, 7, role);
@@ -138,11 +180,22 @@ function resultText(result: ToolCallResult) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockedTickets.getById.mockResolvedValue({ id: 42, title: "Test ticket" });
+  mockedFeedback.mockResolvedValue([]);
   mockedChecklist.listForTicket.mockResolvedValue([]);
   mockedTemplates.list.mockResolvedValue([]);
   mockedKb.searchPublishedStaff.mockResolvedValue([]);
   mockedKb.listPublishedForStaff.mockResolvedValue([]);
   mockedKb.listForAuthors.mockResolvedValue([]);
+  mockedFeedbackReport.mockResolvedValue({
+    data: [],
+    meta: {
+      from: new Date("2026-07-01T00:00:00.000Z"),
+      to: new Date("2026-08-01T00:00:00.000Z"),
+      includesReconstructed: false,
+      reconstructedFrom: null,
+      reconstructedThrough: null,
+    },
+  });
 });
 
 afterEach(async () => {
@@ -154,6 +207,61 @@ afterEach(async () => {
 });
 
 describe("MCP checklist protocol surface", () => {
+  it("advertises and calls the read-only customer feedback report", async () => {
+    const client = await connect("technician");
+    const { tools } = await client.listTools();
+    const feedback = tools.find((tool) => tool.name === "report_feedback");
+    expect(feedback?.annotations?.readOnlyHint).toBe(true);
+    expect(feedback?.inputSchema.properties).toEqual(expect.objectContaining({
+      from: expect.any(Object),
+      to: expect.any(Object),
+      companyId: expect.any(Object),
+      teamId: expect.any(Object),
+      assigneeId: expect.any(Object),
+    }));
+
+    const result = await call(client, "report_feedback", {
+      from: "2026-07-01T00:00:00.000Z",
+      to: "2026-08-01T00:00:00.000Z",
+      companyId: 3,
+    });
+    expect(result.isError).toBeUndefined();
+    expect(mockedFeedbackReport).toHaveBeenCalledWith({
+      from: new Date("2026-07-01T00:00:00.000Z"),
+      to: new Date("2026-08-01T00:00:00.000Z"),
+      companyId: 3,
+      teamId: undefined,
+      assigneeId: undefined,
+    });
+  });
+
+  it("advertises the portal registration queue and enforces its admin boundary", async () => {
+    const admin = await connect("admin");
+    const { tools } = await admin.listTools();
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+    expect([...byName.keys()]).toEqual(expect.arrayContaining([
+      "list_portal_registrations",
+      "approve_portal_registration",
+      "reject_portal_registration",
+    ]));
+    expect(byName.get("list_portal_registrations")?.annotations?.readOnlyHint).toBe(true);
+    expect(byName.get("reject_portal_registration")?.annotations?.destructiveHint).toBe(true);
+
+    mockedPortalRegistrations.list.mockResolvedValue([{ id: 7, status: "pending" }]);
+    const listed = await call(admin, "list_portal_registrations", { status: "PENDING" });
+    expect(listed.isError).toBeUndefined();
+    expect(mockedPortalRegistrations.list).toHaveBeenCalledWith("pending");
+
+    mockedPortalRegistrations.approve.mockResolvedValue({ id: 7, email: "rita@example.com" });
+    await call(admin, "approve_portal_registration", { registrationId: 7 });
+    expect(mockedPortalRegistrations.approve).toHaveBeenCalledWith(7, actor);
+
+    const technician = await connect("technician");
+    const denied = await call(technician, "approve_portal_registration", { registrationId: 7 });
+    expect(denied.isError).toBe(true);
+    expect(resultText(denied)).toContain("Requires role: admin");
+  });
+
   it("preserves portal provenance in get_ticket and list_tickets", async () => {
     const portalTicket = {
       id: 42,
@@ -177,6 +285,7 @@ describe("MCP checklist protocol surface", () => {
     const listed = JSON.parse(resultText(await call(client, "list_tickets", {})));
 
     expect(detail.ticket.source).toBe("portal");
+    expect(detail.feedback).toEqual([]);
     expect(listed.items[0].source).toBe("portal");
   });
 

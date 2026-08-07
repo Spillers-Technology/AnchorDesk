@@ -23,6 +23,7 @@ describe("portal API", () => {
   it("verifies the magic secret through a JSON POST, never a query string", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({
       requester: { displayName: "Maya Chen", email: "maya@example.com" },
+      config: { feedbackEnabled: true, promptOnSolve: true, allowSelfSolve: true },
     }));
     vi.stubGlobal("fetch", fetchMock);
 

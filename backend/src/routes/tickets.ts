@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as ticketRepo from '../repositories/ticketRepository';
+import * as ticketFeedbackRepo from '../repositories/ticketFeedbackRepository';
 import * as noteRepo from '../repositories/noteRepository';
 import * as audit from '../repositories/auditRepository';
 import * as twoWaySync from '../services/twoWaySync';
@@ -53,7 +54,7 @@ const PUBLIC_TICKET_CREATE_FIELD_SET: ReadonlySet<string> = new Set(PUBLIC_TICKE
  * Provider ids, author identity, direction, time entries, and email threading
  * are owned by their dedicated ingestion/mail/time paths.
  */
-const PUBLIC_NOTE_CREATE_FIELDS = ['content', 'htmlContent', 'noteType'] as const;
+const PUBLIC_NOTE_CREATE_FIELDS = ['content', 'htmlContent', 'noteType', 'visibility'] as const;
 const PUBLIC_NOTE_CREATE_FIELD_SET: ReadonlySet<string> = new Set(PUBLIC_NOTE_CREATE_FIELDS);
 const PUBLIC_NOTE_UPDATE_FIELDS = ['content', 'htmlContent', 'minutes', 'timeStart', 'timeStop', 'workedAt'] as const;
 const PUBLIC_NOTE_UPDATE_FIELD_SET: ReadonlySet<string> = new Set(PUBLIC_NOTE_UPDATE_FIELDS);
@@ -62,6 +63,7 @@ interface PublicNoteCreateInput {
   content?: string;
   htmlContent?: string;
   noteType?: 'note' | 'internal';
+  visibility?: 'internal' | 'public';
 }
 
 function positiveInteger(raw: string | undefined, fallback: number): number | null {
@@ -144,6 +146,9 @@ function validatePublicNoteCreateInput(value: unknown): string | null {
   }
   if (value.noteType !== undefined && value.noteType !== 'note' && value.noteType !== 'internal') {
     return 'noteType must be note or internal';
+  }
+  if (value.visibility !== undefined && value.visibility !== 'internal' && value.visibility !== 'public') {
+    return 'visibility must be internal or public';
   }
   return null;
 }
@@ -299,9 +304,12 @@ export async function ticketRoutes(server: FastifyInstance) {
   server.get('/tickets/:id', async (req: FastifyRequest<{ Params: IdParam }>, reply: FastifyReply) => {
     const id = parseId(req.params.id);
     if (id === null) return reply.status(400).send({ error: 'invalid ticket id' });
-    const ticket = await ticketRepo.getById(id);
+    const [ticket, feedback] = await Promise.all([
+      ticketRepo.getById(id),
+      ticketFeedbackRepo.listForTicket(id),
+    ]);
     if (!ticket) return reply.status(404).send({ error: 'Ticket not found' });
-    return reply.send(ticket);
+    return reply.send({ ...ticket, feedback });
   });
 
   // Create ticket
@@ -548,6 +556,11 @@ export async function ticketRoutes(server: FastifyInstance) {
     const content = body.content?.trim() || (htmlContent ? htmlToText(htmlContent) : '');
     if (!content) return reply.status(400).send({ error: 'content is required' });
 
+    // A note is internal unless someone deliberately publishes it — the
+    // failure mode (an unpublish-able note reaching a customer) is
+    // unrecoverable, so the default stays safe even for callers that don't
+    // know about `visibility` yet (older API/PAT scripts, etc).
+    const visibility = body.visibility ?? 'internal';
     const note = await noteRepo.create(
       id,
       {
@@ -556,17 +569,17 @@ export async function ticketRoutes(server: FastifyInstance) {
         noteType: body.noteType ?? 'note',
         author: req.user?.displayName ?? req.actorSub,
         authorId: req.user?.id ?? undefined,
-        queueForTicketSync: (body.noteType ?? 'note') === 'note',
-        visibility: (body.noteType ?? 'note') === 'note' ? 'public' : 'internal',
+        queueForTicketSync: visibility === 'public',
+        visibility,
         via: req.authChannel,
       },
       req.actorSub
     );
 
-    // Only customer-visible conversation notes cross into Jira/ConnectWise.
-    // Internal notes can contain scripts, automation output, or technician-only
-    // context and must remain local.
-    if (note.noteType === 'note') {
+    // Only customer-visible notes cross into Jira/ConnectWise — visibility is
+    // the real signal now, not noteType (an internal 'note'-type note can
+    // contain technician-only context and must stay local).
+    if (note.visibility === 'public') {
       void twoWaySync
         .pushNoteOut(id, note.id)
         .catch((err) => req.log.warn(

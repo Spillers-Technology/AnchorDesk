@@ -16,6 +16,9 @@ import {
   TextField,
   Stack,
   Alert,
+  Avatar,
+  FormControlLabel,
+  Switch,
 } from "@mui/material";
 import { useEffect } from "react";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
@@ -24,6 +27,7 @@ import LockIcon from "@mui/icons-material/Lock";
 import SecurityIcon from "@mui/icons-material/Security";
 import DrawIcon from "@mui/icons-material/Draw";
 import PaletteIcon from "@mui/icons-material/Palette";
+import BadgeIcon from "@mui/icons-material/Badge";
 import KeyIcon from "@mui/icons-material/Key";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
@@ -49,6 +53,7 @@ export default function AccountMenu() {
   const [sigOpen, setSigOpen] = useState(false);
   const [tokOpen, setTokOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
+  const [portalProfileOpen, setPortalProfileOpen] = useState(false);
 
   if (!user) return null;
   const close = () => setAnchor(null);
@@ -88,6 +93,10 @@ export default function AccountMenu() {
           <ListItemIcon><PaletteIcon fontSize="small" /></ListItemIcon>
           Appearance
         </MenuItem>
+        <MenuItem onClick={() => { setPortalProfileOpen(true); close(); }}>
+          <ListItemIcon><BadgeIcon fontSize="small" /></ListItemIcon>
+          Portal profile
+        </MenuItem>
         <MenuItem onClick={() => { close(); logout(); }}>
           <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
           Sign out
@@ -106,7 +115,100 @@ export default function AccountMenu() {
       {sigOpen && <SignatureDialog onClose={() => setSigOpen(false)} />}
       {tokOpen && <ApiTokensDialog onClose={() => setTokOpen(false)} />}
       {themeOpen && <AppearanceDialog onClose={() => setThemeOpen(false)} />}
+      {portalProfileOpen && <PortalProfileDialog onClose={() => setPortalProfileOpen(false)} />}
     </>
+  );
+}
+
+function PortalProfileDialog({ onClose }: { onClose: () => void }) {
+  const [profile, setProfile] = useState<api.PortalProfile | null>(null);
+  const [displayName, setDisplayName] = useState("");
+  const [publicEmail, setPublicEmail] = useState("");
+  const [publicPhone, setPublicPhone] = useState("");
+  const [optedIn, setOptedIn] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.getMyPortalProfile()
+      .then((loaded) => {
+        setProfile(loaded);
+        setDisplayName(loaded.displayName || "");
+        setPublicEmail(loaded.publicEmail || "");
+        setPublicPhone(loaded.publicPhone || "");
+        setOptedIn(loaded.optedIn);
+      })
+      .catch((error) => setMessage({ ok: false, text: errText(error) }));
+  }, []);
+
+  const save = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const saved = await api.setMyPortalProfile({
+        displayName: displayName.trim() || null,
+        publicEmail: publicEmail.trim() || null,
+        publicPhone: publicPhone.trim() || null,
+        optedIn,
+      });
+      setProfile(saved);
+      setMessage({ ok: true, text: "Portal profile saved." });
+    } catch (error) {
+      setMessage({ ok: false, text: errText(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uploadAvatar = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const saved = await api.uploadMyPortalProfileAvatar(file);
+      setProfile(saved);
+      setMessage({ ok: true, text: "Portal avatar uploaded." });
+    } catch (error) {
+      setMessage({ ok: false, text: errText(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle>Portal profile</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          {message && <Alert severity={message.ok ? "success" : "error"}>{message.text}</Alert>}
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            Share these details only when you opt in and your administrator enables named technician identities.
+            Your sign-in email is never published automatically.
+          </Typography>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
+            <Avatar src={profile?.avatarUrl || undefined} sx={{ width: 48, height: 48 }} />
+            <Button component="label" variant="outlined" disabled={busy} sx={{ minHeight: 44 }}>
+              Upload avatar
+              <input hidden type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={uploadAvatar} />
+            </Button>
+          </Stack>
+          <FormControlLabel
+            control={<Switch checked={optedIn} onChange={(event) => setOptedIn(event.target.checked)} />}
+            label="Show my name and avatar to portal customers"
+            sx={{ alignItems: "flex-start", ml: 0 }}
+          />
+          <TextField label="Display name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} slotProps={{ htmlInput: { maxLength: 150 } }} fullWidth />
+          <TextField label="Public email" type="email" value={publicEmail} onChange={(event) => setPublicEmail(event.target.value)} slotProps={{ htmlInput: { maxLength: 255 } }} fullWidth />
+          <TextField label="Public phone" value={publicPhone} onChange={(event) => setPublicPhone(event.target.value)} slotProps={{ htmlInput: { maxLength: 50 } }} fullWidth />
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+        <Button variant="contained" disabled={busy || !profile} onClick={save}>Save</Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 

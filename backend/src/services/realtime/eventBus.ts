@@ -69,6 +69,12 @@ export type DomainEvent =
       metricContext?: TicketMetricContext;
     }
   | {
+      type: 'feedback.submitted';
+      ticketId: number;
+      feedback: unknown;
+      actor: string;
+    }
+  | {
       type: 'sla.atRisk';
       ticketId: number;
       level: 'warning' | 'breached';

@@ -26,6 +26,9 @@ jest.mock('../db/prisma', () => ({
       findUnique: jest.fn(),
       deleteMany: jest.fn(),
     },
+    portalGrant: {
+      findFirst: jest.fn(),
+    },
   },
 }));
 jest.mock('./auditRepository', () => ({
@@ -45,6 +48,7 @@ const db = prisma as unknown as {
   $transaction: jest.Mock;
   $queryRaw: jest.Mock;
   portalMagicLink: { findUnique: jest.Mock; deleteMany: jest.Mock };
+  portalGrant: { findFirst: jest.Mock };
 };
 const recordAudit = audit.record as jest.Mock;
 
@@ -98,6 +102,7 @@ describe('portal auth repository', () => {
     });
     mockTx.contact.findUnique.mockResolvedValue(contact);
     mockTx.session.create.mockResolvedValue({ id: 'session' });
+    db.portalGrant.findFirst.mockResolvedValue({ id: 1 });
     recordAudit.mockResolvedValue(undefined);
   });
 
@@ -107,6 +112,32 @@ describe('portal auth repository', () => {
       findUniqueRequesterByEmail('rita@example.com'),
     ).resolves.toBeNull();
     expect(db.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(db.portalGrant.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('resolves the requester when exactly one match holds an active grant', async () => {
+    db.$queryRaw.mockResolvedValue([contact]);
+    await expect(
+      findUniqueRequesterByEmail('rita@example.com'),
+    ).resolves.toEqual({
+      kind: 'requester',
+      contactId: contact.id,
+      companyId: contact.companyId,
+      name: contact.name,
+      email: contact.email,
+    });
+    expect(db.portalGrant.findFirst).toHaveBeenCalledWith({
+      where: { contactId: contact.id, revokedAt: null },
+      select: { id: true },
+    });
+  });
+
+  it('fails closed when the uniquely-matched Contact has no active portal grant', async () => {
+    db.$queryRaw.mockResolvedValue([contact]);
+    db.portalGrant.findFirst.mockResolvedValue(null);
+    await expect(
+      findUniqueRequesterByEmail('rita@example.com'),
+    ).resolves.toBeNull();
   });
 
   it('stores only selector/verifier hashes in a short-lived row', async () => {

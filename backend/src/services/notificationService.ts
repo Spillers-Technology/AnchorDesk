@@ -42,6 +42,18 @@ async function handle(event: DomainEvent): Promise<void> {
       await notify(info.assigneeId, isReply ? 'reply' : 'note', `${label} on #${event.ticketId}`, event.ticketId, info.title);
       break;
     }
+    case 'feedback.submitted': {
+      const info = await ticketAssignee(event.ticketId);
+      if (!info?.assigneeId) break;
+      await notify(
+        info.assigneeId,
+        'feedback',
+        `New customer feedback on #${event.ticketId}`,
+        event.ticketId,
+        info.title,
+      );
+      break;
+    }
     case 'sla.atRisk': {
       const info = await ticketAssignee(event.ticketId);
       if (!info?.assigneeId) break;

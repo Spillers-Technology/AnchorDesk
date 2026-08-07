@@ -19,7 +19,7 @@ import {
 } from '../services/auth/sessions';
 import { revokePortalSession } from '../repositories/portalAuthRepository';
 import { actorFor } from '../middleware/auth';
-import { isPortalEnabled } from '../services/settingsService';
+import { getFeedback, getPortal, isPortalEnabled } from '../services/settingsService';
 
 export const MAGIC_LINK_GENERIC_RESPONSE = {
   ok: true,
@@ -32,6 +32,12 @@ export interface PublicRequesterIdentity {
   email: string;
 }
 
+export interface PortalClientConfig {
+  feedbackEnabled: boolean;
+  promptOnSolve: boolean;
+  allowSelfSolve: boolean;
+}
+
 /** Explicit portal identity allowlist; contact/company ids stay server-side. */
 export function toPublicRequesterIdentity(
   requester: RequesterPrincipal,
@@ -42,7 +48,17 @@ export function toPublicRequesterIdentity(
   };
 }
 
-function bodyKey(
+/** Authenticated portal bootstrap config; deliberately no anonymous endpoint. */
+async function portalClientConfig(): Promise<PortalClientConfig> {
+  const [portal, feedback] = await Promise.all([getPortal(), getFeedback()]);
+  return {
+    feedbackEnabled: feedback.enabled,
+    promptOnSolve: feedback.promptOnSolve,
+    allowSelfSolve: portal.allowSelfSolve,
+  };
+}
+
+export function bodyKey(
   prefix: string,
   value: unknown,
   caseInsensitive = false,
@@ -164,6 +180,7 @@ export async function portalAuthRoutes(server: FastifyInstance) {
       );
       return reply.send({
         requester: toPublicRequesterIdentity(redeemed.requester),
+        config: await portalClientConfig(),
       });
     },
   );
@@ -178,6 +195,7 @@ export async function portalAuthRoutes(server: FastifyInstance) {
       }
       return reply.send({
         requester: toPublicRequesterIdentity(requester),
+        config: await portalClientConfig(),
       });
     },
   );

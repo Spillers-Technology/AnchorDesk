@@ -25,12 +25,14 @@ import { mcpRoutes } from './routes/mcp';
 import { oauthRoutes } from './routes/oauth';
 import { authRoutes } from './routes/auth';
 import { portalAuthRoutes } from './routes/portalAuth';
+import { portalRegistrationRoutes } from './routes/portalRegistration';
 import { portalRoutes } from './routes/portal';
 import { apiTokenRoutes } from './routes/apiTokens';
 import { userRoutes } from './routes/users';
 import { integrationRoutes } from './routes/integrations';
 import { uiSettingsRoutes } from './routes/uiSettings';
 import { portalSettingsRoutes } from './routes/portalSettings';
+import { feedbackSettingsRoutes } from './routes/feedbackSettings';
 import { adminRoutes } from './routes/admin';
 import { companyRoutes } from './routes/companies';
 import { registerAuthHook } from './middleware/auth';
@@ -106,6 +108,7 @@ async function start() {
   server.register(authRoutes);
   // Requester magic-link auth + scoped Contact sessions.
   server.register(portalAuthRoutes);
+  server.register(portalRegistrationRoutes);
   // Requester-owned ticket activity; this plugin has a separate principal guard
   // and an encapsulated no-store response boundary.
   server.register(portalRoutes);
@@ -120,6 +123,7 @@ async function start() {
   // Interface preferences (read by all authed users; written by admins).
   server.register(uiSettingsRoutes);
   server.register(portalSettingsRoutes);
+  server.register(feedbackSettingsRoutes);
   // Admin: console overview + audit-log viewer.
   server.register(adminRoutes);
 

@@ -279,6 +279,11 @@ export async function reportRoutes(server: FastifyInstance) {
     staffOnly,
     aggregate(reports.throughputByTeam),
   );
+  server.get(
+    '/reports/feedback',
+    staffOnly,
+    aggregate(reports.feedbackBreakdown),
+  );
 
   server.get(
     '/reports/throughput/assignee',

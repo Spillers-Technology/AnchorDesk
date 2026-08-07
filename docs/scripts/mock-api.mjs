@@ -109,6 +109,12 @@ const portalTickets = [
         htmlContent: null,
         direction: "outbound",
         authorKind: "support",
+        // Exercises the Phase 5 named-technician rendering (portal.technicianIdentity
+        // = named, opted-in): a small inline SVG avatar so the mobile capture proves
+        // real layout, not just a URL that resolves elsewhere.
+        authorName: "Jess",
+        authorAvatarUrl:
+          "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCI+PHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4IiBmaWxsPSIjNGY0NmU1Ii8+PHRleHQgeD0iNTAlIiB5PSI1NSUiIGZvbnQtc2l6ZT0iMjIiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIj5KPC90ZXh0Pjwvc3ZnPg==",
         createdAt: daysFromNow(0, 10, 35),
       },
     ],
@@ -1429,6 +1435,23 @@ function assigneeThroughputReport(context) {
     .map((row) => ({ ...row, resolved: scaledCount(row.resolved, scale) }));
 }
 
+function feedbackReportData(context) {
+  const scale = reportScale(context, ["companyId", "teamId", "assigneeId"]);
+  const rows = [
+    { companyId: 1, companyName: "ACME Manufacturing", positive: 12, neutral: 3, negative: 1 },
+    { companyId: 2, companyName: "Northwind Clinic", positive: 6, neutral: 2, negative: 4 },
+    { companyId: null, companyName: null, positive: 1, neutral: 0, negative: 0 },
+  ];
+  return rows
+    .filter((row) => context.companyId === undefined || row.companyId === context.companyId)
+    .map((row) => ({
+      ...row,
+      positive: scaledCount(row.positive, scale),
+      neutral: scaledCount(row.neutral, scale),
+      negative: scaledCount(row.negative, scale),
+    }));
+}
+
 function companyTimeReport(context) {
   const scale = reportScale(context, ["companyId"]);
   const rows = [
@@ -1770,8 +1793,12 @@ export async function handleApi(route) {
   }
   if (debugCapture) console.log(`API ${method} ${apiPath}`);
 
+  // Phase 6 feature gates included with the authenticated portal bootstrap —
+  // captured "on" so the feedback widget and solve button are exercised by
+  // the mobile matrix, not left in an untested hidden state.
+  const portalClientConfig = { feedbackEnabled: true, promptOnSolve: true, allowSelfSolve: true };
   if (method === "GET" && apiPath === "/portal/auth/me") {
-    return json(route, { requester: portalRequester });
+    return json(route, { requester: portalRequester, config: portalClientConfig });
   }
   if (method === "POST" && apiPath === "/portal/auth/magic-link") {
     return json(
@@ -1783,8 +1810,14 @@ export async function handleApi(route) {
       202
     );
   }
+  if (method === "POST" && apiPath === "/portal/register") {
+    return json(route, {
+      ok: true,
+      message: "Check your email for an update on your portal access request.",
+    }, 202);
+  }
   if (method === "POST" && apiPath === "/portal/auth/verify") {
-    return json(route, { requester: portalRequester });
+    return json(route, { requester: portalRequester, config: portalClientConfig });
   }
   if (method === "POST" && apiPath === "/portal/auth/logout") {
     return json(route, { ok: true });
@@ -1863,6 +1896,27 @@ export async function handleApi(route) {
       201
     );
   }
+  portalMatch = apiPath.match(/^\/portal\/tickets\/(\d+)\/feedback$/);
+  if (method === "POST" && portalMatch) {
+    return json(
+      route,
+      {
+        id: 9001,
+        rating: body.rating,
+        comment: body.comment ?? null,
+        submittedAt: new Date().toISOString(),
+      },
+      201
+    );
+  }
+  portalMatch = apiPath.match(/^\/portal\/tickets\/(\d+)\/solve$/);
+  if (method === "POST" && portalMatch) {
+    return json(route, {
+      id: Number(portalMatch[1]),
+      status: "Resolved",
+      updatedAt: new Date().toISOString(),
+    });
+  }
   portalMatch = apiPath.match(/^\/portal\/tickets\/(\d+)\/attachments$/);
   if (method === "POST" && portalMatch) {
     return json(
@@ -1891,8 +1945,27 @@ export async function handleApi(route) {
   if (method === "GET" && apiPath === "/ui-settings") return json(route, { legacyTableView: false });
   // Captured in its default state: off is what a fresh install actually looks
   // like, and the panel's warning copy differs between the two.
-  if (method === "GET" && apiPath === "/portal-settings") return json(route, { enabled: false });
-  if (method === "PATCH" && apiPath === "/portal-settings") return json(route, { enabled: true });
+  const defaultPortalSettings = { enabled: false, ticketScope: "own", technicianIdentity: "anonymous", allowAttachments: true, allowSelfSolve: true };
+  if (method === "GET" && apiPath === "/portal-settings") return json(route, defaultPortalSettings);
+  if (method === "PATCH" && apiPath === "/portal-settings") return json(route, { ...defaultPortalSettings, enabled: true });
+  const portalRegistrations = [{
+    id: 7301,
+    email: "rita@acme.example",
+    companyId: 101,
+    status: "pending",
+    reviewedBy: null,
+    reviewedAt: null,
+    contactId: null,
+    createdAt: "2026-08-01T14:30:00.000Z",
+    company: { id: 101, name: "ACME Manufacturing", domain: "acme.example" },
+    contact: null,
+  }];
+  if (method === "GET" && apiPath === "/portal-registrations") return json(route, portalRegistrations);
+  if (method === "POST" && /^\/portal-registrations\/\d+\/(approve|reject)$/.test(apiPath)) {
+    return json(route, { ...portalRegistrations[0], status: apiPath.endsWith("/approve") ? "approved" : "rejected" });
+  }
+  if (method === "GET" && apiPath === "/feedback-settings") return json(route, { enabled: true, promptOnSolve: true });
+  if (method === "PATCH" && apiPath === "/feedback-settings") return json(route, { enabled: true, promptOnSolve: true });
 
   const reportPaths = new Set([
     "/reports/volume",
@@ -1901,6 +1974,7 @@ export async function handleApi(route) {
     "/reports/backlog-age",
     "/reports/throughput/team",
     "/reports/throughput/assignee",
+    "/reports/feedback",
     "/reports/time-by-company",
     "/reports/time-by-company.csv",
   ]);
@@ -1932,6 +2006,21 @@ export async function handleApi(route) {
     }
     if (apiPath === "/reports/throughput/assignee") {
       return json(route, { data: assigneeThroughputReport(context), meta: context.meta });
+    }
+    if (apiPath === "/reports/feedback") {
+      // Unlike the event-sourced metrics above, customer feedback is
+      // boot-day-forward only (see backend's feedbackBreakdown()) and never
+      // carries the reconstructed-history banner.
+      return json(route, {
+        data: feedbackReportData(context),
+        meta: {
+          from: context.meta.from,
+          to: context.meta.to,
+          includesReconstructed: false,
+          reconstructedFrom: null,
+          reconstructedThrough: null,
+        },
+      });
     }
     if (apiPath === "/reports/time-by-company") {
       return json(route, { data: companyTimeReport(context), meta: context.meta });

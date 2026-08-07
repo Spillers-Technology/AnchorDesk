@@ -21,7 +21,12 @@ import { isPlainRecord } from '../util/objects';
 import * as twoWaySync from '../services/twoWaySync';
 import { sanitizeSyncError } from '../repositories/syncRunRepository';
 import { RequesterIdentityChangedError } from '../repositories/ticketRepository';
-import { isPortalEnabled } from '../services/settingsService';
+import {
+  getFeedback,
+  getPortal,
+  isPortalEnabled,
+} from '../services/settingsService';
+import { normalizeFeedbackRating } from '../services/portalVocab';
 
 interface IdParam {
   id: string;
@@ -92,6 +97,26 @@ function commentBody(value: unknown): { content: string } | string {
   return { content: value.content.trim() };
 }
 
+function feedbackBody(value: unknown): { rating: string; comment?: string } | string {
+  if (!isPlainRecord(value)) return 'request body must be an object';
+  const allowed = new Set(['rating', 'comment']);
+  const unsupported = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unsupported.length) return `unsupported field${unsupported.length === 1 ? '' : 's'}: ${unsupported.join(', ')}`;
+  if (typeof value.rating !== 'string') return 'rating is required';
+  const rating = normalizeFeedbackRating(value.rating);
+  if (!rating) return 'rating must be one of: positive, neutral, negative';
+  if (value.comment !== undefined && typeof value.comment !== 'string') return 'comment must be a string';
+  if (typeof value.comment === 'string' && value.comment.length > 10_000) {
+    return 'comment must be at most 10000 characters';
+  }
+  return {
+    rating,
+    ...(typeof value.comment === 'string' && value.comment.trim()
+      ? { comment: value.comment.trim() }
+      : {}),
+  };
+}
+
 export async function portalRoutes(server: FastifyInstance) {
   // Release gate: while the customer portal is switched off (the default) these
   // routes do not exist. 404 rather than 403 on purpose — an anonymous prober
@@ -142,8 +167,9 @@ export async function portalRoutes(server: FastifyInstance) {
     }
     const pageSize = Math.min(requestedPageSize, 50);
     const result = await portalRepository.listTickets(principal, { page, pageSize });
+    const portalConfig = await getPortal();
     return reply.send({
-      items: result.items.map(serializePortalTicket),
+      items: result.items.map((ticket) => serializePortalTicket(ticket, portalConfig)),
       total: result.total,
       page: result.page,
       pageSize: result.pageSize,
@@ -180,7 +206,7 @@ export async function portalRoutes(server: FastifyInstance) {
     if (ticketId === null) return reply.status(400).send({ error: 'invalid ticket id' });
     const ticket = await portalRepository.getTicket(requester(req), ticketId);
     if (!ticket) return reply.status(404).send({ error: 'Ticket not found' });
-    return reply.send(serializePortalTicket(ticket));
+    return reply.send(serializePortalTicket(ticket, await getPortal()));
   });
 
   server.post<{ Params: IdParam }>(
@@ -211,7 +237,55 @@ export async function portalRoutes(server: FastifyInstance) {
           'portal note push-out failed',
         );
       });
-      return reply.status(201).send(serializePortalNote(note));
+      return reply.status(201).send(serializePortalNote(note, await getPortal()));
+    },
+  );
+
+  server.post<{ Params: IdParam }>(
+    '/portal/tickets/:id/feedback',
+    requesterOnly,
+    async (req, reply) => {
+      if (!(await getFeedback()).enabled) {
+        return reply.status(404).send({ error: 'Not found' });
+      }
+      const ticketId = parseId(req.params.id);
+      if (ticketId === null) return reply.status(400).send({ error: 'invalid ticket id' });
+      const body = feedbackBody(req.body);
+      if (typeof body === 'string') return reply.status(400).send({ error: body });
+      const principal = requester(req);
+      const feedback = await portalRepository.submitFeedback(
+        principal,
+        ticketId,
+        body,
+        actorForRequester(principal),
+      );
+      if (!feedback) return reply.status(404).send({ error: 'Ticket not found' });
+      return reply.status(201).send({
+        id: feedback.id,
+        rating: feedback.rating,
+        comment: feedback.comment,
+        submittedAt: feedback.submittedAt,
+      });
+    },
+  );
+
+  server.post<{ Params: IdParam }>(
+    '/portal/tickets/:id/solve',
+    requesterOnly,
+    async (req, reply) => {
+      if (!(await getPortal()).allowSelfSolve) {
+        return reply.status(404).send({ error: 'Not found' });
+      }
+      const ticketId = parseId(req.params.id);
+      if (ticketId === null) return reply.status(400).send({ error: 'invalid ticket id' });
+      const principal = requester(req);
+      const ticket = await portalRepository.solveTicket(
+        principal,
+        ticketId,
+        actorForRequester(principal),
+      );
+      if (!ticket) return reply.status(404).send({ error: 'Ticket not found' });
+      return reply.send({ id: ticket.id, status: ticket.status, updatedAt: ticket.updatedAt });
     },
   );
 

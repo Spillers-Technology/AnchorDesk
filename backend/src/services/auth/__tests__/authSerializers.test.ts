@@ -119,8 +119,10 @@ describe('auth public-path guard', () => {
   it('makes only POST portal login handshakes public', () => {
     expect(isPublic('/portal/auth/magic-link', 'POST')).toBe(true);
     expect(isPublic('/portal/auth/verify?unused=x', 'POST')).toBe(true);
+    expect(isPublic('/portal/register', 'POST')).toBe(true);
     expect(isPublic('/portal/auth/magic-link', 'GET')).toBe(false);
     expect(isPublic('/portal/auth/verify', 'GET')).toBe(false);
+    expect(isPublic('/portal/register', 'GET')).toBe(false);
     expect(isPublic('/portal/auth/me', 'GET')).toBe(false);
     expect(isPublic('/portal/auth/logout', 'POST')).toBe(false);
   });
@@ -132,6 +134,7 @@ describe('portal session positive route allowlist', () => {
     ['POST', '/portal/auth/verify'],
     ['GET', '/portal/auth/me'],
     ['POST', '/portal/auth/logout'],
+    ['POST', '/portal/register'],
     ['GET', '/portal/tickets'],
     ['POST', '/portal/tickets'],
     ['GET', '/portal/tickets/42'],

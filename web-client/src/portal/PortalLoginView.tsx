@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { Link as RouterLink } from "react-router-dom";
 import {
   Alert,
   Box,
@@ -121,6 +122,9 @@ export default function PortalLoginView({ notice }: { notice?: string | null }) 
                     We use your contact email to find your requests. AnchorDesk does not store a
                     portal password.
                   </Typography>
+                  <Button component={RouterLink} to="/register" size="small" sx={{ alignSelf: "center", minHeight: 44 }}>
+                    Need access? Request it here
+                  </Button>
                 </Stack>
               </Box>
             )}

@@ -3,6 +3,8 @@
 // the default-off behaviour.
 jest.mock('../services/settingsService', () => ({
   isPortalEnabled: jest.fn().mockResolvedValue(true),
+  getPortal: jest.fn().mockResolvedValue({ allowSelfSolve: true }),
+  getFeedback: jest.fn().mockResolvedValue({ enabled: true, promptOnSolve: true }),
 }));
 
 jest.mock('../services/auth/portalMagicLinks', () => ({
@@ -185,7 +187,7 @@ describe('portal auth routes', () => {
     expect(JSON.stringify(publicIdentity)).not.toContain('future-secret');
   });
 
-  it('sets a 24-hour portal cookie and returns only public identity on verify', async () => {
+  it('sets a 24-hour portal cookie and returns public identity plus the authenticated portal feature gates on verify', async () => {
     redeemMagicLink.mockResolvedValue({
       requester,
       sessionToken: 'new-session-token',
@@ -203,6 +205,7 @@ describe('portal auth routes', () => {
         displayName: 'Rita Requester',
         email: 'rita@example.com',
       },
+      config: { feedbackEnabled: true, promptOnSolve: true, allowSelfSolve: true },
     });
     expect(setSessionCookie).toHaveBeenCalledWith(
       expect.anything(),
@@ -240,7 +243,7 @@ describe('portal auth routes', () => {
     expect(setSessionCookie).not.toHaveBeenCalled();
   });
 
-  it('returns only the public identity from the authenticated me endpoint', async () => {
+  it('returns the public identity and portal feature gates from the authenticated me endpoint', async () => {
     requestPrincipal = requester;
 
     const response = await app.inject({
@@ -254,6 +257,7 @@ describe('portal auth routes', () => {
         displayName: 'Rita Requester',
         email: 'rita@example.com',
       },
+      config: { feedbackEnabled: true, promptOnSolve: true, allowSelfSolve: true },
     });
   });
 

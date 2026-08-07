@@ -15,12 +15,21 @@ export interface PortalRequesterPrincipal extends PortalRequesterDto {
   readonly kind: "requester";
 }
 
+/** Feature gates included with the authenticated requester bootstrap. */
+export interface PortalClientConfig {
+  feedbackEnabled: boolean;
+  promptOnSolve: boolean;
+  allowSelfSolve: boolean;
+}
+
 export interface PortalNote {
   id: number;
   content: string;
   htmlContent: string | null;
   direction: string | null;
   authorKind: "you" | "support";
+  authorName: string | null;
+  authorAvatarUrl: string | null;
   createdAt: string;
 }
 

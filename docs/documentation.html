@@ -540,7 +540,7 @@
   <div class="wrap topbar">
     <a class="brand" href="index.html" aria-label="AnchorDesk home"><svg><use href="#logo"/></svg> AnchorDesk</a>
     <nav class="nav" aria-label="Primary">
-      <a href="#release">v2.4.1</a>
+      <a href="#release">v2.8.0</a>
       <a href="#platform">Platform</a>
       <a href="#how">Quickstart</a>
       <a href="#setup">Setup</a>
@@ -565,30 +565,30 @@
   <section id="release">
     <div class="wrap">
       <div class="section-head">
-        <div class="kicker">Current release — v2.4.1 Checklist MCP Parity</div>
-        <h2>The whole checklist workflow now travels with the agent.</h2>
-        <p>2.4.1 completes checklist parity over MCP: agents can list, apply, add, edit, reorder, complete, and delete ticket items; admin connections can manage reusable templates. The advertised contract is protocol-tested, and the upgrade guide explains how to refresh ChatGPT's frozen action snapshot.</p>
+        <div class="kicker">Current release — v2.8.0 Access &amp; Signal</div>
+        <h2>Customer access stays reviewable; customer feedback stays useful.</h2>
+        <p>Portal v2 adds self-registration with staff approval, auditable per-contact access grants, opt-in company scope and technician identity, plus customer feedback and a CSAT report.</p>
       </div>
       <div class="release-grid">
         <article class="tile">
-          <div class="status-line green"><i></i> Complete ticket checklists</div>
-          <strong>Read, build, work, reorder, and clean up without leaving MCP.</strong>
-          <p>Ten named checklist tools cover templates and working items, while <code>get_ticket</code> keeps the ordered checklist in the ticket record.</p>
+          <div class="status-line green"><i></i> Access is reviewed, then recorded</div>
+          <strong>Registration does not silently create portal access.</strong>
+          <p>Visitors request access; admins approve or reject a queue. Approval creates or reuses the contact, records a portal grant, and sends the sign-in link after the record commits.</p>
         </article>
         <article class="tile">
-          <div class="status-line sky"><i></i> Admin template parity</div>
-          <strong>Reusable runbooks are manageable through the same agent connection.</strong>
-          <p>Create, replace, activate, and delete templates through role-gated tools; copied ticket items remain independent.</p>
+          <div class="status-line sky"><i></i> Scope and identity are opt-in</div>
+          <strong>Own tickets and anonymous support remain the defaults.</strong>
+          <p>Admins can enable company ticket scope for active grants. Named replies require both the admin setting and the technician's own profile opt-in.</p>
         </article>
         <article class="tile">
-          <div class="status-line amber"><i></i> Wire-level verification</div>
-          <strong>The contract clients actually receive is now under test.</strong>
-          <p>An SDK client verifies initialize metadata, <code>tools/list</code> names and schemas, checklist calls, and non-admin denial over an in-memory transport.</p>
+          <div class="status-line amber"><i></i> Customer feedback closes the loop</div>
+          <strong>Requesters can rate tickets and, where enabled, mark them solved.</strong>
+          <p>Feedback is recorded as an immutable local trail with positive, neutral, or negative ratings and optional comments; staff can read it without changing it.</p>
         </article>
         <article class="tile">
-          <div class="status-line red"><i></i> ChatGPT action refresh</div>
-          <strong>Server upgrades and workspace approval are separate steps.</strong>
-          <p>Enterprise/Edu admins refresh actions; Business workspaces recreate and republish the app so ChatGPT replaces its frozen approved-tool snapshot.</p>
+          <div class="status-line red"><i></i> CSAT is a recorded report</div>
+          <strong>Customer satisfaction is grouped by company and rating.</strong>
+          <p>The Reports view adds a positive, neutral, and negative bar chart with the complete table behind it; feedback begins with Portal v2, not reconstructed history.</p>
         </article>
       </div>
     </div>
@@ -603,6 +603,7 @@
       </div>
       <div class="features">
         <article class="feature"><em>Tickets</em><strong>Local-first ticketing</strong><p>Create, set manual deadlines, route to teams, assign, capture and filter typed custom fields, save views, label, bulk update, and work tickets from card, board, and optional table views.</p></article>
+        <article class="feature"><em>Portal</em><strong>Reviewable customer self-service</strong><p>Customers can submit and track tickets, request access for admin approval, rate support, and mark their own accessible ticket solved when the shop enables it.</p></article>
         <article class="feature"><em>Email</em><strong>Threaded IMAP and SMTP</strong><p>Poll multiple mailboxes, dedupe by Message-ID, tag subjects with public ticket numbers, and reply with identities, templates, signatures, Cc/Bcc, and inline images.</p></article>
         <article class="feature"><em>Devices</em><strong>Configuration records and network map</strong><p>Asset data stays local while probes and RMMs refresh operational context; map type indicators and the selected-device reference list expose what each provider knows.</p></article>
         <article class="feature"><em>RMM</em><strong>One device, multiple providers</strong><p>Tactical RMM, NinjaOne, and Datto identities merge onto one device; technicians select the provider for live snapshots, scripts, or quick jobs.</p></article>
@@ -649,8 +650,8 @@ npm ci
 npm run dev            <span class="c"># :5173</span>
 
 <span class="c"># Current images</span>
-ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.4.1</span>
-ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.4.1</span></pre>
+ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.8.0</span>
+ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.8.0</span></pre>
         </div>
       </div>
     </div>
@@ -777,14 +778,14 @@ ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.4.1</span></
       </div>
       <div class="docs-grid">
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Quickstart<span>Local Compose, backend config, schema push, and web client.</span></a>
-        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/RELEASE_NOTES_v2.4.1.md" target="_blank" rel="noopener">2.4.1 release guide<span>Complete MCP checklist surface, ChatGPT action refresh, and image tags.</span></a>
+        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/RELEASE_NOTES_v2.8.0.md" target="_blank" rel="noopener">2.8.0 release guide<span>Reviewable portal access, opt-in scope and identity, CSAT feedback, and the report behind it.</span></a>
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/architecture.md">Architecture<span>Source-of-truth database, auth flow, adapters, repositories, and delivery status.</span></a>
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/mcp-auth.md">MCP Auth<span>Personal tokens, built-in OAuth, complete tool coverage, and ChatGPT action refresh.</span></a>
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/providers.md">Providers<span>How to add ticket sync providers and identity-safe device/RMM adapters.</span></a>
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/schema.md">Database schema<span>Tables, relations, and the audit/event model behind the source of truth.</span></a>
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/mobile.md">Mobile contract<span>The 360px rule, five-device screenshot matrix, and phone-width test guards.</span></a>
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/upgrading.md">Upgrading<span>Pull, restart, done — schema and data migrate on boot; per-version notes.</span></a>
-        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog<span>Every release line from first anchor drop through Checklist MCP Parity.</span></a>
+        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog<span>Every release line from first anchor drop through Access &amp; Signal.</span></a>
       </div>
     </div>
   </section>

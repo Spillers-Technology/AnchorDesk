@@ -42,14 +42,15 @@ model User {
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
 
-  assignedTickets Ticket[]       @relation("AssignedTickets")
-  authoredNotes   Note[]         @relation("AuthoredNotes")
+  assignedTickets Ticket[]           @relation("AssignedTickets")
+  authoredNotes   Note[]             @relation("AuthoredNotes")
   sessions        Session[]
   notifications   Notification[]
   mailIdentities  MailIdentity[]
   apiTokens       ApiToken[]
   teamMemberships TeamMember[]
   savedViews      SavedView[]
+  portalProfile   UserPortalProfile?
 
   @@unique([authProvider, subject])
   @@map("users")
@@ -224,10 +225,11 @@ model Company {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  contacts Contact[]
-  tickets  Ticket[]
-  devices  Device[]
-  probes   Probe[]
+  contacts            Contact[]
+  tickets             Ticket[]
+  devices             Device[]
+  probes              Probe[]
+  portalRegistrations PortalRegistration[]
 
   @@map("companies")
 }
@@ -244,10 +246,13 @@ model Contact {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  tickets          Ticket[]
-  portalSessions   Session[]
-  portalMagicLinks PortalMagicLink[]
+  company             Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tickets             Ticket[]
+  portalSessions      Session[]
+  portalMagicLinks    PortalMagicLink[]
+  portalGrants        PortalGrant[]
+  portalRegistrations PortalRegistration[]
+  ticketFeedback      TicketFeedback[]
 
   @@index([companyId])
   @@map("contacts")
@@ -330,14 +335,14 @@ model Ticket {
   createdAt             DateTime     @default(now()) @map("created_at")
   updatedAt             DateTime     @updatedAt @map("updated_at")
 
-  assigneeUser  User?           @relation("AssignedTickets", fields: [assigneeId], references: [id])
+  assigneeUser  User?            @relation("AssignedTickets", fields: [assigneeId], references: [id])
   // Deletion is routed through repositories so each affected ticket gets an
   // audited metric-context transition. Restrict prevents a direct delete from
   // silently nulling dimensions behind the reporting spine.
-  team          Team?           @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  company       Company?        @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  contact       Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  slaPolicy     SlaPolicy?      @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
+  team          Team?            @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  company       Company?         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  contact       Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  slaPolicy     SlaPolicy?       @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
   notes         Note[]
   syncEntries   SyncLog[]
   deviceLinks   DeviceLink[]
@@ -346,6 +351,7 @@ model Ticket {
   notifications Notification[]
   labels        TicketLabel[]
   checklist     ChecklistItem[]
+  feedback      TicketFeedback[]
 
   parent         Ticket?       @relation("TicketHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children       Ticket[]      @relation("TicketHierarchy")
@@ -1268,4 +1274,104 @@ model PortalMagicLink {
   @@index([contactId, createdAt])
   @@index([expiresAt])
   @@map("portal_magic_links")
+}
+
+// ─── Portal v2: self-registration/approval, company scope, technician
+// identity, CSAT ──────────────────────────────────────────────────────────
+
+// A visitor's request for portal access. Never auto-grants: a technician
+// reviews and either approves (creating/reusing a Contact + PortalGrant) or
+// rejects. status is a plain validated string (see services/portalVocab.ts),
+// matching how ticketVocab.ts guards status/priority.
+model PortalRegistration {
+  id         Int       @id @default(autoincrement())
+  email      String    @db.VarChar(255) // normalized lowercase
+  companyId  Int?      @map("company_id") // domain match at request time, may be null
+  status     String    @default("pending") @db.VarChar(20) // pending | approved | rejected
+  reviewedBy String?   @map("reviewed_by") @db.VarChar(255)
+  reviewedAt DateTime? @map("reviewed_at")
+  contactId  Int?      @map("contact_id") // set on approval
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([email])
+  @@map("portal_registrations")
+}
+
+/// Access as a record with provenance, not a boolean. A boolean records that
+/// access exists, not who granted it, when it became effective, what it
+/// covers, or whether it still should. Never edited, only revoked and
+/// re-issued, so the sequence of grants is a legible history.
+model PortalGrant {
+  id            Int       @id @default(autoincrement())
+  contactId     Int       @map("contact_id")
+  companyId     Int       @map("company_id") // denormalised: company as at grant time
+  grantedBy     String    @map("granted_by") @db.VarChar(255)
+  grantedAt     DateTime  @default(now()) @map("granted_at")
+  // Company-scope reads (see portal.ticketScope) only reach tickets created on
+  // or after this instant, unless the contact was personally the requester.
+  // Defaults to grantedAt; a technician can widen it to the full history as a
+  // deliberate, audited choice ("give access to past tickets").
+  effectiveFrom DateTime  @map("effective_from")
+  revokedBy     String?   @map("revoked_by") @db.VarChar(255)
+  revokedAt     DateTime? @map("revoked_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, revokedAt])
+  @@map("portal_grants")
+}
+
+// The technician's half of the portal identity consent (the admin-level
+// portal.technicianIdentity flag is the other half). Deliberately separate
+// from User: User.email is a login credential and may be a personal address,
+// so it must never be published implicitly. Avatar reuses the
+// AttachmentStorage strategy directly (storage key + content type), not the
+// ticket-scoped Attachment table, since an avatar isn't attached to a ticket.
+model UserPortalProfile {
+  userId               Int     @id @map("user_id")
+  displayName          String? @map("display_name") @db.VarChar(150)
+  avatarStorageKey     String? @map("avatar_storage_key") @db.VarChar(500)
+  avatarContentType    String? @map("avatar_content_type") @db.VarChar(150)
+  // Same reasoning as Attachment.storageBackend: uploads write to the admin's
+  // current default, but reads/deletes must target the backend an avatar was
+  // actually written to, so switching storage later doesn't orphan it.
+  avatarStorageBackend String? @map("avatar_storage_backend") @db.VarChar(20)
+  publicEmail          String? @map("public_email") @db.VarChar(255)
+  publicPhone          String? @map("public_phone") @db.VarChar(50)
+  optedIn              Boolean @default(false) @map("opted_in")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_portal_profiles")
+}
+
+// A requester's rating of a ticket, captured once per submission. Multiple
+// rows per ticket are allowed (a reopened-then-resolved ticket earns a second
+// rating); reports read the latest and can show the trail. Never updated or
+// deleted by staff — enforced by the repository exposing no such function,
+// since it is the customer's word. company/team/assignee are denormalised at
+// submit time, same reasoning as TicketEvent: a later reassignment must not
+// repaint who a past rating was actually about.
+model TicketFeedback {
+  id          Int      @id @default(autoincrement())
+  ticketId    Int      @map("ticket_id")
+  rating      String   @db.VarChar(10) // positive | neutral | negative
+  comment     String?  @db.Text
+  contactId   Int      @map("contact_id")
+  companyId   Int?     @map("company_id")
+  teamId      Int?     @map("team_id")
+  assigneeId  Int?     @map("assignee_id")
+  submittedAt DateTime @default(now()) @map("submitted_at")
+
+  ticket  Ticket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, submittedAt])
+  @@index([companyId, submittedAt])
+  @@index([assigneeId, submittedAt])
+  @@map("ticket_feedback")
 }

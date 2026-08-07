@@ -27,6 +27,7 @@ const PUBLIC_AUTH = [
 const PUBLIC_PORTAL_AUTH = new Set([
   '/portal/auth/magic-link',
   '/portal/auth/verify',
+  '/portal/register',
 ]);
 
 export function isPublic(url: string, method?: string): boolean {
@@ -46,6 +47,9 @@ export function isPublic(url: string, method?: string): boolean {
     // Supplying a method is the runtime path; the optional form preserves the
     // dependency-free path checks used by existing unit tests.
     return method === undefined || method.toUpperCase() === 'POST';
+  }
+  if (method?.toUpperCase() === 'GET' && /^\/portal-profile-avatar\/[1-9]\d*\.[A-Za-z0-9_-]{43}$/.test(path)) {
+    return true;
   }
   return PUBLIC_AUTH.includes(path);
 }
@@ -67,7 +71,8 @@ export function isPortalSessionAllowed(method: string, url: string): boolean {
   if (
     verb === 'POST' &&
     (path === '/portal/auth/magic-link' ||
-      path === '/portal/auth/verify')
+      path === '/portal/auth/verify' ||
+      path === '/portal/register')
   ) {
     return true;
   }
@@ -90,6 +95,14 @@ export function isPortalSessionAllowed(method: string, url: string): boolean {
   if (
     verb === 'GET' &&
     /^\/portal\/attachments\/[1-9]\d*\/download$/.test(path)
+  ) {
+    return true;
+  }
+  // Public signed avatar URLs are also admissible with a requester cookie: an
+  // <img> request naturally includes it, and the handler re-checks consent.
+  if (
+    verb === 'GET' &&
+    /^\/portal-profile-avatar\/[1-9]\d*\.[A-Za-z0-9_-]{43}$/.test(path)
   ) {
     return true;
   }

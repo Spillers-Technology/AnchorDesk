@@ -6,6 +6,7 @@ jest.mock('../repositories/ticketEventRepository', () => {
     durationPercentiles: jest.fn(),
     slaCompliance: jest.fn(),
     backlogAgeBuckets: jest.fn(),
+    feedbackBreakdown: jest.fn(),
     throughputByAssignee: jest.fn(),
     throughputByTeam: jest.fn(),
     timeLoggedByCompany: jest.fn(),
@@ -103,6 +104,13 @@ describe('report REST contract', () => {
       },
     });
     mockedReports.backlogAgeBuckets.mockResolvedValue({ data: [], meta });
+    mockedReports.feedbackBreakdown.mockResolvedValue({ data: [], meta: {
+      from,
+      to,
+      includesReconstructed: false,
+      reconstructedFrom: null,
+      reconstructedThrough: null,
+    } });
     mockedReports.throughputByTeam.mockResolvedValue({ data: [], meta });
     mockedReports.throughputByAssignee.mockResolvedValue({ data: [], meta });
     mockedReports.timeLoggedByCompany.mockResolvedValue({ data: [], meta });
@@ -152,6 +160,40 @@ describe('report REST contract', () => {
       expect(response.statusCode).toBe(200);
       expect(response.json().meta.includesReconstructed).toBe(true);
       expect(mockedReports.volumeByDay).toHaveBeenCalledWith({
+        from,
+        to,
+        companyId: 3,
+        teamId: 4,
+        assigneeId: undefined,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('returns recorded customer feedback through the general aggregate guard', async () => {
+    mockedReports.feedbackBreakdown.mockResolvedValue({
+      data: [{ companyId: 3, companyName: 'Acme', positive: 4, neutral: 1, negative: 2 }],
+      meta: {
+        from,
+        to,
+        includesReconstructed: false,
+        reconstructedFrom: null,
+        reconstructedThrough: null,
+      },
+    });
+    const app = await appFor('readonly');
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/reports/feedback?${query}&companyId=3&teamId=4`,
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        data: [{ companyId: 3, positive: 4, neutral: 1, negative: 2 }],
+        meta: { includesReconstructed: false },
+      });
+      expect(mockedReports.feedbackBreakdown).toHaveBeenCalledWith({
         from,
         to,
         companyId: 3,

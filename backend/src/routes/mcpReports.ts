@@ -146,6 +146,14 @@ export function registerReportTools(
   );
 
   server.tool(
+    'report_feedback',
+    'Customer positive, neutral, and negative feedback counts by company for submissions in [from,to). Filters use the company, team, and technician recorded when the feedback was submitted.',
+    reportFilterShape,
+    { title: 'Report customer feedback', ...readOnlyAnnotations },
+    async (input) => aggregate(input, reports.feedbackBreakdown),
+  );
+
+  server.tool(
     'report_assignee_throughput',
     'Administrator-only resolved transition counts by the historical assignee on each resolution in [from,to).',
     reportFilterShape,

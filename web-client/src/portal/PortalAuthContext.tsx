@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import * as portalApi from "./api";
-import type { PortalRequesterPrincipal } from "./types";
+import type { PortalClientConfig, PortalRequesterPrincipal } from "./types";
 
 export type PortalAuthStatus = "loading" | "anonymous" | "authenticated" | "unavailable";
 
@@ -16,9 +16,16 @@ interface PortalAuthState {
   status: PortalAuthStatus;
   requester: PortalRequesterPrincipal | null;
   notice: string | null;
+  config: PortalClientConfig;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
 }
+
+const DEFAULT_PORTAL_CONFIG: PortalClientConfig = {
+  feedbackEnabled: false,
+  promptOnSolve: false,
+  allowSelfSolve: false,
+};
 
 const PortalAuthContext = createContext<PortalAuthState | undefined>(undefined);
 
@@ -39,6 +46,7 @@ export function PortalAuthProvider({
   const [status, setStatus] = useState<PortalAuthStatus>("loading");
   const [requester, setRequester] = useState<PortalRequesterPrincipal | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [config, setConfig] = useState<PortalClientConfig>(DEFAULT_PORTAL_CONFIG);
 
   const refresh = useCallback(async () => {
     setStatus("loading");
@@ -51,9 +59,11 @@ export function PortalAuthProvider({
         : await portalApi.getPortalRequester();
       pendingToken.current = null;
       setRequester(requesterPrincipal(response.requester));
+      setConfig(response.config ?? DEFAULT_PORTAL_CONFIG);
       setStatus("authenticated");
     } catch (error) {
       setRequester(null);
+      setConfig(DEFAULT_PORTAL_CONFIG);
       if (
         token
         && error instanceof portalApi.PortalApiError
@@ -86,13 +96,14 @@ export function PortalAuthProvider({
     }
     pendingToken.current = null;
     setRequester(null);
+    setConfig(DEFAULT_PORTAL_CONFIG);
     setNotice(null);
     setStatus("anonymous");
   }, []);
 
   const value = useMemo<PortalAuthState>(
-    () => ({ status, requester, notice, refresh, logout }),
-    [logout, notice, refresh, requester, status],
+    () => ({ status, requester, notice, config, refresh, logout }),
+    [config, logout, notice, refresh, requester, status],
   );
 
   return <PortalAuthContext.Provider value={value}>{children}</PortalAuthContext.Provider>;

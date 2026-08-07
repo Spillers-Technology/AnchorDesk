@@ -23,11 +23,15 @@ export interface PortalSessionWrite {
 }
 
 /**
- * Resolve an email to exactly one Contact.
+ * Resolve an email to exactly one Contact that currently holds an active
+ * portal grant.
  *
  * Contact.email predates portal auth and is not globally unique. Picking the
  * first match would let a shared/duplicated address choose a tenant by row
- * order, so zero and multiple matches both fail closed.
+ * order, so zero and multiple matches both fail closed. Access is a record
+ * (PortalGrant), not an implication of having a unique email — a Contact
+ * with no grant (the default for every existing contact) cannot sign in even
+ * once portal.enabled is on.
  */
 export async function findUniqueRequesterByEmail(
   email: string,
@@ -36,6 +40,11 @@ export async function findUniqueRequesterByEmail(
   if (!normalized) return null;
   const matches = await findContactsByNormalizedEmail(prisma, normalized);
   if (matches.length !== 1) return null;
+  const activeGrant = await prisma.portalGrant.findFirst({
+    where: { contactId: matches[0].id, revokedAt: null },
+    select: { id: true },
+  });
+  if (!activeGrant) return null;
   return {
     kind: 'requester',
     contactId: matches[0].id,

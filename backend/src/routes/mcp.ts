@@ -6,6 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { z } from 'zod';
 import * as tickets from '../repositories/ticketRepository';
+import * as ticketFeedback from '../repositories/ticketFeedbackRepository';
 import * as notes from '../repositories/noteRepository';
 import * as audit from '../repositories/auditRepository';
 import * as labels from '../repositories/labelRepository';
@@ -25,6 +26,7 @@ import { actorFor } from '../middleware/auth';
 import { buildMcpProtectedResourceMetadata } from '../services/auth/mcpOAuth';
 import { registerKbTools } from './mcpKb';
 import { registerReportTools } from './mcpReports';
+import { registerPortalTools } from './mcpPortal';
 
 const MAX_TEMPLATE_ITEMS = 100;
 const MAX_DUE_OFFSET_MINUTES = 60 * 24 * 365;
@@ -56,10 +58,13 @@ export const READ_ONLY_MCP_TOOLS = new Set([
   'report_sla_compliance',
   'report_backlog_age',
   'report_team_throughput',
+  'report_feedback',
   'report_assignee_throughput',
   'report_time_by_company',
   'get_time_day_spread',
   'get_ticket_sla_timeline',
+  'list_portal_grants',
+  'list_portal_registrations',
 ] as const);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -131,6 +136,7 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
   const server = new McpServer({ name: 'anchordesk', version: MCP_SERVER_VERSION });
   registerKbTools(server, actor, role);
   registerReportTools(server, userId, role);
+  registerPortalTools(server, actor, role);
 
   server.tool(
     'list_tickets',
@@ -183,11 +189,12 @@ export function buildMcpServer(actor: string, userId: number, role: UserRole): M
     async ({ id }) => {
       const ticket = await tickets.getById(id);
       if (!ticket) return { content: [{ type: 'text', text: `Ticket ${id} not found` }], isError: true };
-      const [ticketNotes, checklistItems] = await Promise.all([
+      const [ticketNotes, checklistItems, feedback] = await Promise.all([
         notes.listForTicket(id),
         checklist.listForTicket(id),
+        ticketFeedback.listForTicket(id),
       ]);
-      return { content: [{ type: 'text', text: JSON.stringify({ ticket, notes: ticketNotes, checklist: checklistItems }, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ ticket, notes: ticketNotes, checklist: checklistItems, feedback }, null, 2) }] };
     },
   );
 

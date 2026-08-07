@@ -1,5 +1,51 @@
 # Changelog
 
+## 2.8.0 — 2026-08-07 — Access & Signal (minor)
+
+Portal v2: customer access becomes a reviewable, revocable record instead of
+an implicit consequence of a matching CRM email, and the ticket conversation
+gains a close: feedback, self-solve, and a report to read it back.
+
+### Added
+
+- **Self-registration, reviewed.** `POST /portal/register` always answers
+  the same generic accepted response, matched by domain only as a review
+  hint, and rate-limited independently by email and IP. Admins work a real
+  queue (`GET /portal-registrations`, approve/reject) — approval atomically
+  reuses an exact-one existing Contact or creates one on the matched Company,
+  and 409s rather than guessing on no match or an ambiguous legacy identity.
+- **`PortalGrant`: access as a record, not a flag.** Every grant retains who
+  granted it, when, the company at grant time, and an `effectiveFrom`; it is
+  revoked and re-issued, never edited, so the history stays legible per
+  contact. Signing in with a magic link now requires an active grant —
+  previously any Contact with a uniquely-matching email could sign in once
+  `portal.enabled` was on. Revoking a grant tears down the contact's live
+  portal sessions and unredeemed magic links in the same transaction, so
+  access ends immediately, not at next login.
+- **Company-wide portal scope, opt-in.** `portal.ticketScope` stays `own`
+  (today's behavior) unless an admin selects `company`; a requester then
+  sees their company's tickets from their grant's `effectiveFrom` onward,
+  plus any ticket they personally opened at any age.
+- **Named technicians, two consents.** `portal.technicianIdentity` stays
+  anonymous by default; a technician's name/avatar only appear when they
+  have also opted in from Account → Portal profile. Avatar URLs are
+  HMAC-signed and re-validate both consents on every read — a login email is
+  never published.
+- **Customer feedback (CSAT) and self-solve.** Requesters can leave a
+  positive/neutral/negative rating with an optional comment (immutable —
+  staff can read it, never edit or delete it) and, where enabled, mark their
+  own ticket Resolved. A solve resolves through any merge tombstone to the
+  live target first. `/reports/feedback` and the Reports view's new chart
+  show ratings grouped by company.
+
+### Fixed
+
+- **A live safety bug in the note composer.** `POST /tickets/:id/notes`
+  derived customer visibility from `noteType` alone; because the composer had
+  no visibility control, every staff note silently went out as
+  customer-visible and eligible to sync to Jira/ConnectWise. `visibility` now
+  defaults to `internal`, and the composer has an explicit, labelled toggle.
+
 ## 2.7.2 — 2026-07-29 — The query nobody ran (patch)
 
 Both knowledge-base list endpoints returned **500** in 2.7.0 and 2.7.1:

@@ -47,6 +47,17 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function requestForm<T>(path: string, body: FormData, method = "POST"): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  const res = await fetch(`/api${path}`, { method, body, headers, credentials: "same-origin" });
+  if (!res.ok) {
+    const responseBody = await res.text();
+    throw new ApiError(res.status, responseBody, `API ${method} ${path} → ${res.status}: ${responseBody}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 async function requestBlob(path: string): Promise<Blob> {
   const headers: Record<string, string> = {};
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
@@ -486,6 +497,10 @@ export function updateUiSettings(data: Partial<UiSettings>) {
 
 export interface PortalSettings {
   enabled: boolean;
+  ticketScope: "own" | "company";
+  technicianIdentity: "anonymous" | "named";
+  allowAttachments: boolean;
+  allowSelfSolve: boolean;
 }
 
 /** Admin-only in both directions, unlike ui-settings. */
@@ -495,6 +510,22 @@ export function getPortalSettings() {
 
 export function updatePortalSettings(data: Partial<PortalSettings>) {
   return request<PortalSettings>("/portal-settings", {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export interface FeedbackSettings {
+  enabled: boolean;
+  promptOnSolve: boolean;
+}
+
+export function getFeedbackSettings() {
+  return request<FeedbackSettings>("/feedback-settings");
+}
+
+export function updateFeedbackSettings(data: Partial<FeedbackSettings>) {
+  return request<FeedbackSettings>("/feedback-settings", {
     method: "PATCH",
     body: JSON.stringify(data),
   });
@@ -715,6 +746,88 @@ export function deleteContact(id: number) {
   return request<void>(`/contacts/${id}`, { method: "DELETE" });
 }
 
+// ─── Portal access (Portal v2) ──────────────────────────────────────────────
+
+export interface PortalGrant {
+  id: number;
+  contactId: number;
+  companyId: number;
+  grantedBy: string;
+  grantedAt: string;
+  effectiveFrom: string;
+  revokedBy: string | null;
+  revokedAt: string | null;
+}
+
+export function listContactPortalGrants(contactId: number) {
+  return request<PortalGrant[]>(`/contacts/${contactId}/portal-grants`);
+}
+export function grantPortalAccess(contactId: number, effectiveFrom?: string) {
+  return request<PortalGrant>(`/contacts/${contactId}/portal-grant`, {
+    method: "POST",
+    body: JSON.stringify(effectiveFrom ? { effectiveFrom } : {}),
+  });
+}
+export function revokePortalAccess(contactId: number) {
+  return request<PortalGrant>(`/contacts/${contactId}/portal-grant/revoke`, { method: "POST" });
+}
+
+export interface PortalProfile {
+  displayName: string | null;
+  avatarUrl: string | null;
+  publicEmail: string | null;
+  publicPhone: string | null;
+  optedIn: boolean;
+}
+
+export function getMyPortalProfile() {
+  return request<PortalProfile>("/auth/portal-profile");
+}
+
+export function setMyPortalProfile(data: Omit<PortalProfile, "avatarUrl">) {
+  return request<PortalProfile>("/auth/portal-profile", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function uploadMyPortalProfileAvatar(file: File) {
+  const body = new FormData();
+  body.append("avatar", file, file.name);
+  return requestForm<PortalProfile>("/auth/portal-profile/avatar", body);
+}
+
+export interface PortalRegistration {
+  id: number;
+  email: string;
+  companyId: number | null;
+  status: "pending" | "approved" | "rejected";
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  contactId: number | null;
+  createdAt: string;
+  company: { id: number; name: string; domain: string | null } | null;
+  contact: { id: number; name: string; email: string | null; companyId: number } | null;
+}
+
+/** Public endpoint; kept here too so browser consumers share one typed API contract. */
+export function requestPortalRegistration(email: string) {
+  return request<{ ok: true; message: string }>("/portal/register", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+export function listPortalRegistrations(status?: PortalRegistration["status"]) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return request<PortalRegistration[]>(`/portal-registrations${query}`);
+}
+export function approvePortalRegistration(id: number) {
+  return request<PortalRegistration>(`/portal-registrations/${id}/approve`, { method: "POST" });
+}
+export function rejectPortalRegistration(id: number) {
+  return request<PortalRegistration>(`/portal-registrations/${id}/reject`, { method: "POST" });
+}
+
 // ─── Time tracking ──────────────────────────────────────────────────────────────
 
 export function getTicketTime(ticketId: number) {
@@ -759,6 +872,8 @@ export function listNotes(ticketId: number) {
 type CreateLocalNoteInput = {
   /** Only locally-authored conversation note types are accepted here. */
   noteType?: "note" | "internal";
+  /** Internal unless explicitly published; omit to stay internal. */
+  visibility?: "internal" | "public";
 } & (
   | { content: string; htmlContent?: string }
   | { content?: string; htmlContent: string }
@@ -1554,6 +1669,14 @@ export interface TeamThroughput {
   resolved: number;
 }
 
+export interface FeedbackBreakdown {
+  companyId: number | null;
+  companyName: string | null;
+  positive: number;
+  neutral: number;
+  negative: number;
+}
+
 export interface AssigneeThroughput {
   assigneeId: number | null;
   assigneeName: string | null;
@@ -1678,6 +1801,12 @@ export function getBacklogAgeReport(filters: ReportFilters) {
 export function getTeamThroughputReport(filters: ReportFilters) {
   return request<ReportResponse<TeamThroughput[]>>(
     `/reports/throughput/team?${reportQuery(filters)}`
+  );
+}
+
+export function getFeedbackReport(filters: ReportFilters) {
+  return request<ReportResponse<FeedbackBreakdown[]>>(
+    `/reports/feedback?${reportQuery(filters)}`
   );
 }
 

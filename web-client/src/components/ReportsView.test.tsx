@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   getSlaComplianceReport: vi.fn(),
   getBacklogAgeReport: vi.fn(),
   getTeamThroughputReport: vi.fn(),
+  getFeedbackReport: vi.fn(),
   getAssigneeThroughputReport: vi.fn(),
   getTimeByCompanyReport: vi.fn(),
   downloadTimeByCompanyCsv: vi.fn(),
@@ -28,6 +29,12 @@ vi.mock("../auth/AuthContext", () => ({
 const meta = {
   from: "2026-07-01T00:00:00.000Z",
   to: "2026-07-08T00:00:00.000Z",
+  includesReconstructed: false,
+  reconstructedFrom: null,
+  reconstructedThrough: null,
+};
+const feedbackMeta = {
+  ...meta,
   includesReconstructed: false,
   reconstructedFrom: null,
   reconstructedThrough: null,
@@ -69,6 +76,10 @@ function installPopulatedReports() {
   api.getTeamThroughputReport.mockResolvedValue({
     data: [{ teamId: 2, teamName: "Service desk", resolved: 5 }],
     meta,
+  });
+  api.getFeedbackReport.mockResolvedValue({
+    data: [{ companyId: 7, companyName: "Acme", positive: 6, neutral: 1, negative: 2 }],
+    meta: feedbackMeta,
   });
   api.getAssigneeThroughputReport.mockResolvedValue({
     data: [{ assigneeId: 9, assigneeName: "Priya", resolved: 4 }],
@@ -147,6 +158,7 @@ describe("ReportsView", () => {
       meta,
     });
     api.getTeamThroughputReport.mockResolvedValue({ data: [], meta });
+    api.getFeedbackReport.mockResolvedValue({ data: [], meta: feedbackMeta });
     api.getAssigneeThroughputReport.mockResolvedValue({ data: [], meta });
     api.getTimeByCompanyReport.mockResolvedValue({ data: [], meta });
 
@@ -159,6 +171,7 @@ describe("ReportsView", () => {
     expect(within(createdTile as HTMLElement).getByText("—")).not.toBeNull();
     expect(screen.getByText("SLA compliance is suppressed because no frozen SLA promise snapshots have been recorded yet.")).not.toBeNull();
     expect(screen.getByText("No open tickets at the end of this range.")).not.toBeNull();
+    expect(screen.getByText("No customer feedback was submitted in this range.")).not.toBeNull();
     expect(screen.getAllByText("0").length).toBeGreaterThan(0);
   });
 
@@ -187,6 +200,10 @@ describe("ReportsView", () => {
     api.getTeamThroughputReport.mockResolvedValue({
       data: [{ teamId: 2, teamName: "Service desk", resolved: 5 }],
       meta: reconstructed,
+    });
+    api.getFeedbackReport.mockResolvedValue({
+      data: [{ companyId: 2, companyName: "Recorded only", positive: 1, neutral: 0, negative: 0 }],
+      meta: feedbackMeta,
     });
     api.getAssigneeThroughputReport.mockResolvedValue({
       data: [{ assigneeId: 9, assigneeName: "Priya", resolved: 4 }],
@@ -223,6 +240,14 @@ describe("ReportsView", () => {
     expect(within(table).getByText("7")).not.toBeNull();
     expect(within(table).getByText("5")).not.toBeNull();
 
+    const feedback = screen.getByTestId("report-feedback");
+    fireEvent.click(within(feedback).getByRole("button", { name: "Table" }));
+    const feedbackTable = within(feedback).getByRole("table", {
+      name: "Customer feedback by company and rating",
+    });
+    expect(within(feedbackTable).getByText("Acme")).not.toBeNull();
+    expect(within(feedbackTable).getByText("6")).not.toBeNull();
+
     fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-07-10" } });
     fireEvent.change(screen.getByLabelText("Through"), { target: { value: "2026-07-12" } });
     fireEvent.mouseDown(screen.getByRole("combobox", { name: "Company" }));
@@ -236,6 +261,13 @@ describe("ReportsView", () => {
       teamId: undefined,
       assigneeId: undefined,
     }));
+    expect(api.getFeedbackReport).toHaveBeenLastCalledWith({
+      from: "2026-07-10T00:00:00.000Z",
+      to: "2026-07-13T00:00:00.000Z",
+      companyId: 7,
+      teamId: undefined,
+      assigneeId: undefined,
+    });
   });
 
   it("does not request or render individual performance and billing for non-admin staff", async () => {

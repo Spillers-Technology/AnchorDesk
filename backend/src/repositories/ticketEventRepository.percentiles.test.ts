@@ -2,6 +2,8 @@ jest.mock('../db/prisma', () => ({
   prisma: {
     $queryRaw: jest.fn(),
     ticketEvent: { createMany: jest.fn() },
+    ticketFeedback: { groupBy: jest.fn() },
+    company: { findMany: jest.fn() },
     ticket: { findUnique: jest.fn() },
   },
 }));
@@ -12,6 +14,7 @@ import {
   backlogAgeBuckets,
   continuousPercentileReference,
   durationPercentiles,
+  feedbackBreakdown,
   metricContextAt,
   slaCompliance,
   ticketSlaTimeline,
@@ -81,6 +84,48 @@ describe('duration percentile contract', () => {
     expect(aggregateSql).toContain('percentile_cont(0.9)');
     expect(aggregateSql.toLowerCase()).not.toContain('avg(');
     expect(aggregateSql).toContain('outcome.company_id');
+  });
+
+  it('groups boot-day-forward feedback with Prisma and never queries reconstructed event history', async () => {
+    (prisma.ticketFeedback.groupBy as jest.Mock).mockResolvedValue([
+      { companyId: 7, rating: 'positive', _count: { _all: 4 } },
+      { companyId: 7, rating: 'neutral', _count: { _all: 1 } },
+      { companyId: 7, rating: 'negative', _count: { _all: 2 } },
+      { companyId: null, rating: 'negative', _count: { _all: 3 } },
+    ]);
+    (prisma.company.findMany as jest.Mock).mockResolvedValue([{ id: 7, name: 'Acme' }]);
+    const filters = {
+      from: new Date('2026-07-01T00:00:00Z'),
+      to: new Date('2026-08-01T00:00:00Z'),
+      teamId: 4,
+    };
+
+    await expect(feedbackBreakdown(filters)).resolves.toEqual({
+      data: [
+        { companyId: 7, companyName: 'Acme', positive: 4, neutral: 1, negative: 2 },
+        { companyId: null, companyName: null, positive: 0, neutral: 0, negative: 3 },
+      ],
+      meta: {
+        from: filters.from,
+        to: filters.to,
+        includesReconstructed: false,
+        reconstructedFrom: null,
+        reconstructedThrough: null,
+      },
+    });
+    expect(prisma.ticketFeedback.groupBy).toHaveBeenCalledWith({
+      by: ['companyId', 'rating'],
+      where: {
+        submittedAt: { gte: filters.from, lt: filters.to },
+        teamId: 4,
+      },
+      _count: { _all: true },
+    });
+    expect(prisma.company.findMany).toHaveBeenCalledWith({
+      where: { id: { in: [7] } },
+      select: { id: true, name: true },
+    });
+    expect(queryRaw).not.toHaveBeenCalled();
   });
 
   it('recovers point-in-time metric context from state facts in durable order', async () => {
