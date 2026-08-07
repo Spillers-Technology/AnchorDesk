@@ -294,6 +294,7 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 22px;
+    align-items: start;
   }
   .shot {
     margin: 0;
@@ -304,6 +305,17 @@
     box-shadow: 0 10px 26px rgba(23, 32, 42, 0.08);
   }
   .shot.wide { grid-column: 1 / -1; }
+  .shot.phone img {
+    width: auto;
+    max-width: 100%;
+    max-height: 420px;
+    aspect-ratio: 824 / 1830;
+    object-fit: contain;
+    object-position: top center;
+    margin: 0 auto;
+    display: block;
+    background: var(--surface-2);
+  }
   .shot img {
     width: 100%;
     aspect-ratio: 16 / 9;
@@ -646,9 +658,21 @@
         </figure>
         <figure class="shot">
           <button class="lightbox-trigger" type="button" data-lightbox>
+            <img src="assets/screenshots/anchordesk-reports.jpg" alt="AnchorDesk Reports view showing created-vs-resolved trend, response time, and open backlog, with a labeled reconstructed-history window." />
+          </button>
+          <figcaption><strong>Reports that admit what they don't know</strong><span>Percentiles instead of a flattering mean, filters that actually scope the data, and any reconstructed window says so — right on the chart.</span></figcaption>
+        </figure>
+        <figure class="shot">
+          <button class="lightbox-trigger" type="button" data-lightbox>
             <img src="assets/screenshots/anchordesk-feedback.jpg" alt="AnchorDesk Customer satisfaction report showing positive, neutral, and negative feedback counts grouped by company." />
           </button>
           <figcaption><strong>Customer satisfaction, plainly reported</strong><span>Every rating a customer submits, grouped by company and outcome — chart and full table, no averages hiding the negatives.</span></figcaption>
+        </figure>
+        <figure class="shot phone">
+          <button class="lightbox-trigger" type="button" data-lightbox>
+            <img src="assets/screenshots/anchordesk-mobile-board.jpg" alt="AnchorDesk Kanban board on a phone at 412px wide, with full toolbar, SLA and label chips, and touch-visible card actions." />
+          </button>
+          <figcaption><strong>The same board, in your pocket</strong><span>Every core view is verified down to a 344px screen — not a stripped mobile mode, the real app.</span></figcaption>
         </figure>
       </div>
     </div>
