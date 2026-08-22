@@ -311,6 +311,16 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 >   positive/neutral/negative chart for the top ten companies and a table for
 >   every returned row.
 
+> **As of 2.8.1 ("Ledger & Log"):** process infrastructure, no behavior change. A dev-process
+> discipline — Claude orchestrates, Codex CLI implements/reviews at one of three tiers
+> (Luna/Terra/Sol) — is established via `docs/dev-process.md` and
+> `.claude/agents/codex-{luna,terra,sol}.agent.md`, mirroring what already runs on two sibling
+> projects; the standing rules are drawn from this repo's own incidents (2.7.2's mocked-`$queryRaw`
+> outage, 2.7.1's empty-state gap, 2.8.0's note-visibility default, 1.12.0's email-signature crash),
+> not imported wholesale. All 24 `RELEASE_NOTES_vX.Y.Z.md` files moved from the repo root to
+> `docs/releases/`; the tag-triggered GitHub Release workflow and every link to them were updated to
+> match.
+
 Key design goals:
 - Excellent standalone ticketing experience first
 - Sync to/from external platforms second
@@ -631,6 +641,8 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | `docs/architecture.md` | Architecture diagram and pattern rationale |
 | `docs/schema.md` | Database schema documentation |
 | `docs/providers.md` | How to add ticket providers and device/RMM adapters |
+| `docs/dev-process.md` | Codex CLI routing policy (Luna/Terra/Sol), worktree conventions, and the standing rules this project has actually learned from |
+| `docs/releases/` | Full per-version `RELEASE_NOTES_vX.Y.Z.md` history (see `CHANGELOG.md` at the repo root for the condensed log) |
 
 ---
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.8.1 — 2026-08-22 — Ledger & Log (patch)
+
+Process infrastructure, no behavior change. `docs/dev-process.md` plus three Codex CLI dispatcher
+agents (`.claude/agents/codex-{luna,terra,sol}.agent.md`) establish the same Claude-orchestrates /
+Codex-implements-and-reviews discipline already proven on two sibling projects, with standing rules
+drawn from this repo's own real incidents (the 2.7.2 mocked-`$queryRaw` outage, 2.7.1's empty-state
+gap, 2.8.0's note-visibility default, the 1.12.0 email-signature crash). All 24
+`RELEASE_NOTES_vX.Y.Z.md` files moved from the repo root to `docs/releases/` (with an index);
+`.github/workflows/publish-images.yml` and every relative/absolute link to them updated to match.
+
+### Added
+
+- `docs/dev-process.md` — Codex CLI routing policy and standing rules.
+- `.claude/agents/codex-luna.agent.md`, `codex-terra.agent.md`, `codex-sol.agent.md` — dispatcher
+  agents for the three tiers.
+- `docs/releases/README.md` — index of every release note, newest first.
+
+### Changed
+
+- Release notes relocated from the repo root to `docs/releases/`.
+- `.github/workflows/publish-images.yml` reads `docs/releases/RELEASE_NOTES_v${VERSION}.md`.
+
 ## 2.8.0 — 2026-08-07 — Access & Signal (minor)
 
 Portal v2: customer access becomes a reviewable, revocable record instead of
@@ -592,7 +614,7 @@ stacks for the next release line.
 - Schema change: additive nullable/indexed `tickets.due_at`. Run
   `npx prisma db push` before starting the 2.2 backend. Clearing a manual
   deadline restores the policy-derived resolution target.
-- See [RELEASE_NOTES_v2.2.0.md](RELEASE_NOTES_v2.2.0.md) for the complete
+- See [RELEASE_NOTES_v2.2.0.md](docs/releases/RELEASE_NOTES_v2.2.0.md) for the complete
   upgrade and verification guide.
 
 ## 2.1.0 — 2026-07-15 — Pocket & Anchor (minor)
@@ -637,7 +659,7 @@ configuration, and workflow primitives needed for larger service desks.
   rules, saved views, Kanban preferences, asset metadata, and external device
   references, plus pinned script-job targets/timeouts. Run `npx prisma db push`
   before starting the new backend.
-- See [RELEASE_NOTES_v2.1.0.md](RELEASE_NOTES_v2.1.0.md) for the complete upgrade
+- See [RELEASE_NOTES_v2.1.0.md](docs/releases/RELEASE_NOTES_v2.1.0.md) for the complete upgrade
   and verification guide.
 
 ## 2.0.1 — 2026-07-12 — Favicon patch
@@ -669,7 +691,7 @@ AnchorDesk 2.0 completes the application-design milestones from the full live-pr
 - The OUI registry is a bundled compressed data asset loaded lazily; no new runtime dependency is required.
 - Substantial netviz-derived files retain the Spillers-Technology MIT notice.
 
-See [RELEASE_NOTES_v2.0.0.md](RELEASE_NOTES_v2.0.0.md) for the full release notes.
+See [RELEASE_NOTES_v2.0.0.md](docs/releases/RELEASE_NOTES_v2.0.0.md) for the full release notes.
 
 ## 1.18.0 — 2026-07-11 — Even Keel (minor)
 
@@ -697,7 +719,7 @@ A UX quick-win pass from a full designer-grade audit of the live app: tickets no
 - No schema change.
 - Company enforcement (with an internal fallback company), inline contact editing, and per-user theme personalization are scoped from the same audit and tracked for follow-up releases.
 
-See [RELEASE_NOTES_v1.18.0.md](RELEASE_NOTES_v1.18.0.md) for the full release notes.
+See [RELEASE_NOTES_v1.18.0.md](docs/releases/RELEASE_NOTES_v1.18.0.md) for the full release notes.
 
 ## 1.17.0 — 2026-07-05 — Fair Copy (minor)
 
@@ -718,7 +740,7 @@ See [RELEASE_NOTES_v1.18.0.md](RELEASE_NOTES_v1.18.0.md) for the full release no
 - No schema change. The rich description still lives in the existing `tickets.description` text column; there is no separate versioned rich-text document model in this pass.
 - Bulk selection is intentionally limited to the loaded page/board and does not include delete, merge, label, or free-text changes.
 
-See [RELEASE_NOTES_v1.17.0.md](RELEASE_NOTES_v1.17.0.md) for the full release notes.
+See [RELEASE_NOTES_v1.17.0.md](docs/releases/RELEASE_NOTES_v1.17.0.md) for the full release notes.
 
 ## 1.16.0 — 2026-07-05 — Trust Anchor (minor)
 
@@ -736,7 +758,7 @@ See [RELEASE_NOTES_v1.17.0.md](RELEASE_NOTES_v1.17.0.md) for the full release no
 - Schema change: two additive tables (`oauth_clients`, `oauth_auth_codes`). Run `prisma db push` (or `make db-push`) on upgrade.
 - To connect ChatGPT, point its custom connector at `https://<your-app-base-url>/mcp/sse` — discovery, registration, and consent are automatic. OIDC no longer needs to be enabled for the MCP OAuth flow.
 
-See [RELEASE_NOTES_v1.16.0.md](RELEASE_NOTES_v1.16.0.md) for the full release notes.
+See [RELEASE_NOTES_v1.16.0.md](docs/releases/RELEASE_NOTES_v1.16.0.md) for the full release notes.
 
 ## 1.15.0 — 2026-07-05 — Connected Domains (minor)
 
@@ -753,7 +775,7 @@ See [RELEASE_NOTES_v1.16.0.md](RELEASE_NOTES_v1.16.0.md) for the full release no
 
 - No schema change. OIDC must be enabled for OAuth clients; personal access tokens remain supported for clients that can send bearer headers.
 
-See [RELEASE_NOTES_v1.15.0.md](RELEASE_NOTES_v1.15.0.md) for the full release notes.
+See [RELEASE_NOTES_v1.15.0.md](docs/releases/RELEASE_NOTES_v1.15.0.md) for the full release notes.
 
 ## 1.14.0 — 2026-07-05 — Open Channels (minor)
 
@@ -776,7 +798,7 @@ See [RELEASE_NOTES_v1.15.0.md](RELEASE_NOTES_v1.15.0.md) for the full release no
 
 - New enum values require `prisma db push` on upgrade (see release notes).
 
-See [RELEASE_NOTES_v1.14.0.md](RELEASE_NOTES_v1.14.0.md) for the full release notes.
+See [RELEASE_NOTES_v1.14.0.md](docs/releases/RELEASE_NOTES_v1.14.0.md) for the full release notes.
 
 ## 1.13.0 — 2026-06-27 — Clear Deck (minor)
 
@@ -796,7 +818,7 @@ See [RELEASE_NOTES_v1.14.0.md](RELEASE_NOTES_v1.14.0.md) for the full release no
 - **Duplicate / wedged IMAP ingest.** Email-to-ticket is now **idempotent on Message-ID**. The same message delivered to two monitored mailboxes (one Message-ID, two deliveries) or replayed on a re-poll no longer hits the `(external_id, external_provider)` unique index — which previously threw `P2002`, failed the whole poll, and wedged the mailbox on a "poison" message because `lastUid` never advanced. Duplicates are skipped (and counted in the poll log); a residual collision recovers by appending to the existing ticket.
 - **Opaque IMAP errors.** A failed poll now surfaces ImapFlow's real reason (`responseText` / `serverResponseCode` / `authenticationFailed`) in the log and the mailbox's last error, instead of a bare `Command failed`.
 
-See [RELEASE_NOTES_v1.13.0.md](RELEASE_NOTES_v1.13.0.md) for the full release notes.
+See [RELEASE_NOTES_v1.13.0.md](docs/releases/RELEASE_NOTES_v1.13.0.md) for the full release notes.
 
 ## 1.12.0 — 2026-06-26 — Clockwork (minor)
 
@@ -814,7 +836,7 @@ See [RELEASE_NOTES_v1.13.0.md](RELEASE_NOTES_v1.13.0.md) for the full release no
 
 - **Dev proxy host-friendly.** Vite dev proxy target is configurable via `BACKEND_ORIGIN` (defaults to the compose service name `backend`; set `http://localhost:8060` for host dev).
 
-See [RELEASE_NOTES_v1.12.0.md](RELEASE_NOTES_v1.12.0.md) for the full release notes.
+See [RELEASE_NOTES_v1.12.0.md](docs/releases/RELEASE_NOTES_v1.12.0.md) for the full release notes.
 
 ## 1.11.2 — 2026-06-26 — Polish (patch)
 
@@ -827,7 +849,7 @@ See [RELEASE_NOTES_v1.12.0.md](RELEASE_NOTES_v1.12.0.md) for the full release no
 
 - **Stale UI after deploys.** The web server now sends `Cache-Control: no-store` for the app shell (`index.html`) while keeping fingerprinted `/assets/` cached immutably. New deploys are picked up immediately without a manual hard-refresh or CDN purge.
 
-See [RELEASE_NOTES_v1.11.2.md](RELEASE_NOTES_v1.11.2.md) for the full release notes.
+See [RELEASE_NOTES_v1.11.2.md](docs/releases/RELEASE_NOTES_v1.11.2.md) for the full release notes.
 
 ## 1.11.1 — 2026-06-24 — Switchboard (patch)
 
@@ -839,7 +861,7 @@ See [RELEASE_NOTES_v1.11.2.md](RELEASE_NOTES_v1.11.2.md) for the full release no
 
 - Pairs with the AVR phone-agent integration, which authenticates as a technician-role service account using a personal access token (1.10.0). The `api` ticket source it uses was already valid.
 
-See [RELEASE_NOTES_v1.11.1.md](RELEASE_NOTES_v1.11.1.md) for the full release notes.
+See [RELEASE_NOTES_v1.11.1.md](docs/releases/RELEASE_NOTES_v1.11.1.md) for the full release notes.
 
 ## 1.11.0 — 2026-06-24 — Shipshape
 
@@ -856,7 +878,7 @@ A navigation/UX cleanup of the ticket workspace.
 - **Sync is one surface.** The top-level Sync view is the single home for providers, runs, and activity log. Config actions (add/remove/enable a provider) are gated to admins inline; everyone can view and trigger runs. The duplicate **Admin → "Sync Providers"** tab (a strict subset) was removed.
 - **Table view is now opt-in "legacy"** — hidden from the switcher unless an admin enables it under Admin → Interface. Board and Cards are the primary views.
 
-See [RELEASE_NOTES_v1.11.0.md](RELEASE_NOTES_v1.11.0.md) for the full release notes.
+See [RELEASE_NOTES_v1.11.0.md](docs/releases/RELEASE_NOTES_v1.11.0.md) for the full release notes.
 
 ## 1.10.0 — 2026-06-23 — Keys & Trails
 
@@ -873,7 +895,7 @@ See [RELEASE_NOTES_v1.11.0.md](RELEASE_NOTES_v1.11.0.md) for the full release no
 
 - MCP mutations previously logged under a flat `'mcp'` actor regardless of who connected; they are now attributed to the authenticated user.
 
-See [RELEASE_NOTES_v1.10.0.md](RELEASE_NOTES_v1.10.0.md) for the full release notes.
+See [RELEASE_NOTES_v1.10.0.md](docs/releases/RELEASE_NOTES_v1.10.0.md) for the full release notes.
 
 ## 1.9.1 — 2026-06-21
 
@@ -885,7 +907,7 @@ See [RELEASE_NOTES_v1.10.0.md](RELEASE_NOTES_v1.10.0.md) for the full release no
 
 - Inbound email subject threading no longer re-attaches on a bare `#NNNNN`. Only the bracketed `[#NNNNN]` tag we emit on outbound mail counts, so unrelated subjects ("Invoice #10042", "PO #12345") can't mis-thread a new email onto an existing ticket.
 
-See [RELEASE_NOTES_v1.9.1.md](RELEASE_NOTES_v1.9.1.md) for the full release notes.
+See [RELEASE_NOTES_v1.9.1.md](docs/releases/RELEASE_NOTES_v1.9.1.md) for the full release notes.
 
 ## 1.9.0 — 2026-06-21
 
@@ -909,4 +931,4 @@ See [RELEASE_NOTES_v1.9.1.md](RELEASE_NOTES_v1.9.1.md) for the full release note
 - Invalid ticket/note route IDs now return HTTP 400 instead of passing `NaN` to Prisma.
 - Web container health checks now use IPv4 loopback.
 
-See [RELEASE_NOTES_v1.9.0.md](RELEASE_NOTES_v1.9.0.md) for the full release notes.
+See [RELEASE_NOTES_v1.9.0.md](docs/releases/RELEASE_NOTES_v1.9.0.md) for the full release notes.

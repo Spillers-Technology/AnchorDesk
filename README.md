@@ -201,7 +201,7 @@ The wire contract lives in [backend/src/providers/NetVizProvider.ts](backend/src
 - [docs/mcp-auth.md](docs/mcp-auth.md) — MCP authentication, complete tool coverage, and ChatGPT action refresh guidance
 - [docs/schema.md](docs/schema.md) — database schema
 - [docs/providers.md](docs/providers.md) — adding a sync provider
-- [RELEASE_NOTES_v2.4.1.md](RELEASE_NOTES_v2.4.1.md) — 2.4.1 checklist MCP parity, ChatGPT refresh, and upgrade guide
+- [docs/releases/](docs/releases/) — full per-version release notes (latest: [2.8.1 — Ledger & Log](docs/releases/RELEASE_NOTES_v2.8.1.md)); see [CHANGELOG.md](CHANGELOG.md) for the condensed log
 - [CLAUDE.md](CLAUDE.md) — developer reference
 
 ## Contributing

@@ -37,7 +37,8 @@ backend/.env
 
 # Claude Code working memory — not for the public repo
 memory/
-.claude/
+.claude/*
+!.claude/agents/
 
 # Local attachment/runtime storage
 backend/data/
