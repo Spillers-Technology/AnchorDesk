@@ -321,6 +321,14 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 > `docs/releases/`; the tag-triggered GitHub Release workflow and every link to them were updated to
 > match.
 
+> **As of 2.8.2 ("First Coat"):** phase one of an ongoing UX/quality pass — a shared motion system,
+> not a new feature. `theme.ts` gained a `MuiCssBaseline` reduced-motion override (previously
+> honored only by the Network map's canvas) plus shared `MuiButtonBase`/`MuiCard`/`MuiChip`/
+> `MuiTableRow` transition tokens, so every clickable surface and card hover shares one hover/press
+> feel instead of each component tuning its own (or none). The notification bell's badge pops on a
+> live arrival. No schema/API change. Later phases will look at Kanban drag physics, route
+> transitions, and the Reports charts individually.
+
 Key design goals:
 - Excellent standalone ticketing experience first
 - Sync to/from external platforms second

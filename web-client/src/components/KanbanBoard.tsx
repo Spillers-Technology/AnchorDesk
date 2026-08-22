@@ -218,17 +218,22 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({
                                             className="kb-close"
                                             size="small"
                                             onClick={(e) => { e.stopPropagation(); beginClose(id); }}
-                                            sx={{
+                                            sx={(theme) => ({
                                               position: "absolute",
                                               top: 4,
                                               right: 4,
                                               opacity: 0,
-                                              transition: "opacity 0.15s, color 0.15s",
+                                              // color's own transition comes from the shared
+                                              // MuiButtonBase theme override; only opacity is
+                                              // specific to this hover-reveal affordance.
+                                              transition: theme.transitions.create("opacity", {
+                                                duration: theme.transitions.duration.shortest,
+                                              }),
                                               color: "text.disabled",
                                               bgcolor: "background.paper",
                                               boxShadow: 1,
                                               "&:hover": { color: "success.main", bgcolor: "background.paper" },
-                                            }}
+                                            })}
                                           >
                                             <TaskAltIcon fontSize="small" />
                                           </IconButton>

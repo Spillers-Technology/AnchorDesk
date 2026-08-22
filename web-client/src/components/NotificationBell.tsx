@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   IconButton,
   Badge,
@@ -12,9 +12,19 @@ import {
   Divider,
   Tooltip,
 } from "@mui/material";
+import { keyframes } from "@mui/material/styles";
 import NotificationsIcon from "@mui/icons-material/Notifications";
 import * as api from "../api/client";
 import { subscribeRealtime } from "../api/realtime";
+
+// A brief pop on the badge dot when a notification actually arrives live,
+// rather than the count just silently changing. Reduced-motion is handled
+// globally (see theme.ts's MuiCssBaseline override), not per-animation.
+const badgePop = keyframes`
+  0% { transform: scale(1); }
+  45% { transform: scale(1.35); }
+  100% { transform: scale(1); }
+`;
 
 /**
  * Notification bell: a live unread badge + recent-notifications popover. Loads
@@ -25,6 +35,8 @@ export default function NotificationBell({ onOpenTicket }: { onOpenTicket?: (tic
   const [items, setItems] = useState<api.NotificationItem[]>([]);
   const [unread, setUnread] = useState(0);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [justArrived, setJustArrived] = useState(false);
+  const popTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const load = () => {
     api.listNotifications().then((r) => { setItems(r.items); setUnread(r.unread); }).catch(() => {});
@@ -36,9 +48,14 @@ export default function NotificationBell({ onOpenTicket }: { onOpenTicket?: (tic
       if (event.type === "notification") {
         setItems((prev) => [event.notification, ...prev].slice(0, 50));
         setUnread((u) => u + 1);
+        setJustArrived(true);
+        clearTimeout(popTimeout.current);
+        popTimeout.current = setTimeout(() => setJustArrived(false), 400);
       }
     });
   }, []);
+
+  useEffect(() => () => clearTimeout(popTimeout.current), []);
 
   const openItem = (n: api.NotificationItem) => {
     if (!n.readAt) {
@@ -62,7 +79,13 @@ export default function NotificationBell({ onOpenTicket }: { onOpenTicket?: (tic
     <>
       <Tooltip title="Notifications">
         <IconButton color="inherit" onClick={(e) => { setAnchor(e.currentTarget); load(); }}>
-          <Badge badgeContent={unread} color="error">
+          <Badge
+            badgeContent={unread}
+            color="error"
+            slotProps={{
+              badge: { sx: { animation: justArrived ? `${badgePop} 400ms ease-out` : "none" } },
+            }}
+          >
             <NotificationsIcon />
           </Badge>
         </IconButton>

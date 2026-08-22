@@ -9,6 +9,7 @@ at the repo root.
 There is no `RELEASE_NOTES_v2.5.0.md` — 2.5.0 ("Sync you can actually trust") shipped inside the
 2.6.0 tag and was never released on its own; see `CHANGELOG.md` for that release's full scope.
 
+- [AnchorDesk 2.8.2 — First Coat (patch)](RELEASE_NOTES_v2.8.2.md)
 - [AnchorDesk 2.8.1 — Ledger & Log (patch)](RELEASE_NOTES_v2.8.1.md)
 - [AnchorDesk 2.8.0 — Access & Signal (minor)](RELEASE_NOTES_v2.8.0.md)
 - [AnchorDesk 2.7.2 — The query nobody ran (patch)](RELEASE_NOTES_v2.7.2.md)

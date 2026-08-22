@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.8.2 — 2026-08-22 — First Coat (patch)
+
+Phase one of an ongoing UX/quality pass: a shared motion system (`theme.ts`) replaces three
+inconsistent, ad hoc transition timings and the one place `prefers-reduced-motion` was honored
+(Network's canvas) with a single global rule covering every surface, staff and portal alike. Every
+`ButtonBase`-derived control (buttons, icon buttons, list items, menu items, tabs) shares one
+hover/press transition; cards, chips, and table rows follow; the notification bell's badge pops on
+a live arrival instead of silently updating its count. No schema/API change, no new features.
+
+### Changed
+
+- `theme.ts` — `MuiCssBaseline` reduced-motion override, `MuiButtonBase`/`MuiCard`/`MuiChip`/
+  `MuiTableRow` transition tokens.
+- `TicketCard.tsx`, `KanbanBoard.tsx` — ad hoc inline transitions replaced with the shared tokens;
+  card hover gains a subtle lift.
+- `NotificationBell.tsx` — badge pop animation on live arrival, with new test coverage.
+
 ## 2.8.1 — 2026-08-22 — Ledger & Log (patch)
 
 Process infrastructure, no behavior change. `docs/dev-process.md` plus three Codex CLI dispatcher

@@ -135,6 +135,35 @@ export function buildTheme(id: ThemeId): Theme {
       button: { textTransform: "none", fontWeight: 600 },
     },
     components: {
+      // One reduced-motion rule, applied globally via CssBaseline, instead of
+      // each animated surface (previously only NetworkMap's canvas) checking
+      // prefers-reduced-motion on its own.
+      MuiCssBaseline: {
+        styleOverrides: {
+          "@media (prefers-reduced-motion: reduce)": {
+            "*, *::before, *::after": {
+              animationDuration: "0.01ms !important",
+              animationIterationCount: "1 !important",
+              transitionDuration: "0.01ms !important",
+              scrollBehavior: "auto !important",
+            },
+          },
+        },
+      },
+      // Core interaction layer: every clickable surface built on ButtonBase
+      // (Button, IconButton, ListItemButton, MenuItem, Tab, Checkbox/Radio
+      // ripples) gets the same hover/press feel from one place instead of
+      // each component tuning its own transition.
+      MuiButtonBase: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            transition: theme.transitions.create(
+              ["background-color", "color", "box-shadow", "border-color"],
+              { duration: theme.transitions.duration.shortest },
+            ),
+          }),
+        },
+      },
       MuiButton: {
         defaultProps: { disableElevation: true },
         styleOverrides: { root: { borderRadius: 10, paddingInline: 16 } },
@@ -147,7 +176,14 @@ export function buildTheme(id: ThemeId): Theme {
       },
       MuiCard: {
         defaultProps: { variant: "outlined" },
-        styleOverrides: { root: { borderRadius: 14 } },
+        styleOverrides: {
+          root: ({ theme }) => ({
+            borderRadius: 14,
+            transition: theme.transitions.create(["box-shadow", "border-color", "transform"], {
+              duration: theme.transitions.duration.shortest,
+            }),
+          }),
+        },
       },
       MuiAppBar: {
         styleOverrides: {
@@ -157,10 +193,29 @@ export function buildTheme(id: ThemeId): Theme {
           },
         },
       },
-      MuiChip: { styleOverrides: { root: { fontWeight: 600 } } },
+      MuiChip: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            fontWeight: 600,
+            transition: theme.transitions.create(["background-color", "box-shadow"], {
+              duration: theme.transitions.duration.shortest,
+            }),
+          }),
+        },
+      },
       MuiTableCell: {
         styleOverrides: {
           head: { fontWeight: 700, color: p.textSecondary, backgroundColor: p.headFill },
+        },
+      },
+      MuiTableRow: {
+        styleOverrides: {
+          root: ({ theme }) => ({
+            transition: theme.transitions.create("background-color", {
+              duration: theme.transitions.duration.shortest,
+            }),
+            "&:hover": { backgroundColor: alpha(p.primary, 0.04) },
+          }),
         },
       },
       MuiListItemButton: {

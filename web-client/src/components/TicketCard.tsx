@@ -40,8 +40,8 @@ const TicketCard: React.FC<TicketCardProps> = ({
         position: "relative",
         borderColor: selected ? "primary.main" : undefined,
         boxShadow: selected ? 3 : undefined,
-        transition: "box-shadow .15s, border-color .15s",
-        "&:hover": { boxShadow: 3, borderColor: "primary.main" },
+        // Transition itself comes from the shared MuiCard theme override.
+        "&:hover": { boxShadow: 3, borderColor: "primary.main", transform: "translateY(-1px)" },
       }}
     >
       {selectionEnabled && (
