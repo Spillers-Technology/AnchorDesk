@@ -102,8 +102,13 @@ each report (`reports-volume`, `reports-durations`, `reports-sla`,
 `time-day` and `time-sla`. The day fixture is intentionally only four logged
 hours inside the explicit default eight-hour day, so leading, interior, and
 trailing gaps must all be visible. The SLA fixture includes lifecycle facts,
-two frozen target snapshots, and breach points. Every one of these captures
-runs a document-width assertion before writing the screenshot.
+two frozen target snapshots, and breach points. Every matrix capture runs a
+document-width assertion before writing the screenshot.
+
+CI runs every view at three representative widths: Galaxy (the primary phone
+path), folded foldable (the narrowest supported viewport), and unfolded
+foldable (the separate windowed-dialog layout path). A full five-device local
+run remains required for releases and broad layout changes.
 
 The curated 2.2 release proof below shows the selected-device Network flow at
 360px, including touch map controls and the provider identities attached to the
@@ -130,6 +135,8 @@ full-screen composer.
   touch-scrolls but is not a mobile surface. Cards/Kanban are the phone views.
 - **No PWA manifest yet** (add-to-home-screen installs work but without
   standalone mode); candidate follow-up.
-- **CI screenshot gate deferred**: the capture matrix is a local/manual gate
-  for now (the self-hosted runner may not allow browser downloads); the vitest
-  full-screen guard is the automated backstop.
+- **Visual review remains manual**: CI fails on document-level horizontal
+  overflow across three representative widths, but screenshots still require a
+  human review for clipping, touch affordances, and visual regressions. CI uses
+  a hosted runner so Chromium installation does not depend on the self-hosted
+  runner.

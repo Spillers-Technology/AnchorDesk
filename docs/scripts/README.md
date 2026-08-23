@@ -23,9 +23,9 @@ mocked `/api/*` responses (no backend or database needed):
   new-request/deflection form, ticket conversation, comment form, and attachment
   flow, plus Reports and the TIME calendar, across five touch device profiles
   (Galaxy 360, iPhone 393, Pixel 412, folded foldable 344, unfolded foldable
-  717). Every Reports/TIME shot asserts that the document itself has no
-  horizontal overflow; wide charts and tracks must scroll only inside their own
-  container.
+  717). Every mobile-matrix shot asserts that the document itself has no
+  horizontal overflow before its screenshot is written; wide tables, charts,
+  and tracks must scroll only inside their own container.
   Output lands in
   `docs/assets/screenshots/mobile/` — **gitignored** working artifacts; curated
   marketing shots (e.g. `anchordesk-mobile-board.jpg`) are copied into the
@@ -116,3 +116,7 @@ New views are **required** to join the mobile matrix (see
    AppBar; scroll with `el.scrollIntoView({ block: "center" })` and use
    `dispatchEvent("click")` as the existing steps do.
 3. Run the matrix and check the new view at every width.
+
+The CI web-client workflow also runs every matrix view at the Galaxy,
+folded-foldable, and unfolded-foldable widths. The local five-device run remains
+the release/broad-layout gate; CI is the automated overflow regression gate.

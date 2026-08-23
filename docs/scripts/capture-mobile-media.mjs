@@ -69,16 +69,6 @@ async function newDeviceContext(
   return { context, page };
 }
 
-async function shoot(page, device, view) {
-  await page.waitForTimeout(350);
-  await page.screenshot({
-    path: path.join(outDir, `mobile-${device.name}-${view}.jpg`),
-    type: "jpeg",
-    quality: 88,
-  });
-  console.log(`  ✓ ${view}`);
-}
-
 async function assertNoHorizontalPageScroll(page, view) {
   const metrics = await page.evaluate(() => ({
     viewportWidth: document.documentElement.clientWidth,
@@ -94,9 +84,18 @@ async function assertNoHorizontalPageScroll(page, view) {
   }
 }
 
-async function shootWithoutPageOverflow(page, device, view) {
+// Every capture funnels through here, so every capture is guarded — there is
+// no direct-screenshot path that skips the overflow check. Do not add one;
+// call shoot()/shootSection() even for a one-off view.
+async function shoot(page, device, view) {
+  await page.waitForTimeout(350);
   await assertNoHorizontalPageScroll(page, view);
-  await shoot(page, device, view);
+  await page.screenshot({
+    path: path.join(outDir, `mobile-${device.name}-${view}.jpg`),
+    type: "jpeg",
+    quality: 88,
+  });
+  console.log(`  ✓ ${view}`);
 }
 
 async function shootSection(page, device, view, testId) {
@@ -106,7 +105,7 @@ async function shootSection(page, device, view, testId) {
     element.scrollIntoView({ block: "center", inline: "nearest" })
   );
   await page.waitForTimeout(150);
-  await shootWithoutPageOverflow(page, device, view);
+  await shoot(page, device, view);
 }
 
 async function assertWideArticleContentScrollable(page, view) {
@@ -147,7 +146,7 @@ async function captureDevice(browser, device) {
     await page
       .getByRole("button", { name: "Request access", exact: true })
       .waitFor({ timeout: 20_000 });
-    await shootWithoutPageOverflow(page, device, "portal-register");
+    await shoot(page, device, "portal-register");
     await context.close();
   }
 
@@ -359,7 +358,7 @@ async function captureDevice(browser, device) {
         .waitFor({ timeout: 20_000 });
       await page.evaluate(() => window.scrollTo(0, 0));
       if (view("reports")) {
-        await shootWithoutPageOverflow(page, device, "reports");
+        await shoot(page, device, "reports");
       }
       for (const section of reportSections) {
         if (view(section.view)) {
@@ -380,10 +379,10 @@ async function captureDevice(browser, device) {
       await daySpread.getByText("50%", { exact: true }).waitFor({ timeout: 20_000 });
       await page.evaluate(() => window.scrollTo(0, 0));
       if (view("myday")) {
-        await shootWithoutPageOverflow(page, device, "myday");
+        await shoot(page, device, "myday");
       }
       if (view("time-day")) {
-        await shootWithoutPageOverflow(page, device, "time-day");
+        await shoot(page, device, "time-day");
       }
 
       if (view("time-sla")) {
@@ -403,7 +402,7 @@ async function captureDevice(browser, device) {
         await response;
         await timeline.getByLabel(/SLA breached at/).first().waitFor({ timeout: 20_000 });
         await page.evaluate(() => window.scrollTo(0, 0));
-        await shootWithoutPageOverflow(page, device, "time-sla");
+        await shoot(page, device, "time-sla");
       }
     }
 
@@ -496,7 +495,7 @@ async function captureDevice(browser, device) {
       if (view("admin-portal-registrations")) {
         await page.getByText("Portal Requests", { exact: true }).first().click();
         await page.getByText("Portal access requests", { exact: true }).waitFor({ timeout: 20_000 });
-        await shootWithoutPageOverflow(page, device, "admin-portal-registrations");
+        await shoot(page, device, "admin-portal-registrations");
       }
       if (view("admin-checklists") || view("checklist-template-editor")) {
         await page.getByText("Checklists", { exact: true }).first().click();
