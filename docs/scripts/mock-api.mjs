@@ -2527,6 +2527,21 @@ export async function handleApi(route) {
     return json(route, { signatureHtml: "<p>Jess Spillers<br>Spillers Technology</p>" });
   }
 
+  match = apiPath.match(/^\/contacts\/(\d+)\/portal-grants$/);
+  if (method === "GET" && match) {
+    const contactId = Number(match[1]);
+    return json(route, contactId === 1 ? [{
+      id: 701,
+      contactId,
+      companyId: 1,
+      grantedBy: "Jess Spillers",
+      grantedAt: daysFromNow(-14, 10, 0),
+      effectiveFrom: daysFromNow(-14, 10, 0),
+      revokedBy: null,
+      revokedAt: null,
+    }] : []);
+  }
+
   if (method === "GET" && apiPath === "/companies") return json(route, companies);
 
   match = apiPath.match(/^\/companies\/(\d+)\/tickets$/);

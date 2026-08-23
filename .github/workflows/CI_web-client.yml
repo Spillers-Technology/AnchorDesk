@@ -33,3 +33,82 @@ jobs:
       - name: Build web client
         working-directory: web-client
         run: npm run build
+
+  # STD-008 (corporate-strategy/standards): capture-mobile-media.mjs asserts
+  # no-horizontal-page-scroll on every shot (see shoot() in the script), but
+  # that assertion had never actually run anywhere except a developer's own
+  # machine — docs/mobile.md called the matrix an explicitly deferred/local
+  # gate. This job is the fix: it actually executes the assertion in CI and
+  # fails the build on a real overflow.
+  #
+  # No backend or database is needed — mock-api.mjs answers every /api/* call
+  # the capture pages make, so the only thing to boot is the Vite dev server.
+  #
+  # Kept on ubuntu-latest, not arc-org: this needs a real Playwright/Chromium
+  # download, which docs/mobile.md's own "known limitations" section flagged
+  # as possibly unavailable on the self-hosted runner. Same reasoning
+  # CI_backend.yml already uses to put its Docker-dependent jobs on
+  # ubuntu-latest instead of arc-org.
+  #
+  # Runs a representative subset of the five device profiles, not all five,
+  # to keep runtime reasonable: galaxy (360px, the primary phone width),
+  # fold-closed (344px, the narrowest viewport this project supports at all —
+  # see docs/mobile.md), and fold-open (717px, the one profile that exercises
+  # the separate sm-md "windowed dialog" layout branch instead of the phone
+  # full-screen one). iphone/pixel share galaxy's <600px full-screen code path
+  # and add coverage breadth but little new failure surface. Every view in the
+  # matrix still runs on each of these three widths; only the device list is
+  # narrowed. Run the full five-device matrix locally
+  # (`node docs/scripts/capture-mobile-media.mjs`, see docs/mobile.md) before
+  # a release or a broad layout change.
+  mobile-capture-matrix:
+    runs-on: ubuntu-latest
+    env:
+      ANCHORDESK_CAPTURE_DEVICES: galaxy,fold-closed,fold-open
+      ANCHORDESK_CAPTURE_OUT: ${{ github.workspace }}/mobile-capture-out
+      ANCHORDESK_CAPTURE_DEBUG: "1"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web-client/package-lock.json
+
+      - name: Install web-client dependencies
+        working-directory: web-client
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        # Deliberately not a package.json dependency (see docs/scripts/README.md)
+        # so it doesn't bloat every install; fetched once here instead.
+        run: |
+          mkdir -p "$RUNNER_TEMP/anchordesk-playwright"
+          npm install --prefix "$RUNNER_TEMP/anchordesk-playwright" playwright
+          echo "PLAYWRIGHT_NODE_MODULES=$RUNNER_TEMP/anchordesk-playwright/node_modules" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/anchordesk-playwright/node_modules/.bin/playwright" install --with-deps chromium
+
+      - name: Start Vite dev server
+        working-directory: web-client
+        # Backgrounded on purpose: capture-mobile-media.mjs's own waitForServer()
+        # polls the URL for up to 60s before capturing, so there is no race to
+        # handle here. The process is left running; the runner is torn down
+        # after the job either way.
+        run: nohup npm run dev -- --port 5173 --strictPort > "$RUNNER_TEMP/vite-dev.log" 2>&1 &
+
+      - name: Run mobile overflow matrix
+        run: node docs/scripts/capture-mobile-media.mjs
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-capture-matrix-failure
+          path: |
+            ${{ env.ANCHORDESK_CAPTURE_OUT }}
+            ${{ runner.temp }}/vite-dev.log
+          retention-days: 7
+          if-no-files-found: ignore
