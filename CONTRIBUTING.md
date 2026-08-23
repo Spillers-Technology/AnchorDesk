@@ -34,8 +34,11 @@ npm run build
 
 The root `docker compose up --build` path is the best end-to-end smoke test.
 See the README quickstart for the required `.env` values.
-Schema changes should also be exercised with `npx prisma db push` against a
-fresh or disposable PostgreSQL database before release.
+Schema changes must be generated and exercised with
+`npx prisma migrate dev --name <change>` against a development PostgreSQL
+database. Commit the generated file under `backend/prisma/migrations/` with the
+schema change; a committed `schema.prisma` change without a matching migration
+fails CI.
 
 ## A useful pull request
 

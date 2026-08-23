@@ -372,14 +372,30 @@ manual deadline. Existing policy-derived `response_due_at` and
 the resolution target used by the SLA scheduler and UI; clearing it restores
 the policy target without affecting the response clock.
 
-This repository's deployment convention is `npx prisma db push`; Docker
-Compose runs it during backend startup and the Kubernetes development
-deployment uses a dedicated init container. Validate and apply the schema
-before starting a manually managed backend:
+## Schema ownership and deployment
+
+AnchorDesk separates relational schema, PostgreSQL-only invariants, and data
+repairs so each has one owner:
+
+| Layer | Owns | Runs |
+|---|---|---|
+| `prisma/migrations/` | Relational DDL derived from `schema.prisma`: tables, columns, types, enums, PK/FK, schema-declared indexes and uniques | Once per version, ordered, recorded in `_prisma_migrations` |
+| `backend/src/db/pgExtras.ts` | PostgreSQL objects Prisma cannot express, plus catalog verification of the critical subset | Every boot, before the server listens |
+| `backend/src/db/dataMigrations.ts` | Idempotent row-level repairs | Every boot |
+
+Do not copy `pgExtras.ts` objects into a Prisma migration. Runtime catalog
+verification is part of their contract and catches an invariant that was
+altered or removed after a migration originally ran.
+
+The deployment convention is `prisma migrate deploy`, selected through
+`backend/scripts/apply-schema.mjs`. Docker Compose runs that entrypoint during
+backend startup, and the Kubernetes development deployment runs it in the
+`prisma-migrate` init container. Validate and apply the schema before starting
+a manually managed backend:
 
 ```bash
 cd backend
 npx prisma validate
 npx prisma generate
-npx prisma db push
+node scripts/apply-schema.mjs
 ```

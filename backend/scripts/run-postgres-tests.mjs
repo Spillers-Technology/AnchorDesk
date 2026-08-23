@@ -68,10 +68,10 @@ try {
       `on ${baseUrl.hostname}/${databaseName}`,
   );
 
-  const pushStatus = runNode(prismaCli, ['db', 'push', '--skip-generate']);
-  if (pushStatus !== 0) {
-    console.error(`prisma db push failed with exit code ${pushStatus}`);
-    exitCode = pushStatus;
+  const deployStatus = runNode(prismaCli, ['migrate', 'deploy']);
+  if (deployStatus !== 0) {
+    console.error(`prisma migrate deploy failed with exit code ${deployStatus}`);
+    exitCode = deployStatus;
   } else {
     exitCode = runNode(jestCli, [
       '--config',

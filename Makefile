@@ -22,7 +22,7 @@ BACKEND_IMG = $(REGISTRY)/anchordesk-backend:$(TAG)
 WEB_IMG     = $(REGISTRY)/anchordesk-web-client:$(TAG)
 
 .PHONY: all build push deploy redeploy secrets status logs logs-web logs-db \
-        shell-backend shell-db db-push restart clean help
+        shell-backend shell-db db-migrate restart clean help
 
 all: build push deploy ## Build, push, and deploy everything
 
@@ -96,8 +96,8 @@ shell-db: ## Open a psql shell
 	kubectl exec -it -n $(NS) db-0 -- \
 	  sh -c 'psql -U $$POSTGRES_USER -d anchordesk'
 
-db-push: ## Run prisma db push inside the backend pod (apply schema changes)
-	kubectl exec -n $(NS) deploy/backend -- npx prisma db push
+db-migrate: ## Apply committed Prisma migrations inside the backend pod
+	kubectl exec -n $(NS) deploy/backend -- node scripts/apply-schema.mjs
 
 db-studio: ## Forward Prisma Studio port locally (http://localhost:5555)
 	kubectl exec -n $(NS) deploy/backend -- npx prisma studio &

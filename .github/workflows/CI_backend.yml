@@ -95,3 +95,58 @@ jobs:
       - name: Run PostgreSQL integration tests
         working-directory: backend
         run: npm run test:postgres
+
+  # Like postgres-tests, migration drift needs a real Postgres service for its
+  # disposable shadow database. Keep this separate so service failures are
+  # visible, and use ubuntu-latest because arc-org has no Docker daemon.
+  migration-drift:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://anchordesk:anchordesk@127.0.0.1:5432/anchordesk
+      SHADOW_DATABASE_URL: postgresql://anchordesk:anchordesk@127.0.0.1:5432/anchordesk_shadow
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: anchordesk
+          POSTGRES_PASSWORD: anchordesk
+          POSTGRES_DB: anchordesk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U anchordesk"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: Create shadow database
+        run: |
+          command -v psql
+          psql "$DATABASE_URL" -c 'CREATE DATABASE anchordesk_shadow'
+
+      - name: Check migration drift
+        working-directory: backend
+        run: |
+          npx prisma migrate diff \
+            --from-migrations ./prisma/migrations \
+            --to-schema-datamodel ./prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code

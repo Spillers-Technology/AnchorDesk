@@ -1,0 +1,152 @@
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { PrismaClient } from '@prisma/client';
+
+const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const databaseUrl = process.env.DATABASE_URL?.trim();
+
+if (!databaseUrl) {
+  console.error('DATABASE_URL is required to apply the Prisma schema.');
+  process.exit(2);
+}
+
+const prismaCli = path.join(backendRoot, 'node_modules', 'prisma', 'build', 'index.js');
+const childEnv = { ...process.env, DATABASE_URL: databaseUrl };
+const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
+
+function runPrisma(args) {
+  const result = spawnSync(process.execPath, [prismaCli, ...args], {
+    cwd: backendRoot,
+    env: childEnv,
+    stdio: 'inherit',
+  });
+  if (result.error) throw result.error;
+  return result.status ?? 1;
+}
+
+function quoteIdentifier(identifier) {
+  return `"${identifier.replaceAll('"', '""')}"`;
+}
+
+let exitCode = 1;
+try {
+  const rows = await prisma.$queryRawUnsafe(`
+    SELECT
+      current_schema()::text AS "schemaName",
+      EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_name = '_prisma_migrations'
+          AND table_type = 'BASE TABLE'
+      ) AS "hasMigrationsTable",
+      EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_name = 'tickets'
+          AND table_type = 'BASE TABLE'
+      ) AS "hasSentinel",
+      (
+        SELECT count(*)::int
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_name <> '_prisma_migrations'
+          AND table_type = 'BASE TABLE'
+      ) AS "otherTableCount"
+  `);
+  const state = rows[0];
+  if (rows.length !== 1 || !state?.schemaName) {
+    throw new Error('Could not resolve the current PostgreSQL schema.');
+  }
+
+  let shouldDeploy = false;
+  if (state.hasMigrationsTable) {
+    console.log(
+      `Schema "${state.schemaName}" already has _prisma_migrations; ` +
+        'running prisma migrate deploy.',
+    );
+    shouldDeploy = true;
+  } else if (state.otherTableCount === 0) {
+    console.log(
+      `Schema "${state.schemaName}" has no application tables; ` +
+        'running prisma migrate deploy for a fresh install.',
+    );
+    shouldDeploy = true;
+  } else if (state.hasSentinel) {
+    console.log(
+      `Schema "${state.schemaName}" has tickets but no _prisma_migrations; ` +
+        'marking 0_init as applied for a pre-2.9 db push install before running ' +
+        'prisma migrate deploy.',
+    );
+    const resolveStatus = runPrisma(['migrate', 'resolve', '--applied', '0_init']);
+    if (resolveStatus === 0) {
+      shouldDeploy = true;
+    } else {
+      // Do not replace this tolerance check with an advisory lock held while the
+      // CLI runs. PrismaClient pools connections, so connection-affine locking
+      // and unlocking across the subprocess boundary would not be reliable.
+      let baselineWasApplied = false;
+      try {
+        const schema = quoteIdentifier(state.schemaName);
+        const appliedRows = await prisma.$queryRawUnsafe(`
+          SELECT EXISTS (
+            SELECT 1
+            FROM ${schema}."_prisma_migrations"
+            WHERE migration_name = '0_init'
+              AND finished_at IS NOT NULL
+          ) AS "isApplied"
+        `);
+        baselineWasApplied = appliedRows[0]?.isApplied === true;
+      } catch (error) {
+        console.error(
+          'Could not verify whether another process applied 0_init: ' +
+            (error instanceof Error ? error.message : String(error)),
+        );
+        baselineWasApplied = false;
+      }
+
+      if (baselineWasApplied) {
+        console.log(
+          'Another process finished applying the 0_init baseline; ' +
+            'continuing with prisma migrate deploy.',
+        );
+        shouldDeploy = true;
+      } else {
+        console.error(`prisma migrate resolve failed with exit code ${resolveStatus}`);
+        exitCode = resolveStatus;
+      }
+    }
+  } else {
+    console.error(
+      `Schema "${state.schemaName}" has ${state.otherTableCount} base table(s), ` +
+        'but has neither _prisma_migrations nor tickets. Refusing to guess its state; ' +
+        'inspect the database manually before retrying.',
+    );
+    exitCode = 1;
+  }
+
+  if (shouldDeploy) {
+    const deployStatus = runPrisma(['migrate', 'deploy']);
+    if (deployStatus !== 0) {
+      console.error(`prisma migrate deploy failed with exit code ${deployStatus}`);
+    }
+    exitCode = deployStatus;
+  }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  exitCode = 1;
+} finally {
+  try {
+    await prisma.$disconnect();
+  } catch (error) {
+    console.error(
+      'Failed to disconnect the schema inspection client: ' +
+        (error instanceof Error ? error.message : String(error)),
+    );
+    if (exitCode === 0) exitCode = 1;
+  }
+}
+
+process.exitCode = exitCode;

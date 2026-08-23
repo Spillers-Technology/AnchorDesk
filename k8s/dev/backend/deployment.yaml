@@ -30,11 +30,12 @@ spec:
               done
               echo "db is ready"
 
-        # Apply Prisma schema to the database (idempotent).
-        - name: prisma-db-push
+        # Apply committed Prisma migrations (baselines a pre-2.9 db push database on first run).
+        - name: prisma-migrate
           image: ghcr.io/spillers-technology/anchordesk-backend:latest
           imagePullPolicy: Always
-          command: ["npx", "prisma", "db", "push", "--skip-generate"]
+          command: ["node", "scripts/apply-schema.mjs"]
+          workingDir: /backend
           env:
             - name: DATABASE_URL
               valueFrom:
