@@ -8,7 +8,7 @@ standards or implementation changes.
 |---|---|---|
 | STD-001 adversarial review | adopted (early) | `docs/dev-process.md` defines the routing policy and log; one real unit is recorded on the migrations branch, so adoption is newer than the two mature reference repos. |
 | STD-002 PR template | adopted | `.github/PULL_REQUEST_TEMPLATE.md` has the required problem, checks, evidence, and synthetic-data clauses. |
-| STD-003 doc freshness | not-yet | No drift was found in the corporate sweep, but only partial mechanical checking exists; release docs still require manual reconciliation. |
+| STD-003 doc freshness | not-yet (partial pass) | The version check passes, but the known `docs/dev-process.md` prose-drift finding remains; release docs also require manual reconciliation. |
 | STD-004 identity architecture | adopted | Local accounts, optional OIDC/SAML, and hashed/revocable `adk_` personal access tokens are implemented. |
 | STD-005 agent surface | adopted (partial) | MCP shares attributable user/token identity; the company standard remains advisory and AnchorDesk has no PartnerCenterBridge-style approval queue. |
 | STD-006 secret handling | adopted | A real `.sops.yaml`/encrypted deployment secret exists, and personal access tokens are write-only and hash-only. |
