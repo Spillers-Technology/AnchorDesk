@@ -7,6 +7,6 @@ module.exports = {
   // outside the unit config means `npm test` never attempts a database
   // connection, while the dedicated runner fails rather than silently skips
   // when no disposable PostgreSQL URL was supplied.
-  testMatch: ['<rootDir>/integration/**/*.postgres.test.ts'],
+  testMatch: ['<rootDir>/**/*.postgres.test.ts'],
   testPathIgnorePatterns: ['/node_modules/'],
 };

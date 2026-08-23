@@ -43,6 +43,7 @@ const childEnv = {
   ...process.env,
   DATABASE_URL: schemaUrl.toString(),
   ANCHORDESK_POSTGRES_INTEGRATION: '1',
+  KB_POSTGRES_TESTS: '1',
 };
 const prismaCli = path.join(backendRoot, 'node_modules', 'prisma', 'build', 'index.js');
 const jestCli = path.join(backendRoot, 'node_modules', 'jest', 'bin', 'jest.js');

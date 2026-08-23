@@ -58,7 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://anchordesk:anchordesk@127.0.0.1:5432/anchordesk
-      KB_POSTGRES_TESTS: "1"
+      POSTGRES_TEST_DATABASE_URL: postgresql://anchordesk:anchordesk@127.0.0.1:5432/anchordesk
     services:
       postgres:
         image: postgres:16-alpine
@@ -88,12 +88,10 @@ jobs:
         working-directory: backend
         run: npm ci
 
-      - name: Generate Prisma client and push schema
+      - name: Generate Prisma client
         working-directory: backend
-        run: |
-          npx prisma generate
-          npx prisma db push --skip-generate
+        run: npx prisma generate
 
-      - name: Run Jest tests against PostgreSQL
+      - name: Run PostgreSQL integration tests
         working-directory: backend
-        run: npm test
+        run: npm run test:postgres

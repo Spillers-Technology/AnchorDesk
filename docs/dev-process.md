@@ -128,3 +128,4 @@ a verdict note, matching the table shape in `docs/DEV-PROCESS.md` (player-2) and
 
 | Unit | Task type | Author | Reviewer | Defects found | Defects real | Caught by tests instead | Est. tokens | Verdict |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | CI / Test config | Luna | Terra/high | 0 | 0 | 0 | ~61k | Pass; postgres-tests CI runs test:postgres instead of mocked unit suite and covers all *.postgres.test.ts |
