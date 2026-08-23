@@ -117,10 +117,10 @@ cp backend/.env.example backend/.env
 # For a real login, set AUTH_SESSION_SECRET, ENCRYPTION_KEY,
 # and BOOTSTRAP_ADMIN_PASSWORD instead.
 
-# Install dependencies and push the schema
+# Install dependencies and deploy the committed migrations
 cd backend
 npm ci
-npx prisma db push
+npx prisma migrate deploy
 ```
 
 Run the backend and frontend in separate terminals:
