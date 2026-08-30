@@ -246,6 +246,16 @@ async function parseCustomFieldFilters(
 
 const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
 const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
+// Bound the most obvious fresh-vs-replay timing signal. The database work for
+// an ordinary intake create normally fits under this floor; both paths wait to
+// the same minimum. This is intentionally modest latency for an unattended C1
+// endpoint, not a claim of constant-time behavior under arbitrary load.
+const INTAKE_RESPONSE_FLOOR_MS = 75;
+
+async function padIntakeResponse(startedAt: number): Promise<void> {
+  const remaining = INTAKE_RESPONSE_FLOOR_MS - (Date.now() - startedAt);
+  if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+}
 
 /** Fastify lowercases header names for lookup; trims and bounds length defensively. */
 function readIdempotencyKey(req: FastifyRequest): string | null {
@@ -271,7 +281,7 @@ function readIdempotencyKey(req: FastifyRequest): string | null {
  *     caller-chosen opaque Idempotency-Key, scoped to *this token only* via
  *     repositories/intakeReceiptRepository.ts's (apiTokenId, idempotencyKey)
  *     uniqueness. A "collision" (the same token replaying the same key) can
- *     only ever replay that token's own prior response — verbatim, from a
+ *     only ever replay that token's own prior response — from a frozen
  *     frozen snapshot taken at creation time — never hydrate some other,
  *     unrelated ticket. This is what closes the PR #33 disclosure class
  *     structurally: there is no code path here that looks a ticket up by a
@@ -289,6 +299,7 @@ async function handleIntakeCreate(
   reply: FastifyReply,
   body: ticketRepo.CreateTicketInput,
 ): Promise<void> {
+  const startedAt = Date.now();
   const idempotencyKey = readIdempotencyKey(req);
   if (!idempotencyKey) {
     reply.status(400).send({ error: 'Idempotency-Key header is required and must be 1-255 characters' });
@@ -301,6 +312,7 @@ async function handleIntakeCreate(
 
   const claimResult = await intakeReceipts.claim(apiTokenId, idempotencyKey);
   if (claimResult.outcome === 'replay') {
+    await padIntakeResponse(startedAt);
     reply.status(201).send(claimResult.responseBody);
     return;
   }
@@ -310,13 +322,15 @@ async function handleIntakeCreate(
   }
 
   try {
-    const ticket = await ticketRepo.create(body, req.actorSub);
+    const ticket = await ticketRepo.create(body, req.actorSub, {
+      intakeReceiptId: claimResult.receiptId,
+    });
     // Freeze exactly what goes over the wire: a future replay returns this
     // snapshot byte-for-byte rather than a live re-read, which could drift
     // (e.g. notes added since) and disclose more than the original response
     // ever did.
     const responseBody = JSON.parse(JSON.stringify(ticket));
-    await intakeReceipts.complete(claimResult.receiptId, ticket.id, responseBody);
+    await padIntakeResponse(startedAt);
     reply.status(201).send(responseBody);
   } catch (error) {
     await intakeReceipts.fail(claimResult.receiptId);

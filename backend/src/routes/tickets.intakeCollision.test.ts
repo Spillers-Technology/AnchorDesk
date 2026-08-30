@@ -9,10 +9,10 @@
  *
  * This does not merely assert "collision returns 409" (DR-0003 explicitly
  * rejects that as sufficient) — it exercises the real paired create/replay
- * behavior end to end through the actual route and repository claim/complete
- * logic (repositories/intakeReceiptRepository.ts is NOT mocked here, unlike
- * tickets.intakeScope.test.ts, because the nondisclosure property lives
- * inside it).
+ * behavior end to end through the actual route and an in-memory model of the
+ * repository's unique-key state machine. The Prisma repository has focused
+ * tests of its own; this suite keeps the HTTP acceptance property independent
+ * of an external PostgreSQL service.
  *
  * See intakeCollisionDisclosure.evidence.test.ts for the historical PR #33
  * defect this design replaces, and its doc comment for why an
@@ -109,26 +109,40 @@ describe('intake token collision nondisclosure', () => {
     jest.clearAllMocks();
     mockReceiptStore = makeFakeReceiptStore();
     ticketAutoId = 1000;
-    mockedTicketRepo.create.mockImplementation(async (input) => {
+    mockedTicketRepo.create.mockImplementation(async (input, _actor, options) => {
       ticketAutoId += 1;
-      return {
+      const ticket = {
         id: ticketAutoId,
         title: (input as { title: string }).title,
         status: 'New',
         createdAt: new Date('2026-08-29T12:00:00.000Z'),
-      } as never;
+      };
+      // Production completes the receipt inside ticketRepository.create's
+      // transaction. Mirror that boundary in the fake so route-level replay
+      // exercises the same externally observable state transition.
+      if (options?.intakeReceiptId !== undefined) {
+        await mockReceiptStore.complete(
+          options.intakeReceiptId,
+          ticket.id,
+          JSON.parse(JSON.stringify(ticket)),
+        );
+      }
+      return ticket as never;
     });
   });
 
   it('returns identical status and body shape for a fresh create and a replayed collision', async () => {
     const app = await buildApp(501);
     try {
+      const firstStarted = Date.now();
       const first = await app.inject({
         method: 'POST',
         url: '/tickets',
         headers: { 'idempotency-key': 'call-uuid-aaa' },
         payload: { title: 'Printer jam on 3rd floor' },
       });
+      const firstElapsed = Date.now() - firstStarted;
+      const replayStarted = Date.now();
       const replay = await app.inject({
         method: 'POST',
         url: '/tickets',
@@ -138,12 +152,15 @@ describe('intake token collision nondisclosure', () => {
         // ticketRepo.create again, so a second body can't matter.
         payload: { title: 'Printer jam on 3rd floor (retry wording)' },
       });
+      const replayElapsed = Date.now() - replayStarted;
+      const freshStarted = Date.now();
       const fresh = await app.inject({
         method: 'POST',
         url: '/tickets',
         headers: { 'idempotency-key': 'call-uuid-bbb' },
         payload: { title: 'Different call, different issue' },
       });
+      const freshElapsed = Date.now() - freshStarted;
 
       // Status and shape are indistinguishable across all three responses —
       // the "collision" case (replay) looks exactly like a fresh create.
@@ -154,7 +171,16 @@ describe('intake token collision nondisclosure', () => {
       expect(shape(replay.json())).toEqual(shape(first.json()));
       expect(shape(fresh.json())).toEqual(shape(first.json()));
 
-      // The replay is a byte-identical echo of the ORIGINAL response — not a
+      // Both the replay/collision and fresh-create paths are padded to the
+      // same modest response floor. This is not a constant-time claim under
+      // arbitrary host load, but it removes the otherwise-obvious fast replay
+      // signal and exercises DR-0003's "as far as practical" timing condition.
+      expect(firstElapsed).toBeGreaterThanOrEqual(55);
+      expect(replayElapsed).toBeGreaterThanOrEqual(55);
+      expect(freshElapsed).toBeGreaterThanOrEqual(55);
+      expect(Math.abs(replayElapsed - freshElapsed)).toBeLessThan(100);
+
+      // The replay is semantically identical to the ORIGINAL response — not a
       // live re-read, and not the second request's own content — so it
       // cannot disclose anything the credential didn't already receive
       // itself the first time.

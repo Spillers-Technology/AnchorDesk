@@ -16,11 +16,14 @@ to read ticket data, only file new tickets.
   Enforced once, centrally, in `middleware/auth.ts`'s baseline RBAC check, not per-route.
 - **Idempotency-Key–based create dedup, scoped per credential.** An intake-scoped
   `POST /tickets` requires an `Idempotency-Key` header. Replaying the same key on the same
-  token returns the exact response the first request received (201, byte-identical body) —
+  token returns the frozen response the first request received (201, semantically identical body) —
   it never re-reads the ticket live and never looks anything up by a business identity
   (phone number, email, external id) that could coincidentally already belong to an
   unrelated ticket. A concurrent retry of an in-flight key gets 409, never another ticket's
-  data. See `IntakeCreateReceipt` in `schema.prisma` and
+  data. Ticket creation and receipt completion commit atomically; an abandoned pre-create
+  claim is safely reclaimable after five minutes instead of wedging that key forever. Fresh
+  and replay paths share a modest response-time floor to reduce the obvious timing signal.
+  See `IntakeCreateReceipt` in `schema.prisma` and
   `repositories/intakeReceiptRepository.ts`.
 
 ### Fixed / superseded

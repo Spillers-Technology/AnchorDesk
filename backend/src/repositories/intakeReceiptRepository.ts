@@ -19,6 +19,14 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import { hasPrismaCode } from '../util/prismaErrors';
 
+/**
+ * A claim older than this is considered abandoned. Reclaim is safe because
+ * ticket creation and receipt completion are committed in the same database
+ * transaction (see ticketRepository.create's `intakeReceiptId` option): an
+ * incomplete receipt therefore cannot have a committed ticket behind it.
+ */
+export const STALE_CLAIM_MS = 5 * 60 * 1000;
+
 export type ClaimResult =
   | { outcome: 'claimed'; receiptId: number }
   | { outcome: 'replay'; responseBody: unknown }
@@ -27,9 +35,9 @@ export type ClaimResult =
 /**
  * Attempt to claim (apiTokenId, idempotencyKey) for a new create. Returns:
  *  - `claimed`     — caller owns this key; proceed to create the ticket, then
- *                    call `complete()`.
- *  - `replay`      — this key already completed; return `responseBody`
- *                    verbatim (do not re-read the ticket — it may have
+ *                    complete it atomically inside ticketRepository.create.
+ *  - `replay`      — this key already completed; return the frozen
+ *                    `responseBody` (do not re-read the ticket — it may have
  *                    drifted since, which would disclose more than the
  *                    original response did).
  *  - `in-progress` — another request for this exact key is still being
@@ -52,19 +60,36 @@ export async function claim(apiTokenId: number, idempotencyKey: string): Promise
     // safe to treat as available; the caller may retry claim().
     if (!existing) return { outcome: 'in-progress' };
     if (existing.responseBody !== null) return { outcome: 'replay', responseBody: existing.responseBody };
+
+    // A hard process exit can leave the pre-create claim behind. Reclaim only
+    // an old, still-incomplete row, using a conditional delete so a concurrent
+    // completion or another reclaimer wins safely. If this request wins the
+    // delete, retry the normal unique-insert claim path from the top.
+    if (existing.createdAt.getTime() <= Date.now() - STALE_CLAIM_MS) {
+      const reclaimed = await prisma.intakeCreateReceipt.deleteMany({
+        where: {
+          id: existing.id,
+          responseBody: { equals: Prisma.DbNull },
+          createdAt: { lte: new Date(Date.now() - STALE_CLAIM_MS) },
+        },
+      });
+      if (reclaimed.count === 1) return claim(apiTokenId, idempotencyKey);
+
+      // A concurrent completion/reclaim changed the row after our read. Re-run
+      // the lookup path so the caller gets replay/in-progress from fresh state.
+      return claim(apiTokenId, idempotencyKey);
+    }
     return { outcome: 'in-progress' };
   }
 }
 
-/** Record the successful outcome so future replays of this key return it verbatim. */
-export async function complete(receiptId: number, ticketId: number, responseBody: unknown): Promise<void> {
-  await prisma.intakeCreateReceipt.update({
-    where: { id: receiptId },
-    data: { ticketId, responseBody: responseBody as Prisma.InputJsonValue },
-  });
-}
-
 /** Release a claim that failed before completion, so the same key can be retried cleanly. */
 export async function fail(receiptId: number): Promise<void> {
-  await prisma.intakeCreateReceipt.delete({ where: { id: receiptId } }).catch(() => {});
+  // Never erase a completed receipt. ticketRepository publishes realtime
+  // events after its transaction commits; if that best-effort publication
+  // unexpectedly throws, the route's error path must retain the committed
+  // idempotency result instead of making a retry create a duplicate ticket.
+  await prisma.intakeCreateReceipt.deleteMany({
+    where: { id: receiptId, responseBody: { equals: Prisma.DbNull } },
+  }).catch(() => {});
 }

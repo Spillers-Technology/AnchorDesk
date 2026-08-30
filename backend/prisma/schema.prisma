@@ -103,13 +103,15 @@ enum ApiTokenScope {
 /// to some other, unrelated ticket. A "collision" can therefore only ever be
 /// the same credential replaying its own prior create; it can never surface
 /// another party's ticket. `responseBody` is a frozen snapshot of exactly what
-/// was returned the first time, so a replay is byte-identical to the original
-/// response rather than a live re-read that could drift (and disclose more
+/// was returned the first time, so a replay is semantically identical to the
+/// original response rather than a live re-read that could drift (and disclose more
 /// than was originally returned, e.g. notes added later).
 ///
 /// Rows are claimed before the ticket is created (ticketId/responseBody null)
-/// so concurrent identical requests can't double-create; see
-/// repositories/intakeReceiptRepository.ts.
+/// so concurrent identical requests can't double-create. Ticket creation and
+/// receipt completion then share one transaction, which also makes bounded
+/// stale-claim reclamation safe after a hard process exit; see
+/// repositories/intakeReceiptRepository.ts and ticketRepository.ts.
 model IntakeCreateReceipt {
   id             Int       @id @default(autoincrement())
   apiTokenId     Int       @map("api_token_id")

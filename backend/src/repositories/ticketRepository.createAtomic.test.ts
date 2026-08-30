@@ -1,6 +1,7 @@
 const tx = {
   $queryRaw: jest.fn(),
   ticket: { create: jest.fn() },
+  intakeCreateReceipt: { update: jest.fn() },
 };
 
 jest.mock('../db/prisma', () => ({
@@ -70,7 +71,9 @@ beforeEach(() => {
     companyId: 7,
     contactId: 9,
     source: 'portal',
+    createdAt: new Date('2026-08-29T12:00:00.000Z'),
   });
+  tx.intakeCreateReceipt.update.mockResolvedValue({});
   auditRecord.mockResolvedValue(undefined);
   transaction.mockImplementation(
     async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
@@ -117,6 +120,36 @@ describe('ticket creation transaction boundary', () => {
     await expect(
       create({ title: 'Printer offline', companyId: 7 }, 'alice'),
     ).rejects.toThrow('audit unavailable');
+    expect(publishEvent).not.toHaveBeenCalled();
+  });
+
+  it('completes an intake receipt inside the ticket/audit transaction', async () => {
+    await create(
+      { title: 'Voicemail intake', companyId: 7 },
+      'avr-intake (api)',
+      { intakeReceiptId: 81 },
+    );
+
+    expect(tx.intakeCreateReceipt.update).toHaveBeenCalledWith({
+      where: { id: 81 },
+      data: {
+        ticketId: 42,
+        responseBody: expect.objectContaining({ id: 42, title: 'Printer offline' }),
+      },
+    });
+    expect(publishEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not publish when atomic intake-receipt completion fails', async () => {
+    tx.intakeCreateReceipt.update.mockRejectedValue(new Error('receipt unavailable'));
+
+    await expect(
+      create(
+        { title: 'Voicemail intake', companyId: 7 },
+        'avr-intake (api)',
+        { intakeReceiptId: 81 },
+      ),
+    ).rejects.toThrow('receipt unavailable');
     expect(publishEvent).not.toHaveBeenCalled();
   });
 });
