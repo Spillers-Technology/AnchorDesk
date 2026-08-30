@@ -209,6 +209,12 @@ export interface CreateTicketOptions {
     companyId: number;
     email: string;
   };
+  /**
+   * Intake idempotency claim to complete atomically with the ticket and its
+   * audit row. Keeping these writes in one transaction makes stale-claim
+   * reclamation safe: an incomplete receipt can never hide a committed ticket.
+   */
+  intakeReceiptId?: number;
 }
 
 export class RequesterIdentityChangedError extends Error {
@@ -491,6 +497,17 @@ export async function create(
       changedBy: actorSub,
       newValue: row as unknown as Record<string, unknown>,
     }, tx);
+
+    if (options.intakeReceiptId !== undefined) {
+      // Freeze the public create response in JSON-compatible form. Replays use
+      // this snapshot and never hydrate the live ticket, whose notes or other
+      // fields may have changed since the original intake request.
+      const responseBody = JSON.parse(JSON.stringify(row)) as Prisma.InputJsonValue;
+      await tx.intakeCreateReceipt.update({
+        where: { id: options.intakeReceiptId },
+        data: { ticketId: row.id, responseBody },
+      });
+    }
     return { ticket: row, auditId: auditRow?.id.toString() };
   });
 

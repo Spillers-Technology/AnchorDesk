@@ -16,6 +16,7 @@ import { SyncAccountBusyError } from '../services/syncAccountLock';
 import { sanitizeSyncError } from '../repositories/syncRunRepository';
 import * as mergeService from '../services/merge/mergeService';
 import { MergeLedgerFormatError } from '../services/merge/mergeLedger';
+import * as intakeReceipts from '../repositories/intakeReceiptRepository';
 
 interface IdParam { id: string }
 interface NoteIdParam { id: string; noteId: string }
@@ -243,6 +244,108 @@ async function parseCustomFieldFilters(
   }
 }
 
+const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
+const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
+// Bound the most obvious fresh-vs-replay timing signal. The database work for
+// an ordinary intake create normally fits under this floor; both paths wait to
+// the same minimum. This is intentionally modest latency for an unattended C1
+// endpoint, not a claim of constant-time behavior under arbitrary load.
+const INTAKE_RESPONSE_FLOOR_MS = 75;
+
+async function padIntakeResponse(startedAt: number): Promise<void> {
+  const remaining = INTAKE_RESPONSE_FLOOR_MS - (Date.now() - startedAt);
+  if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+}
+
+/** Fastify lowercases header names for lookup; trims and bounds length defensively. */
+function readIdempotencyKey(req: FastifyRequest): string | null {
+  const raw = req.headers[IDEMPOTENCY_KEY_HEADER];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > MAX_IDEMPOTENCY_KEY_LENGTH) return null;
+  return trimmed;
+}
+
+/**
+ * Create-only path for `intake`-scoped tokens (STD-005 C1 credential — see
+ * corporate-strategy standards/STD-005-agent-surface.md, and DR-0003 /
+ * D-0027 for why AnchorDesk PR #33's version of this was closed rather than
+ * salvaged). Two properties matter here, and only the second is new
+ * relative to a normal create:
+ *
+ *  1. Scope ceiling — already enforced centrally in middleware/auth.ts
+ *     (isIntakeAllowed) before this handler ever runs; nothing here
+ *     re-derives that decision.
+ *  2. Collision nondisclosure — an intake credential's identity key is a
+ *     caller-chosen opaque Idempotency-Key, scoped to *this token only* via
+ *     repositories/intakeReceiptRepository.ts's (apiTokenId, idempotencyKey)
+ *     uniqueness. A "collision" (the same token replaying the same key) can
+ *     only ever replay that token's own prior response — from a frozen
+ *     frozen snapshot taken at creation time — never hydrate some other,
+ *     unrelated ticket. This is what closes the PR #33 disclosure class
+ *     structurally: there is no code path here that looks a ticket up by a
+ *     business identity (phone number, email, externalId) that an outside
+ *     party could also produce or guess. See
+ *     intakeCollisionDisclosure.evidence.test.ts for the historical bug this
+ *     replaces, and tickets.intakeCollision.test.ts for the acceptance test.
+ *
+ * A concurrent retry of the same key while the first attempt is still being
+ * processed gets 409 — a statement about that caller's own in-flight
+ * request, never a disclosure about any other ticket.
+ */
+async function handleIntakeCreate(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  body: ticketRepo.CreateTicketInput,
+): Promise<void> {
+  const startedAt = Date.now();
+  const idempotencyKey = readIdempotencyKey(req);
+  if (!idempotencyKey) {
+    reply.status(400).send({ error: 'Idempotency-Key header is required and must be 1-255 characters' });
+    return;
+  }
+  // Intake scope exists only on personal access tokens (middleware/auth.ts
+  // sets apiTokenId whenever a PAT resolves), so this is always populated
+  // by the time a request reaches here with tokenScope === 'intake'.
+  const apiTokenId = req.apiTokenId as number;
+
+  const claimResult = await intakeReceipts.claim(apiTokenId, idempotencyKey);
+  if (claimResult.outcome === 'replay') {
+    await padIntakeResponse(startedAt);
+    reply.status(201).send(claimResult.responseBody);
+    return;
+  }
+  if (claimResult.outcome === 'in-progress') {
+    reply.status(409).send({ error: 'A request with this Idempotency-Key is already being processed' });
+    return;
+  }
+
+  try {
+    const ticket = await ticketRepo.create(body, req.actorSub, {
+      intakeReceiptId: claimResult.receiptId,
+    });
+    // Freeze exactly what goes over the wire: a future replay returns this
+    // snapshot byte-for-byte rather than a live re-read, which could drift
+    // (e.g. notes added since) and disclose more than the original response
+    // ever did.
+    const responseBody = JSON.parse(JSON.stringify(ticket));
+    await padIntakeResponse(startedAt);
+    reply.status(201).send(responseBody);
+  } catch (error) {
+    await intakeReceipts.fail(claimResult.receiptId);
+    if (error instanceof CustomFieldValidationError) {
+      reply.status(400).send({ error: error.message });
+      return;
+    }
+    if (hasPrismaCode(error, 'P2003')) {
+      reply.status(400).send({ error: 'A referenced team, user, company, or contact does not exist' });
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function ticketRoutes(server: FastifyInstance) {
   // List tickets with optional filtering + server-side pagination. Returns
   // { items, total, page, pageSize } so the client can page without loading
@@ -317,6 +420,12 @@ export async function ticketRoutes(server: FastifyInstance) {
     const validationError = validateTicketInput(req.body, true);
     if (validationError) return reply.status(400).send({ error: validationError });
     const body = publicTicketCreateInput(req.body as Record<string, unknown>);
+
+    // Intake-scoped tokens (STD-005 C1 credential) take a separate,
+    // idempotency-keyed path — see handleIntakeCreate's docs above.
+    if (req.tokenScope === 'intake') {
+      return handleIntakeCreate(req, reply, body);
+    }
 
     try {
       const ticket = await ticketRepo.create(body, req.actorSub);

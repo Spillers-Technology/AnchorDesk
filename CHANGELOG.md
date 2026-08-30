@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased — Intake-scoped API tokens
+
+Security boundary for unattended create-only agents, rebuilt from current `main` under
+corporate-strategy's STD-005 agent-surface contract (DR-0003). Internal plumbing: no
+integration currently consumes it, but it is designed for the same class of caller a prior,
+closed draft named — an unattended phone/voicemail-to-ticket agent that should never be able
+to read ticket data, only file new tickets.
+
+### Added
+
+- **`intake` API token scope.** `POST /auth/tokens` accepts `scope: "full" | "intake"`
+  (default `full`). An intake-scoped token may only `POST /tickets`; every other route —
+  including every `GET`, including reading the ticket it just created — answers 403.
+  Enforced once, centrally, in `middleware/auth.ts`'s baseline RBAC check, not per-route.
+- **Idempotency-Key–based create dedup, scoped per credential.** An intake-scoped
+  `POST /tickets` requires an `Idempotency-Key` header. Replaying the same key on the same
+  token returns the frozen response the first request received (201, semantically identical body) —
+  it never re-reads the ticket live and never looks anything up by a business identity
+  (phone number, email, external id) that could coincidentally already belong to an
+  unrelated ticket. A concurrent retry of an in-flight key gets 409, never another ticket's
+  data. Ticket creation and receipt completion commit atomically; an abandoned pre-create
+  claim is safely reclaimable after five minutes instead of wedging that key forever. Fresh
+  and replay paths share a modest response-time floor to reduce the obvious timing signal.
+  See `IntakeCreateReceipt` in `schema.prisma` and
+  `repositories/intakeReceiptRepository.ts`.
+
+### Fixed / superseded
+
+- A prior draft (#33, closed) dedup'd intake creates by reading back and returning a
+  pre-existing ticket on an `(externalId, externalProvider)` collision — disclosing arbitrary
+  ticket content to a credential whose only authorized capability was "create a ticket." That
+  design is not reused here; see `intakeCollisionDisclosure.evidence.test.ts` for the
+  preserved reproduction and `tickets.intakeCollision.test.ts` for the acceptance test this
+  rebuild is held to.
+
 ## 2.8.2 — 2026-08-22 — First Coat (patch)
 
 Phase one of an ongoing UX/quality pass: a shared motion system (`theme.ts`) replaces three

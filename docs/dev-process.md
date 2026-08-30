@@ -121,10 +121,6 @@ same way: after a real defect, not speculatively.
 
 ## Log
 
-_Empty. Add a row per unit once real Codex-routed work starts landing on this repo — task type,
-author tier, reviewer tier, defects found/real, tests-instead-of-review count, token/time cost, and
-a verdict note, matching the table shape in `docs/DEV-PROCESS.md` (player-2) and
-`docs/dev-process.md` (PartnerCenterBridge)._
-
 | Unit | Task type | Author | Reviewer | Defects found | Defects real | Caught by tests instead | Est. tokens | Verdict |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| PR #53 intake-credential rebuild | Security/auth: new token scope, new concurrency-sensitive Prisma model | Claude subagent (plain `Agent` dispatch — **should have been Sol/ultra with explicit approval; this was a routing miss, caught after the fact, not a deliberate choice**) | Sol/high, `codex exec -m gpt-5.6-sol -c model_reasoning_effort=high -s read-only`, run retroactively | 4 (1 High, 2 Medium, 1 Low) | 3 confirmed (High, one Medium, Low), 1 suspected (Medium) | 0 — none of the 4 findings were things the existing test suite would have caught; the High finding specifically exists *because* the collision test mocks the exact component whose real behavior would have surfaced it | 113,730 (Codex review only; implementer cost not separately logged — see STD-001's note that this tracking discipline decays across every adopting repo) | **Fixed (`aed3c2f`)**, findings 1 and 2. Ticket create + receipt completion now commit atomically; byte-identity claim corrected to semantic equality plus a real timing floor; added repository unit tests, a real-Postgres concurrency suite (`ANCHORDESK_POSTGRES_INTEGRATION=1`, not run in this sandbox), and a transaction-boundary suite. **Findings 3 (intake DTO scope) and 4 (docs overclaim) remain open** — explicitly not addressed by this fix. Still draft pending human security review; do not treat as merge-ready on green tests alone per this repo's own 2.7.2 lesson. |
