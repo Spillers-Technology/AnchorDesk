@@ -71,15 +71,58 @@ model ApiToken {
   // First chars of the raw token (e.g. "adk_1a2b3c"), shown in the UI so a user
   // can tell tokens apart without us ever storing the secret.
   prefix     String    @db.VarChar(20)
+  // Capability ceiling for this token, applied on top of the owner's role —
+  // never an escalation. `intake` = create tickets only (unattended agents,
+  // e.g. the AVR phone receptionist): POST /tickets, nothing that reads,
+  // searches, or mutates existing records, and no MCP transport. Enforced
+  // centrally in middleware/auth.ts, not per-route.
+  scope      ApiTokenScope @default(full)
   lastUsedAt DateTime? @map("last_used_at")
   expiresAt  DateTime? @map("expires_at")
   revokedAt  DateTime? @map("revoked_at")
   createdAt  DateTime  @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  intakeReceipts  IntakeCreateReceipt[]
 
   @@index([userId])
   @@map("api_tokens")
+}
+
+enum ApiTokenScope {
+  full
+  intake
+}
+
+/// Idempotency ledger for `intake`-scoped token creates. This is the entire
+/// collision-nondisclosure mechanism (see docs on POST /tickets in
+/// routes/tickets.ts): a create-only credential's "identity key" is a
+/// caller-chosen opaque `idempotencyKey`, scoped to *this token only* via the
+/// (apiTokenId, idempotencyKey) unique constraint — never a business identity
+/// like a phone number or externalId that could coincidentally already belong
+/// to some other, unrelated ticket. A "collision" can therefore only ever be
+/// the same credential replaying its own prior create; it can never surface
+/// another party's ticket. `responseBody` is a frozen snapshot of exactly what
+/// was returned the first time, so a replay is byte-identical to the original
+/// response rather than a live re-read that could drift (and disclose more
+/// than was originally returned, e.g. notes added later).
+///
+/// Rows are claimed before the ticket is created (ticketId/responseBody null)
+/// so concurrent identical requests can't double-create; see
+/// repositories/intakeReceiptRepository.ts.
+model IntakeCreateReceipt {
+  id             Int       @id @default(autoincrement())
+  apiTokenId     Int       @map("api_token_id")
+  idempotencyKey String    @map("idempotency_key") @db.VarChar(255)
+  ticketId       Int?      @map("ticket_id")
+  responseBody   Json?     @map("response_body")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  apiToken ApiToken @relation(fields: [apiTokenId], references: [id], onDelete: Cascade)
+  ticket   Ticket?  @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+
+  @@unique([apiTokenId, idempotencyKey])
+  @@map("intake_create_receipts")
 }
 
 // An OAuth 2.0 client, created by Dynamic Client Registration (RFC 7591). MCP
@@ -377,6 +420,8 @@ model Ticket {
   @@index([resolutionDueAt])
   @@index([dueAt])
   @@index([portalAccessRevokedAt])
+  intakeReceipts        IntakeCreateReceipt[]
+
   @@index([parentId])
   @@index([mergedIntoId])
   @@map("tickets")

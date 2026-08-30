@@ -19,7 +19,7 @@
  */
 import { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import * as oidc from 'openid-client';
-import { UserRole } from '@prisma/client';
+import { ApiTokenScope, UserRole } from '@prisma/client';
 import { config } from '../config/config';
 import { resolveScopedSession, SESSION_COOKIE } from '../services/auth/sessions';
 import { getAuthSettings } from '../services/auth/authConfig';
@@ -64,6 +64,15 @@ declare module 'fastify' {
     actorSub: string;
     // How this request authenticated: 'web' (session/OIDC) or 'api' (personal token).
     authChannel: AuthChannel;
+    // Capability ceiling of the presented credential — a floor is never
+    // raised past the principal's own role, only lowered. Sessions, OIDC
+    // bearer tokens, and the portal are always 'full'; a personal access
+    // token carries its own scope (see ApiTokenScope in schema.prisma).
+    tokenScope: ApiTokenScope;
+    // The presented PAT's own row id, when authChannel === 'api' and a PAT
+    // (not an OIDC bearer token) was used. Scopes intake idempotency keys to
+    // this specific credential — see repositories/intakeReceiptRepository.ts.
+    apiTokenId: number | null;
   }
 }
 
@@ -180,6 +189,8 @@ async function applyRequesterSession(
     'portal',
   );
   request.authChannel = 'portal';
+  request.tokenScope = 'full';
+  request.apiTokenId = null;
   if (!isPortalSessionAllowed(request.method, request.url)) {
     return reply.status(403).send({
       error: 'Portal session is not permitted for this route',
@@ -211,6 +222,8 @@ export async function registerAuthHook(server: FastifyInstance) {
       request.principal = { kind: 'staff', user: DEV_ADMIN };
       request.actorSub = 'system';
       request.authChannel = 'web';
+      request.tokenScope = 'full';
+      request.apiTokenId = null;
     });
     return;
   }
@@ -238,6 +251,8 @@ export async function registerAuthHook(server: FastifyInstance) {
         request.principal = { kind: 'staff', user };
         request.actorSub = sessionPrincipal.user.username;
         request.authChannel = 'web';
+        request.tokenScope = 'full';
+        request.apiTokenId = null;
         return enforceBaseline(request, reply);
       }
     }
@@ -250,12 +265,14 @@ export async function registerAuthHook(server: FastifyInstance) {
       const bearer = authHeader.slice(7);
 
       if (apiTokens.isPatFormat(bearer)) {
-        const user = await apiTokens.resolve(bearer);
-        if (user) {
-          request.user = toAuthUser(user);
+        const resolved = await apiTokens.resolve(bearer);
+        if (resolved) {
+          request.user = toAuthUser(resolved.user);
           request.principal = { kind: 'staff', user: request.user };
-          request.actorSub = actorFor(user.username, 'api');
+          request.actorSub = actorFor(resolved.user.username, 'api');
           request.authChannel = 'api';
+          request.tokenScope = resolved.scope;
+          request.apiTokenId = resolved.tokenId;
           return enforceBaseline(request, reply);
         }
         // A malformed/revoked PAT is never a valid OIDC token — fail fast.
@@ -269,6 +286,8 @@ export async function registerAuthHook(server: FastifyInstance) {
           request.principal = { kind: 'staff', user };
           request.actorSub = actorFor(user.username, 'api');
           request.authChannel = 'api';
+          request.tokenScope = 'full';
+          request.apiTokenId = null;
           return enforceBaseline(request, reply);
         }
       } catch (err) {
@@ -284,6 +303,8 @@ export async function registerAuthHook(server: FastifyInstance) {
     if (await authorizePortalKbRead(request)) {
       request.actorSub = 'portal';
       request.authChannel = 'web';
+      request.tokenScope = 'full';
+      request.apiTokenId = null;
       return;
     }
 
@@ -291,7 +312,8 @@ export async function registerAuthHook(server: FastifyInstance) {
   });
 }
 
-// Baseline RBAC: readonly users may only read.
+// Baseline RBAC: readonly users may only read, and an intake-scoped token may
+// only create a ticket.
 function enforceBaseline(request: FastifyRequest, reply: FastifyReply) {
   const method = request.method.toUpperCase();
   const isWrite = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
@@ -307,6 +329,23 @@ function enforceBaseline(request: FastifyRequest, reply: FastifyReply) {
   ) {
     return reply.status(403).send({ error: 'Read-only role cannot modify data' });
   }
+  if (request.tokenScope === 'intake' && !isIntakeAllowed(method, request.url)) {
+    return reply.status(403).send({ error: 'Intake-scoped token may only create tickets' });
+  }
+}
+
+/**
+ * The entire surface an intake-scoped token may touch: creating a ticket,
+ * nothing else. No MCP transport (a scope ceiling this small has nothing to
+ * gain from a general-purpose tool protocol), no GET of any kind — including
+ * the ticket the request itself just created, or one an idempotency-key
+ * replay resolved to (see routes/tickets.ts and
+ * repositories/intakeReceiptRepository.ts). This is deliberately a positive
+ * allowlist of one route, not a denylist of what to exclude — an omitted
+ * future route fails closed here rather than silently becoming reachable.
+ */
+function isIntakeAllowed(method: string, url: string): boolean {
+  return method === 'POST' && url.split('?')[0] === '/tickets';
 }
 
 /** preHandler factory: require one of the given roles (e.g. admin-only routes). */
