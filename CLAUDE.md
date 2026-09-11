@@ -388,7 +388,7 @@ Integrations** (`ninjaone` / `datto` settings rows; DB wins). Adding another RMM
 a service client + a `DeviceProvider` + a `ScriptRunner` + one `RmmAdapter` in the
 registry + the two enum values.
 
-### Two-way ticket sync (ConnectWise / Jira) — ALPHA
+### Two-way ticket sync (Jira — BETA / ConnectWise — ALPHA)
 External tickets sync in both directions, staying visible as external and badged by
 their sync state. `TicketProvider` gained `canWriteBack` + `getTicket` /
 `updateTicket` / `pushNote`; `ConnectWiseProvider` and `JiraProvider` (Jira Cloud
@@ -402,9 +402,13 @@ is flag-and-hold**: if the remote also changed since `syncedAt`, the ticket goes
 /tickets/:id/resolve-conflict` with `local` or `remote`); `POST /tickets/:id/sync`
 reconciles on demand. Batch sync (`syncService`) routes two-way providers through
 reconcile instead of the blind inbound overwrite used for read-only sources. Config
-seeds from env, editable in **Admin → Integrations** (`jira` row). Since we lack
-live credentials, provider request shapes are written to the published APIs but not
-yet exercised end to end.
+for Jira lives on `Connection` records managed in **Admin → Ticket sync** (see 2.5.0
+above); ConnectWise is still one legacy account from env / Admin. **Maturity:** Jira
+has been exercised against one live Cloud tenant (the 2.5 `/search/jql` migration and
+the 200-empty bad-credential finding both came from it) — beta. ConnectWise has
+never been exercised against a live tenant and `connectionTest.ts` says so rather than
+faking a pass — alpha. Keep README "Integration maturity", `docs/documentation.html`
+integration tags, and this section in agreement when either changes.
 
 ### Auth flow (1.1.0)
 - `middleware/auth.ts` runs on every request. It resolves a **session cookie** (browser login), a **personal access token** (`Authorization: Bearer adk_…`, resolved locally — see below), or an **OIDC bearer token** (API clients) to a `request.user` carrying a role, then enforces baseline RBAC (`readonly` can't mutate). `requireRole('admin')` gates admin surfaces. Public paths: `/ping`, `/probe/*`, and the `/auth/*` login endpoints.

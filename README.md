@@ -28,16 +28,29 @@ And it travels: the web client is **mobile-first**, so triaging the board, reply
 <img width="360" alt="AnchorDesk Kanban board on a phone: full toolbar, SLA and label chips, and touch-visible card actions at 412px" src="docs/assets/screenshots/anchordesk-mobile-board.jpg" />
 </div>
 
-## What ships in v2.4.1
+## What ships in 2.8 (latest: 2.8.2)
 
-- **✅ Ticket checklists with reusable templates** — copy admin-managed runbooks onto a ticket, mix in ad-hoc items, track progress and done attribution, and give each item its own independent deadline. Template edits never rewrite work already in progress.
-- **🤖 Complete checklist MCP parity** — agents can list, apply, add, edit, reorder, complete, and delete checklist items; admin connections can create, update, activate, and delete templates. A protocol-level SDK test guards the exact tool surface clients discover.
-- **🧭 A reworked admin console** — grouped, deep-linkable sections, guided empty states, searchable tables, consequence-explaining confirmations, and a visual automation builder with a seven-day dry-run preview.
-- **🚀 First-run and upgrade paths** — a sealed setup wizard creates the initial admin on an empty instance, while automatic schema pushes and idempotent boot-time data migrations keep normal upgrades pull-restart-done.
-- **🧱 Enforced ticket vocabulary** — local REST and MCP writes canonicalize known statuses/priorities and reject unknown values, preventing work from disappearing from boards, filters, and SLA rules.
-- **📱 Mobile-first throughout** — checklists, automation, advanced search, history, the ticket cockpit, and every core view remain usable on a 360px touch screen ([docs/mobile.md](docs/mobile.md)).
+- **🚪 Customer portal** (2.7–2.8) — requesters sign in by magic link to submit and follow their own tickets. Access is a reviewable record: self-registration lands in an admin approval queue, each contact's access is an audited, revocable grant, company-wide visibility is an opt-in widening, and technicians stay anonymous unless both the shop and the technician opt in. The whole portal is **off by default**.
+- **📊 Reporting you can defend** (2.7) — response and resolution times as p50/p90 percentiles from an append-only event history, SLA targets frozen at the moment they were promised, a TIME calendar that shows a technician's unlogged gaps, and CSAT grouped by company. Any window touching backfilled data says so on the chart; every chart has a table view.
+- **📚 Knowledge base** (2.7) — internal and portal-visible articles with drafts, authored in the ticket editor and searched with the same full-text + trigram stack as tickets.
+- **⭐ Customer feedback and self-solve** (2.8) — requesters rate support positive / neutral / negative with an optional comment, and can mark their own ticket solved. Ratings are immutable once submitted.
+- **🔗 Ticket merge and parent/child** (2.6) — merges are reversible through a recorded ledger, never push anything to an external system, and keep mail threading on the surviving ticket; one-level hierarchy is enforced by both the application and a database trigger.
+- **🔍 Sync you can check** (2.6) — several Jira accounts per install, a non-mutating connection test, editable sync jobs with include/exclude filters, and a run history that separates Healthy, Degraded, and Failed from the incremental watermark.
 
-**Also landed recently:** manual ticket deadlines, queue and custom-field visibility, named automation attribution, provider-aware network context, draggable Kanban columns, and the Fastify 5 / React 19 platform refresh (2.2); team queues, saved views, automation/SLA escalation, and multi-RMM configuration records (2.1); built-in OAuth 2.0 authorization-code + PKCE for MCP clients such as ChatGPT (1.16); and two-way ConnectWise/Jira ticket sync plus NinjaOne/Datto RMM adapters (1.14).
+**Also landed recently:** checklists with reusable templates, a reworked admin console with a visual automation builder, a first-run setup wizard, and enforced ticket vocabulary (2.4); manual ticket deadlines, draggable Kanban columns, and the Fastify 5 / React 19 platform refresh (2.2); team queues, saved views, SLA escalation, and multi-RMM configuration records (2.1); built-in OAuth 2.0 + PKCE for MCP clients such as ChatGPT (1.16).
+
+### Integration maturity
+
+| Integration | Status | What that means |
+|---|---|---|
+| IMAP / SMTP email | Available | The core email-to-ticket path; any standards-compliant mailbox and relay |
+| netviz probes | Available | Reference device-discovery probe, maintained alongside AnchorDesk |
+| Tactical RMM | Available | The original RMM adapter |
+| Jira Cloud (two-way) | **Beta** | Exercised against one live Jira Cloud tenant; conflict handling is flag-and-hold |
+| ConnectWise Manage (two-way) | **Alpha** | Written to the published API but **never exercised against a live tenant**; its connection test is not implemented yet and says so |
+| NinjaOne, Datto RMM | **Alpha** | Written to the published APIs; not yet validated against a paid tenant |
+
+Promoting ConnectWise, NinjaOne, and Datto out of alpha is a 3.0.0 gate — see [docs/roadmap-3.0.0.md](docs/roadmap-3.0.0.md). If you run one of them and would test against a real tenant, that is exactly the design-partner conversation we want (see [Support and pricing](#support-and-pricing)).
 
 The core platform also includes:
 
@@ -60,7 +73,7 @@ The core platform also includes:
 - **🔐 Auth + RBAC** — local accounts, OIDC, and SAML 2.0 can run side by side. TOTP MFA is required by default for local accounts, with `admin`, `technician`, and `readonly` roles.
 - **🖥️ Device inventory + network map** — ingest devices from [netviz](#probes--devices), sync them from multiple RMMs, or add them manually; retain local asset/lifecycle data, group the radial map by probe or company, and link devices to tickets.
 - **⚡ RMM actions** — Tactical RMM, NinjaOne, and Datto RMM adapters can share one device through provider-specific references, expose selectable live snapshots, run scripts or quick jobs through the chosen provider, and retain job status/output.
-- **🔄 Two-way ticket sync** — ConnectWise Manage and Jira Cloud can reconcile ticket status, priority, assignee, and notes in both directions. Conflicts are flagged and held until a human keeps local or remote changes. These outbound adapters are alpha until exercised against more live tenants.
+- **🔄 Two-way ticket sync** — ConnectWise Manage and Jira Cloud can reconcile ticket status, priority, assignee, and notes in both directions. Conflicts are flagged and held until a human keeps local or remote changes. Jira is beta (exercised against a live Cloud tenant); ConnectWise is alpha (never exercised against a live tenant) — see [Integration maturity](#integration-maturity).
 - **📝 Audit history** — ticket, note, device, user, mailbox, and other managed-record changes append actor-attributed history; admins can browse recent events across entities.
 - **🤖 MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) tools let authenticated agents manage tickets, complete ticket checklists, administer reusable checklist templates (admin role), add notes/time/email, work with labels/teams/custom fields/saved views, search, and read history. Header-capable clients can use AnchorDesk personal access tokens; OAuth-capable clients such as ChatGPT can discover AnchorDesk's own authorization server, dynamically register, ask the user for consent, and receive a revocable per-user token.
 - **📦 Self-hosting included** — Docker Compose, Kubernetes manifests, and tagged backend/web images on GHCR.
@@ -134,8 +147,10 @@ Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxie
 
 For the complete Compose stack, run `docker compose up --build`. Tagged release images are published as:
 
-- `ghcr.io/spillers-technology/anchordesk-backend:2.4.1`
-- `ghcr.io/spillers-technology/anchordesk-web-client:2.4.1`
+- `ghcr.io/spillers-technology/anchordesk-backend:2.8.2`
+- `ghcr.io/spillers-technology/anchordesk-web-client:2.8.2`
+
+Before running AnchorDesk for real work, read [docs/backup-restore.md](docs/backup-restore.md) — the database **and** your `ENCRYPTION_KEY` are both needed to restore.
 
 ## Configuration
 
@@ -201,8 +216,21 @@ The wire contract lives in [backend/src/providers/NetVizProvider.ts](backend/src
 - [docs/mcp-auth.md](docs/mcp-auth.md) — MCP authentication, complete tool coverage, and ChatGPT action refresh guidance
 - [docs/schema.md](docs/schema.md) — database schema
 - [docs/providers.md](docs/providers.md) — adding a sync provider
+- [docs/upgrading.md](docs/upgrading.md) — the upgrade procedure and per-version notes
+- [docs/backup-restore.md](docs/backup-restore.md) — what to back up, how, and a restore you can rehearse
+- [SECURITY.md](SECURITY.md) — supported versions and how to report a vulnerability
 - [docs/releases/](docs/releases/) — full per-version release notes (latest: [2.8.2 — First Coat](docs/releases/RELEASE_NOTES_v2.8.2.md)); see [CHANGELOG.md](CHANGELOG.md) for the condensed log
 - [CLAUDE.md](CLAUDE.md) — developer reference
+
+## Support and pricing
+
+- **The software is free.** MIT-licensed, every feature, no seat limits, no license key. Self-host it for as long as you like.
+- **Deployment support is paid and quoted per engagement** — setup, integration wiring, upgrades, and direct help from the person who built it. Email [help@spillerstech.us](mailto:help@spillerstech.us?subject=AnchorDesk%20deployment%20support) with your team size and the tools you need connected.
+- **One design-partner opening.** If you are an MSP or IT team willing to run AnchorDesk in production and give regular, candid feedback, deployment support is free for you. It matters most if you run ConnectWise Manage, NinjaOne, or Datto RMM, whose adapters need a real tenant to leave alpha.
+
+Managed hosting is not offered yet: it waits on versioned schema migrations and a rehearsed restore path (both 3.0.0 gates), because a host has to be able to promise both.
+
+Found a security problem? Please don't open an issue — see [SECURITY.md](SECURITY.md).
 
 ## Contributing
 

@@ -165,6 +165,16 @@ export function createTicketProvider(
 - If your platform doesn't paginate the same way, handle pagination internally in `fetchTickets` and return a flat array
 - Add the new provider type to the connection/job route allowlists before
   exposing it in Admin → Ticket Sync.
+- **"No data" must never be able to mean "not authorized."** Some APIs answer
+  bad, wrong-type, or missing credentials with a successful empty result
+  instead of a 401 — Jira Cloud's `/rest/api/3/search/jql` returns
+  `200 {"issues":[],"isLast":true}` and silently degrades to anonymous access
+  (#45). If your platform can do that, verify identity with an endpoint that
+  *does* fail on bad credentials (Jira's `/rest/api/3/myself`) whenever a fetch
+  comes back empty, and throw rather than record a quiet, healthy run. Cover
+  valid, invalid, and absent credentials in the provider's tests. The same
+  identity endpoint is the natural basis for the connection test
+  (`POST /connections/:id/test`).
 
 ---
 

@@ -400,6 +400,11 @@
   }
   pre .c { color: #94a3b8; }
 
+  .pricing-note {
+    margin: 18px 0 0;
+    color: var(--muted);
+    font-size: .95rem;
+  }
   .cta-band {
     background: #111827;
     color: #fff;
@@ -518,7 +523,7 @@
       <a href="#views">Screenshots</a>
       <a href="#quickstart">Get started</a>
       <a href="documentation.html">Documentation</a>
-      <a href="https://spillerstech.us/#products">Managed hosting</a>
+      <a href="#pricing">Pricing</a>
       <a class="nav-cta" href="https://github.com/Spillers-Technology/AnchorDesk" target="_blank" rel="noopener">GitHub</a>
     </nav>
   </div>
@@ -533,10 +538,10 @@
         <p class="lead">AnchorDesk is a modern, self-hosted service desk built for MSPs and IT teams. Two-way ticket sync with the PSAs you already use, device context from every RMM you run, email that becomes tickets, and customer self-service you control — while your data stays on your hardware.</p>
         <div class="actions">
           <a class="btn primary" href="https://github.com/Spillers-Technology/AnchorDesk#quickstart" target="_blank" rel="noopener">Get started free</a>
-          <a class="btn secondary" href="https://spillerstech.us/#products">Get it hosted for you</a>
+          <a class="btn secondary" href="#pricing">Get deployment help</a>
         </div>
         <div class="hero-meta" aria-label="Product highlights">
-          <span>Two-way PSA sync</span>
+          <span>Two-way PSA sync &middot; beta</span>
           <span>Multi-RMM devices</span>
           <span>Email-to-ticket</span>
           <span>Customer portal</span>
@@ -577,7 +582,7 @@
         <article class="pillar">
           <div class="icon">🔄</div>
           <h3>Sync both ways, keep the peace</h3>
-          <p>Tickets flow to and from ConnectWise and Jira with conflict handling a human approves. Devices from Tactical RMM, NinjaOne, and Datto merge into one record per machine, so every ticket knows the hardware behind it — and you can run scripts on it without leaving the ticket.</p>
+          <p>Tickets flow to and from ConnectWise and Jira with conflict handling a human approves. Devices from Tactical RMM, NinjaOne, and Datto merge into one record per machine, so every ticket knows the hardware behind it — and you can run scripts on it without leaving the ticket. Jira sync is beta, exercised against a live tenant; ConnectWise, NinjaOne, and Datto stay labelled alpha until a real tenant proves them — <a href="documentation.html#integrations">the integration list</a> says exactly which is which.</p>
         </article>
         <article class="pillar">
           <div class="icon">⚡</div>
@@ -704,16 +709,44 @@ docker compose up --build
     </div>
   </section>
 
+  <section id="pricing">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">Pricing</div>
+        <h2>The software is free. Help is a conversation.</h2>
+        <p>No seat counts, no license keys, no feature tiers. You pay only if you want the person who built it to help you run it.</p>
+      </div>
+      <div class="pillars">
+        <article class="pillar">
+          <div class="icon">⚓</div>
+          <h3>Self-hosted — free</h3>
+          <p>Every feature, MIT-licensed, on your Docker or Kubernetes. Upgrades are documented per version, and <a href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/backup-restore.md" target="_blank" rel="noopener">backup and restore</a> is written down and rehearsed, not assumed.</p>
+        </article>
+        <article class="pillar">
+          <div class="icon">🧰</div>
+          <h3>Deployment support — quoted</h3>
+          <p>Setup, mailbox and RMM wiring, upgrades, and direct help, quoted per engagement. Tell us your team size and the tools you need connected at <a href="mailto:help@spillerstech.us?subject=AnchorDesk%20deployment%20support">help@spillerstech.us</a>.</p>
+        </article>
+        <article class="pillar">
+          <div class="icon">🤝</div>
+          <h3>Design partner — one opening</h3>
+          <p>Run AnchorDesk in production and give regular, candid feedback, and deployment support is free. Especially valuable if you run ConnectWise Manage, NinjaOne, or Datto RMM — your tenant is what moves those adapters out of alpha.</p>
+        </article>
+      </div>
+      <p class="pricing-note">Managed hosting is not offered yet. It waits on versioned schema migrations and a rehearsed restore path, because a host has to be able to promise both.</p>
+    </div>
+  </section>
+
   <section>
     <div class="wrap">
       <div class="cta-band">
         <div>
           <h2>Your desk. Your data. Your call.</h2>
-          <p>Free and open source under MIT. Run it yourself in minutes, or <a href="https://spillerstech.us/#products">let Spillers Technology host it</a> — provisioning, upgrades, backups, and monitoring included. Curious how it works? <a href="documentation.html">Read the documentation</a>.</p>
+          <p>Free and open source under MIT. Run it yourself in minutes, or have Spillers Technology set it up and support it with you. Curious how it works? <a href="documentation.html">Read the documentation</a>.</p>
         </div>
         <div class="actions">
           <a class="btn primary" href="https://github.com/Spillers-Technology/AnchorDesk" target="_blank" rel="noopener">Start free on GitHub</a>
-          <a class="btn secondary" href="https://spillerstech.us/#products">Talk hosting</a>
+          <a class="btn secondary" href="mailto:help@spillerstech.us?subject=AnchorDesk%20deployment%20support">Talk deployment</a>
         </div>
       </div>
     </div>

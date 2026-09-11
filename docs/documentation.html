@@ -540,7 +540,7 @@
   <div class="wrap topbar">
     <a class="brand" href="index.html" aria-label="AnchorDesk home"><svg><use href="#logo"/></svg> AnchorDesk</a>
     <nav class="nav" aria-label="Primary">
-      <a href="#release">v2.8.0</a>
+      <a href="#release">v2.8.2</a>
       <a href="#platform">Platform</a>
       <a href="#how">Quickstart</a>
       <a href="#setup">Setup</a>
@@ -565,7 +565,7 @@
   <section id="release">
     <div class="wrap">
       <div class="section-head">
-        <div class="kicker">Current release — v2.8.0 Access &amp; Signal</div>
+        <div class="kicker">Current release line — 2.8 Access &amp; Signal (latest patch v2.8.2)</div>
         <h2>Customer access stays reviewable; customer feedback stays useful.</h2>
         <p>Portal v2 adds self-registration with staff approval, auditable per-contact access grants, opt-in company scope and technician identity, plus customer feedback and a CSAT report.</p>
       </div>
@@ -651,8 +651,8 @@ npm ci
 npm run dev            <span class="c"># :5173</span>
 
 <span class="c"># Current images</span>
-ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.8.0</span>
-ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.8.0</span></pre>
+ghcr.io/spillers-technology/anchordesk-backend:<span class="v">2.8.2</span>
+ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.8.2</span></pre>
         </div>
       </div>
     </div>
@@ -759,7 +759,7 @@ ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.8.0</span></
       </div>
       <div class="integrations">
         <article class="integration"><span class="tag">Available</span><strong>IMAP + SMTP</strong><p>Email-to-ticket, shared/personal send-from identities, templates, signatures, inline images, and attachments.</p></article>
-        <article class="integration"><span class="tag">Available</span><strong>ConnectWise Manage</strong><p>Inbound and outbound ticket sync with notes, sync states, and conflict handling.</p></article>
+        <article class="integration"><span class="tag alpha">Alpha</span><strong>ConnectWise Manage</strong><p>Inbound and outbound ticket sync with notes, sync states, and conflict handling — written to the published API but not yet exercised against a live tenant, and its connection test is not implemented yet. One legacy account per install.</p></article>
         <article class="integration"><span class="tag alpha">Beta</span><strong>Jira Cloud</strong><p>Two-way issue sync using Jira Cloud v3, ADF bodies, and status transitions — exercised against a live Cloud tenant. Multiple Jira accounts can be connected, each with its own sync jobs and filters.</p></article>
         <article class="integration"><span class="tag">Available</span><strong>Tactical RMM</strong><p>Device sync, live agent snapshots, script catalog, run-now, scheduled jobs, and ticket output.</p></article>
         <article class="integration"><span class="tag alpha">Alpha</span><strong>NinjaOne</strong><p>OAuth client credentials, device sync, live snapshots, and saved automation script runs.</p></article>
@@ -785,7 +785,9 @@ ghcr.io/spillers-technology/anchordesk-web-client:<span class="v">2.8.0</span></
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/providers.md">Providers<span>How to add ticket sync providers and identity-safe device/RMM adapters.</span></a>
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/schema.md">Database schema<span>Tables, relations, and the audit/event model behind the source of truth.</span></a>
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/mobile.md">Mobile contract<span>The 360px rule, five-device screenshot matrix, and phone-width test guards.</span></a>
-        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/upgrading.md">Upgrading<span>Pull, restart, done — schema and data migrate on boot; per-version notes.</span></a>
+        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/upgrading.md">Upgrading<span>Back up, pull, restart — per-version notes, flagged schema changes, and why rollback means restoring a backup.</span></a>
+        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/docs/backup-restore.md">Backup &amp; restore<span>The four things a restore needs, Compose and Kubernetes commands, and a restore rehearsal.</span></a>
+        <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/SECURITY.md">Security policy<span>Supported versions, how to report a vulnerability, and known limitations.</span></a>
         <a class="doc-link" href="https://github.com/Spillers-Technology/AnchorDesk/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog<span>Every release line from first anchor drop through Access &amp; Signal.</span></a>
       </div>
     </div>

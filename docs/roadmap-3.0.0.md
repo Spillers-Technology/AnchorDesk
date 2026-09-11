@@ -1,26 +1,46 @@
 # Road to 3.0.0 — "the version we could genuinely sell"
 
-Status: **planning** (opened 2026-07-17). 3.0.0 is defined by a single test:
+Status: **in progress — 3 of 7 gates met** (opened 2026-07-17; status
+reconciled 2026-09-10). 3.0.0 is defined by a single test:
 *if a stranger wanted to buy AnchorDesk tomorrow, we could say yes without
 flinching.* Everything below exists because a buyer would hit its absence in
-the first demo call. Sequencing into 2.5 / 2.6 / 2.x releases is suggested,
-not fixed — each workstream ships independently under the usual release flow.
+the first demo call. Each workstream ships independently under the usual
+release flow.
 
 The 3.0.0 acceptance checklist (the flinch test):
 
-- [ ] A requester can submit and track their own tickets without email
-- [ ] A manager can open a reports view and see SLA compliance, volume, and
-      resolution metrics without exporting anything
-- [ ] Techs can answer common questions from a knowledge base instead of
-      retyping them
+- [x] A requester can submit and track their own tickets without email
+      — customer portal, 2.7.0; reviewable access and grants, 2.8.0
+- [x] A manager can open a reports view and see SLA compliance, volume, and
+      resolution metrics without exporting anything — Reports view, 2.7.0
+- [x] Techs can answer common questions from a knowledge base instead of
+      retyping them — knowledge base, 2.7.0 (list endpoints fixed in 2.7.2),
+      including the portal's "Does this answer it?" deflection on new tickets.
 - [ ] ConnectWise and Jira two-way sync are **supported**, not alpha —
-      exercised against live tenants, with documented failure behavior
+      exercised against live tenants, with documented failure behavior.
+      *Now:* Jira is beta (exercised against one live Cloud tenant; sync-health
+      surface shipped in 2.6.0). ConnectWise has never touched a live tenant and
+      its connection test is unimplemented.
 - [ ] At least one real external organization runs AnchorDesk in production
       (design partner), and at least one RMM integration is validated against
-      a real paid tenant
-- [ ] The licensing/pricing answer to "what does it cost?" exists in writing
+      a real paid tenant. *Now:* the only production install is the
+      maintainer's own; no RMM adapter has a recorded validation against a paid
+      tenant.
+- [ ] The licensing/pricing answer to "what does it cost?" exists in writing.
+      *Now:* drafted — the README and site state free software, quoted
+      deployment support, and one design-partner opening. Needs the maintainer's
+      sign-off, and a hosted-offer price once hosting exists.
 - [ ] Fresh install → onboarded org is documented and tested end to end
-      (setup wizard exists since 2.4.0; portal/KB/report onboarding joins it)
+      (setup wizard exists since 2.4.0; portal/KB/report onboarding joins it).
+
+Prerequisites a design partner is owed before the ask (Workstream 5):
+
+- [ ] Versioned Prisma migrations (`migrate deploy`, not `db push`) — the
+      baseline was drafted as #51 and closed; being reworked with a
+      fingerprinted 2.8.x eligibility gate.
+- [x] Documented backup/restore — [backup-restore.md](backup-restore.md),
+      rehearsed against 2.8.2 on 2026-09-10.
+- [x] SECURITY.md with a disclosure contact — [SECURITY.md](../SECURITY.md).
 
 ---
 
@@ -135,14 +155,17 @@ to exist in writing.
 
 ---
 
-## Suggested sequencing
+## Sequencing
 
-- **2.5** — Reporting & analytics (self-contained, demos brilliantly,
-  no new auth surface) + Jira live validation (free, start immediately).
-- **2.6** — Customer portal (largest single lift; the requester-identity
-  design deserves its own plan doc before code).
-- **2.7** — Knowledge base + portal deflection; ConnectWise validation as
-  sandbox access lands; sync-health surface.
-- **3.0.0** — Design partner live in production, versioned migrations +
-  backup/restore + SECURITY.md, go-to-market pages, promote sync to
-  supported, and the flinch-test checklist all green.
+The original plan put reporting in 2.5, the portal in 2.6, and the knowledge
+base in 2.7. What happened: 2.5 became the sync-correctness pass (shipped
+inside 2.6.0), 2.6.0 added merge and hierarchy, and 2.7.0 crossed all three
+product gaps at once. What remains is mostly evidence, not code:
+
+- **Next** — land versioned migrations; ship the pricing statement once signed
+  off; apply to the ConnectWise developer program; build a named
+  design-partner prospect list and start outreach.
+- **Before 3.0.0** — a design partner live in production; ConnectWise
+  exercised against a sandbox or the partner's tenant; one RMM validated
+  against a paid tenant; the fresh-install → onboarded-org path written and
+  tested; the flinch-test checklist all green.
