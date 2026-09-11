@@ -29,6 +29,61 @@ function quoteIdentifier(identifier) {
   return `"${identifier.replaceAll('"', '""')}"`;
 }
 
+// Adopting an existing `db push` database means telling Prisma that 0_init is
+// already applied. That is only true for the 2.8.x line: 0_init is the 2.8
+// datamodel verbatim (CI proves it against prisma/baseline/schema-2.8.prisma),
+// and every 2.8.x release installs a byte-identical schema. An older install
+// lacks tables 0_init creates; recording 0_init against it would leave them
+// missing forever while reporting the baseline as applied.
+//
+// So before resolving, diff the live database against the frozen 2.8
+// datamodel. Prisma's diff is blind to the extensions, GIN/partial/functional
+// indexes, CHECK constraints, and triggers that pgExtras.ts owns, so a real
+// 2.8.x install differs by exactly the two plain B-tree indexes pgExtras adds
+// beyond schema.prisma. Anything else fails closed.
+const BASELINE_DATAMODEL = path.join(backendRoot, 'prisma', 'baseline', 'schema-2.8.prisma');
+const PGEXTRAS_OWNED_BASELINE_DRIFT = new Set([
+  'DROP INDEX "idx_ticket_events_assignee_occurred"',
+  'DROP INDEX "idx_ticket_events_team_occurred"',
+]);
+
+function diffStatements(script) {
+  return script
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('--'))
+    .join('\n')
+    .split(';')
+    .map((statement) => statement.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+function unexpectedBaselineDrift() {
+  const result = spawnSync(
+    process.execPath,
+    [
+      prismaCli,
+      'migrate',
+      'diff',
+      '--from-url',
+      databaseUrl,
+      '--to-schema-datamodel',
+      BASELINE_DATAMODEL,
+      '--script',
+    ],
+    { cwd: backendRoot, env: childEnv, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      `Could not fingerprint the existing schema (prisma migrate diff exited ${result.status}): ` +
+        (result.stderr || '').trim(),
+    );
+  }
+  return diffStatements(result.stdout).filter(
+    (statement) => !PGEXTRAS_OWNED_BASELINE_DRIFT.has(statement),
+  );
+}
+
 let exitCode = 1;
 try {
   const rows = await prisma.$queryRawUnsafe(`
@@ -77,13 +132,28 @@ try {
   } else if (state.hasSentinel) {
     console.log(
       `Schema "${state.schemaName}" has tickets but no _prisma_migrations; ` +
-        'marking 0_init as applied for a pre-2.9 db push install before running ' +
-        'prisma migrate deploy.',
+        'checking it matches the AnchorDesk 2.8.x schema before adopting it as the 0_init baseline.',
     );
-    const resolveStatus = runPrisma(['migrate', 'resolve', '--applied', '0_init']);
+    const unexpected = unexpectedBaselineDrift();
+    let resolveStatus = null;
+    if (unexpected.length > 0) {
+      console.error(
+        `Refusing to adopt schema "${state.schemaName}": it does not match the AnchorDesk 2.8.x ` +
+          `schema (${unexpected.length} unexpected difference(s)). Only a 2.8.x install can be ` +
+          'upgraded to versioned migrations in place. Upgrade to 2.8.2 first with the 2.8.2 image, ' +
+          'confirm it starts, then upgrade again. Nothing was changed. First differences:',
+      );
+      for (const statement of unexpected.slice(0, 10)) {
+        console.error(`  ${statement.length > 200 ? `${statement.slice(0, 200)}…` : statement}`);
+      }
+      exitCode = 1;
+    } else {
+      console.log('Schema matches AnchorDesk 2.8.x; marking 0_init as applied.');
+      resolveStatus = runPrisma(['migrate', 'resolve', '--applied', '0_init']);
+    }
     if (resolveStatus === 0) {
       shouldDeploy = true;
-    } else {
+    } else if (resolveStatus !== null) {
       // Do not replace this tolerance check with an advisory lock held while the
       // CLI runs. PrismaClient pools connections, so connection-affine locking
       // and unlocking across the subprocess boundary would not be reliable.

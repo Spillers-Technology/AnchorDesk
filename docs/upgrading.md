@@ -19,19 +19,26 @@ pre-upgrade backup is also your only reliable rollback (see
 
 ```bash
 docker compose pull            # or: git pull && docker compose build
-docker compose up -d           # backend runs `prisma db push` before starting
+docker compose up -d           # backend applies the schema before starting
 ```
 
 **Kubernetes**
 
-Bump the image tags (e.g. `2.8.2`) and apply — the backend Deployment's
-`prisma-db-push` init container applies the schema before the new pods serve.
+Bump the image tags and apply — the backend Deployment's init container applies
+the schema before the new pods serve.
 
 ## How it works
 
-- **Schema** — Compose runs `npx prisma db push --skip-generate` as the
-  backend command prefix; Kubernetes uses an init container with the same
-  command. `db push` makes the database match *the running image's* schema.
+- **Schema, from 2.9.0** — Compose runs `node scripts/apply-schema.mjs` as the
+  backend command prefix; Kubernetes runs the same script in its
+  `prisma-migrate` init container. It applies the committed, ordered
+  migrations in `backend/prisma/migrations/` with `prisma migrate deploy` and
+  records each one in `_prisma_migrations`. See
+  [Moving to versioned migrations](#moving-to-versioned-migrations-290) for
+  the one-time transition.
+- **Schema, 2.8.2 and earlier** — Compose ran `npx prisma db push
+  --skip-generate`; Kubernetes used an init container with the same command.
+  `db push` makes the database match *the running image's* schema.
   It refuses any change Prisma classifies as potentially lossy — dropping a
   table or column that holds rows, or adding a unique constraint — unless
   `--accept-data-loss` is given. Most releases only add tables and nullable
@@ -48,7 +55,43 @@ backup, then return to the plain command. Left in place permanently (for
 example in an init container), it also accepts every *unintended* loss —
 including the one a rollback causes, described below.
 
+## Moving to versioned migrations (2.9.0)
+
+2.9.0 replaces `db push` with versioned migrations. The first 2.9.0 start
+*adopts* your existing database: it records the baseline migration `0_init` as
+already applied, then deploys anything newer. Adoption is only correct for a
+database that really is the 2.8 schema, so it is **fingerprinted first**:
+
+- **Upgrading from 2.8.0, 2.8.1, or 2.8.2** — supported. `apply-schema.mjs`
+  diffs your database against the frozen 2.8 datamodel
+  (`backend/prisma/baseline/schema-2.8.prisma`). A real 2.8.x install differs
+  only by two indexes AnchorDesk itself creates at boot; it is adopted with no
+  schema or row changes. Verified on every CI run against real databases built
+  by the published 2.8.0 and 2.8.2 images (`scripts/verify-baseline-upgrade.mjs`).
+- **Upgrading from 2.7.x or earlier** — upgrade to **2.8.2 first** with the
+  2.8.2 image (follow the version notes below), confirm it starts, then upgrade
+  to 2.9.0. Started directly against an older database, 2.9.0 refuses, lists
+  the differences it found, and changes nothing.
+- **A 2.8.x database someone altered by hand** is refused the same way. Put
+  the schema back, or restore a clean backup, before retrying.
+- **If your deployment runs `db push --accept-data-loss` in its own init
+  container or entrypoint** (as the 2.6/2.7 notes suggested for one supervised
+  step), replace that command with `node scripts/apply-schema.mjs` when you
+  move to 2.9.0. Leaving the push in place keeps the old, unrecorded path
+  running alongside the new one.
+
+Take a backup before the first 2.9.0 start
+([backup-restore.md](backup-restore.md)). Rolling 2.9.0 back to 2.8.2 by image
+swap is safe — 2.9.0 adds no schema beyond 2.8, and the 2.8.2 image's
+`db push` leaves `_prisma_migrations` and your data intact (tested 2026-09-10).
+
 ## Version notes
+
+### → 2.9.0 (unreleased — versioned migrations)
+- Schema application moves from `db push` to `apply-schema.mjs` +
+  `prisma migrate deploy`. No schema change: `0_init` is the 2.8 schema.
+- Upgrade from 2.8.x only; see
+  [Moving to versioned migrations](#moving-to-versioned-migrations-290).
 
 ### → 2.8.1 / 2.8.2 (Ledger & Log / First Coat)
 - No schema, API, or data change. Pull and restart. Safe to roll back to 2.8.0
@@ -146,8 +189,9 @@ including the one a rollback causes, described below.
 ## If something goes wrong
 
 **Restore the pre-upgrade backup with the previous image. Do not simply start
-the previous image against the upgraded database.** An older image runs its own
-`db push`, which reconciles the database *backwards* to the older schema.
+a 2.8.x-or-earlier image against a database a newer release changed.** Those
+images run their own `db push`, which reconciles the database *backwards* to
+the older schema.
 Tested on 2026-09-10 by starting the `2.7.2` image against a `2.8.0` database:
 
 | Push command | Newer tables | Result |
@@ -157,6 +201,7 @@ Tested on 2026-09-10 by starting the `2.7.2` image against a `2.8.0` database:
 | `db push --accept-data-loss` | hold rows | the newer tables are **dropped with their data** |
 
 Rolling back is only a plain image swap when the newer release changed no
-schema — 2.8.2 → 2.8.1 → 2.8.0 and 2.7.2 → 2.7.1 → 2.7.0 qualify. For
+schema — 2.9.0 → 2.8.x, 2.8.2 → 2.8.1 → 2.8.0, and 2.7.2 → 2.7.1 → 2.7.0
+qualify. For
 anything else, stop the backend, restore the backup you took before upgrading
 ([backup-restore.md](backup-restore.md)), and start the previous image.

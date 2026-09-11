@@ -722,3 +722,14 @@ express and asserts the critical subset on every boot. Partial indexes,
 cross-column checks, triggers, and similar objects belong there rather than in
 a Prisma migration. `backend/src/db/dataMigrations.ts` owns idempotent row-level
 repairs that run on every boot.
+
+**Adopting pre-migration installs is 2.8.x-only and fingerprinted.**
+`scripts/apply-schema.mjs` records `0_init` against an existing `db push`
+database only after `prisma migrate diff` shows it equals the frozen
+`prisma/baseline/schema-2.8.prisma` apart from the two pgExtras-owned B-tree
+indexes; anything else is refused with nothing written. Never edit
+`schema-2.8.prisma` or `0_init` — CI asserts they are the same schema, and the
+fixtures under `prisma/baseline/fixtures/` are real installs from the published
+images. `scripts/verify-baseline-upgrade.mjs` is the proof; run it (it needs a
+Postgres role that can `CREATE DATABASE` and `psql` on PATH) after touching
+`apply-schema.mjs`. See `prisma/baseline/README.md`.

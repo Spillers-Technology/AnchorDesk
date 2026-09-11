@@ -150,3 +150,20 @@ jobs:
             --to-schema-datamodel ./prisma/schema.prisma \
             --shadow-database-url "$SHADOW_DATABASE_URL" \
             --exit-code
+
+      # apply-schema.mjs fingerprints an existing db push install against the
+      # frozen 2.8 datamodel before recording 0_init. That is only sound while
+      # 0_init is exactly that datamodel — prove it on every push.
+      - name: Check 0_init is the frozen 2.8 baseline
+        working-directory: backend
+        shell: bash
+        run: |
+          diff \
+            <(npx prisma migrate diff --from-empty \
+                --to-schema-datamodel ./prisma/baseline/schema-2.8.prisma --script \
+              | grep -v '^--' | sed '/^[[:space:]]*$/d') \
+            <(grep -v '^--' ./prisma/migrations/0_init/migration.sql | sed '/^[[:space:]]*$/d')
+
+      - name: Verify baseline adoption against historical installs
+        working-directory: backend
+        run: node scripts/verify-baseline-upgrade.mjs
