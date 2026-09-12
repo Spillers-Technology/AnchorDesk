@@ -2,11 +2,18 @@
 
 AnchorDesk upgrades in place. Both deployment styles apply the schema before
 the app starts, and the backend runs idempotent **data migrations on every
-boot** — so for most versions, upgrading is: pull the new images, restart,
-done. Your tickets, notes, attachments, and settings stay where they are
-(PostgreSQL is the source of truth; the app containers are stateless).
+boot** — so for most versions, upgrading is: back up, pull the new images,
+restart. Your tickets, notes, and settings live in PostgreSQL; attachment bytes
+live in your configured attachment storage (see
+[backup-restore.md](backup-restore.md) — the example Kubernetes manifests keep
+local attachments inside the container unless you mount a volume or use S3).
 
 ## The standard procedure
+
+**Back up first, every time** — the database, your attachments, and your
+`ENCRYPTION_KEY`. [backup-restore.md](backup-restore.md) has the commands. The
+pre-upgrade backup is also your only reliable rollback (see
+[If something goes wrong](#if-something-goes-wrong)).
 
 **Docker Compose**
 
@@ -17,23 +24,85 @@ docker compose up -d           # backend runs `prisma db push` before starting
 
 **Kubernetes**
 
-Bump the image tags (e.g. `2.4.0`) and apply — the backend Deployment's
+Bump the image tags (e.g. `2.8.2`) and apply — the backend Deployment's
 `prisma-db-push` init container applies the schema before the new pods serve.
-
-**Always back up first** for major jumps: `pg_dump anchordesk > backup.sql`
-takes seconds and makes any surprise reversible.
 
 ## How it works
 
 - **Schema** — Compose runs `npx prisma db push --skip-generate` as the
   backend command prefix; Kubernetes uses an init container with the same
-  command. Schema changes in AnchorDesk releases are additive (new tables,
-  new nullable columns), so pushes are non-destructive.
+  command. `db push` makes the database match *the running image's* schema.
+  It refuses any change Prisma classifies as potentially lossy — dropping a
+  table or column that holds rows, or adding a unique constraint — unless
+  `--accept-data-loss` is given. Most releases only add tables and nullable
+  columns and push cleanly; the version notes below call out the exceptions.
 - **Data** — `backend/src/db/dataMigrations.ts` runs at every boot and
   applies idempotent data fixes (each is a no-op once applied). This is how
   historical inconsistencies get healed without manual SQL.
 
+### Do not leave `--accept-data-loss` on
+
+When a version note tells you to accept a flagged change, run
+`db push --accept-data-loss` **once**, as a supervised step against a verified
+backup, then return to the plain command. Left in place permanently (for
+example in an init container), it also accepts every *unintended* loss —
+including the one a rollback causes, described below.
+
 ## Version notes
+
+### → 2.8.1 / 2.8.2 (Ledger & Log / First Coat)
+- No schema, API, or data change. Pull and restart. Safe to roll back to 2.8.0
+  by image swap.
+
+### → 2.8.0 (Access & Signal)
+- Adds four tables (`portal_registrations`, `portal_grants`,
+  `user_portal_profiles`, `ticket_feedback`); pushes cleanly.
+- **If you already run the customer portal, existing requesters need a grant
+  to sign in again.** Sign-in now requires an active `PortalGrant`, and every
+  existing contact starts with none. A requester who is already signed in keeps
+  that session until it expires; their next sign-in fails until you grant
+  access from the contact's row in Companies. Grant your active requesters
+  before or right after upgrading.
+- **Customer feedback and self-solve default on.** If `portal.enabled` is on,
+  the upgrade makes the rating prompt and "mark as solved" live for requesters
+  immediately. Turn either off under Admin → Customer Portal / Feedback first
+  if you don't want that yet.
+- **Notes default to internal.** A note created through the REST API or an
+  integration without an explicit `visibility: "public"` is now internal and
+  is not pushed to Jira/ConnectWise. Update any script that relied on the old
+  inference.
+- Rolling back to 2.7.x drops these tables — see
+  [If something goes wrong](#if-something-goes-wrong).
+
+### → 2.7.1 / 2.7.2 (Drafts you can find / The query nobody ran)
+- No schema or data change. 2.7.2 fixes the knowledge-base list endpoints,
+  which returned 500 on every 2.7.0 and 2.7.1 install; upgrade directly to it.
+
+### → 2.7.0 (Pass the Flinch Test)
+- Adds the reporting spine (`ticket_events`, `ticket_sla_snapshots`), portal,
+  and knowledge-base tables. Boot runs an idempotent backfill of reporting
+  events from the audit log and creates the append-only triggers as
+  fail-closed invariants. Historical SLA targets are deliberately **not**
+  reconstructed; reports label backfilled windows as estimates.
+- `portal.enabled` defaults off — nobody gets a customer-facing surface by
+  upgrading.
+- Coming from 2.4.x, this upgrade also crosses 2.6.0's unique-constraint change
+  (below).
+
+### → 2.6.0 (Relations; includes the unreleased 2.5 sync work)
+- **One flagged schema change.** The tickets unique constraint on
+  `(external_id, external_provider)` gains `sync_connection_id`. Data that
+  satisfied the old constraint always satisfies the new, looser one, but Prisma
+  classifies any new unique constraint as potentially lossy, so a plain
+  `db push` refuses. Take a backup, run `npx prisma db push --skip-generate
+  --accept-data-loss` once (Compose: `docker compose run --rm backend npx
+  prisma db push --skip-generate --accept-data-loss`), then start normally.
+- Boot adopts existing Jira credentials from Admin → Integrations as a Jira
+  **Connection** and attaches existing Jira sync jobs to it. ConnectWise stays
+  a single legacy account. Ticket sync moves from the top-level Sync view to
+  Admin → Ticket sync.
+- Boot creates the one-level hierarchy trigger and the live-merge-ledger unique
+  index as fail-closed startup invariants.
 
 ### → 2.4.1 (Checklist MCP Parity)
 - No schema or data migration. Pull the `2.4.1` images and restart normally.
@@ -76,7 +145,18 @@ takes seconds and makes any surprise reversible.
 
 ## If something goes wrong
 
-Roll back by starting the previous image tag — schema additions from the
-newer version are ignored by older code (columns/tables sit unused), so
-downgrade is safe unless a version note above says otherwise. Restore the
-`pg_dump` only if data itself was damaged.
+**Restore the pre-upgrade backup with the previous image. Do not simply start
+the previous image against the upgraded database.** An older image runs its own
+`db push`, which reconciles the database *backwards* to the older schema.
+Tested on 2026-09-10 by starting the `2.7.2` image against a `2.8.0` database:
+
+| Push command | Newer tables | Result |
+|---|---|---|
+| plain `db push` (Compose default) | empty | the newer tables are **dropped silently**; boot continues |
+| plain `db push` | hold rows | the push **refuses** and the backend does not start |
+| `db push --accept-data-loss` | hold rows | the newer tables are **dropped with their data** |
+
+Rolling back is only a plain image swap when the newer release changed no
+schema — 2.8.2 → 2.8.1 → 2.8.0 and 2.7.2 → 2.7.1 → 2.7.0 qualify. For
+anything else, stop the backend, restore the backup you took before upgrading
+([backup-restore.md](backup-restore.md)), and start the previous image.
