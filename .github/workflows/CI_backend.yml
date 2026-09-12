@@ -58,7 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://anchordesk:anchordesk@127.0.0.1:5432/anchordesk
-      KB_POSTGRES_TESTS: "1"
+      POSTGRES_TEST_DATABASE_URL: postgresql://anchordesk:anchordesk@127.0.0.1:5432/anchordesk
     services:
       postgres:
         image: postgres:16-alpine
@@ -88,12 +88,85 @@ jobs:
         working-directory: backend
         run: npm ci
 
-      - name: Generate Prisma client and push schema
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: Run PostgreSQL integration tests
+        working-directory: backend
+        run: npm run test:postgres
+
+  # Like postgres-tests, migration drift needs a real Postgres service for its
+  # disposable shadow database. Keep this separate so service failures are
+  # visible, and use ubuntu-latest because arc-org has no Docker daemon.
+  migration-drift:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://anchordesk:anchordesk@127.0.0.1:5432/anchordesk
+      SHADOW_DATABASE_URL: postgresql://anchordesk:anchordesk@127.0.0.1:5432/anchordesk_shadow
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: anchordesk
+          POSTGRES_PASSWORD: anchordesk
+          POSTGRES_DB: anchordesk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U anchordesk"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: Create shadow database
+        run: |
+          command -v psql
+          psql "$DATABASE_URL" -c 'CREATE DATABASE anchordesk_shadow'
+
+      - name: Check migration drift
         working-directory: backend
         run: |
-          npx prisma generate
-          npx prisma db push --skip-generate
+          npx prisma migrate diff \
+            --from-migrations ./prisma/migrations \
+            --to-schema-datamodel ./prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code
 
-      - name: Run Jest tests against PostgreSQL
+      # apply-schema.mjs fingerprints an existing db push install against the
+      # frozen 2.8 datamodel before recording 0_init. That is only sound while
+      # 0_init is exactly that datamodel — prove it on every push.
+      - name: Check 0_init is the frozen 2.8 baseline
         working-directory: backend
-        run: npm test
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Generate into a file first: with process substitution, a generator
+          # that prints matching SQL and then fails still leaves diff happy.
+          npx prisma migrate diff --from-empty \
+            --to-schema-datamodel ./prisma/baseline/schema-2.8.prisma --script > /tmp/baseline.sql
+          grep -v '^--' /tmp/baseline.sql | sed '/^[[:space:]]*$/d' > /tmp/baseline.norm
+          grep -v '^--' ./prisma/migrations/0_init/migration.sql | sed '/^[[:space:]]*$/d' > /tmp/0_init.norm
+          diff /tmp/baseline.norm /tmp/0_init.norm
+
+      - name: Verify baseline adoption against historical installs
+        working-directory: backend
+        run: node scripts/verify-baseline-upgrade.mjs

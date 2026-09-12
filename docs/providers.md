@@ -85,10 +85,11 @@ enum ProviderType {
 }
 ```
 
-Then push the schema change:
+Then generate and apply a versioned migration:
 
 ```bash
-cd backend && npx prisma db push
+cd backend
+npx prisma migrate dev --name <change>
 ```
 
 ### 3. Configure a provider instance

@@ -448,7 +448,7 @@ cp backend/.env.example backend/.env
 
 ```bash
 cd backend
-npx prisma db push        # push schema to DB (dev workflow — no migration files)
+npx prisma migrate deploy # apply the committed migrations
 npx prisma studio         # optional: visual DB browser at localhost:5555
 ```
 
@@ -703,11 +703,33 @@ desktop drive and mobile screenshot matrix described in `docs/mobile.md`.
 
 ## Database schema changes
 
-Always use `prisma db push` in dev (fast iteration, no migration files). When ready for a stable migration:
+Generate and apply every relational schema change through a versioned
+migration:
 
 ```bash
 cd backend
-npx prisma migrate dev --name describe_your_change
+npx prisma migrate dev --name describe_your_change   # generates + applies the migration
 ```
 
-Migration files live in `backend/prisma/migrations/`.
+The generated file under `backend/prisma/migrations/` is part of the diff and
+gets reviewed like code. `db push` is acceptable only against a scratch
+database that is about to be discarded. Any committed `schema.prisma` change
+without a matching migration fails CI.
+
+Schema ownership has three layers. Prisma migrations own relational DDL.
+`backend/src/db/pgExtras.ts` owns PostgreSQL-only objects that Prisma cannot
+express and asserts the critical subset on every boot. Partial indexes,
+cross-column checks, triggers, and similar objects belong there rather than in
+a Prisma migration. `backend/src/db/dataMigrations.ts` owns idempotent row-level
+repairs that run on every boot.
+
+**Adopting pre-migration installs is 2.8.x-only and fingerprinted.**
+`scripts/apply-schema.mjs` records `0_init` against an existing `db push`
+database only after `prisma migrate diff` shows it equals the frozen
+`prisma/baseline/schema-2.8.prisma` apart from the two pgExtras-owned B-tree
+indexes; anything else is refused with nothing written. Never edit
+`schema-2.8.prisma` or `0_init` — CI asserts they are the same schema, and the
+fixtures under `prisma/baseline/fixtures/` are real installs from the published
+images. `scripts/verify-baseline-upgrade.mjs` is the proof; run it (it needs a
+Postgres role that can `CREATE DATABASE` and `psql` on PATH) after touching
+`apply-schema.mjs`. See `prisma/baseline/README.md`.

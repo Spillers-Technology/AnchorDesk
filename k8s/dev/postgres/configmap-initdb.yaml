@@ -4,10 +4,10 @@ metadata:
   name: db-init-sql
   namespace: anchordesk
 data:
-  # Prisma db push runs as a backend init container and applies the full schema,
+  # prisma migrate deploy runs via the prisma-migrate init container and applies the full schema,
   # so this file only needs to create the database (POSTGRES_* env vars handle that).
   # Left empty intentionally — schema management is Prisma's responsibility.
   placeholder.sql: |
-    -- Schema is managed by Prisma (backend init container runs: npx prisma db push)
+    -- Schema is managed by Prisma (prisma-migrate init container runs prisma migrate deploy)
     -- This configmap exists as a mount point; add any seed data here if needed.
     SELECT 1;
