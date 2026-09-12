@@ -9,13 +9,28 @@ really is the schema `0_init` creates.
   `v2.8.2` tag. `0_init/migration.sql` is exactly this datamodel (CI checks it
   on every push). It never changes: later schema work goes into new
   migrations, not here.
-- **Eligibility is the 2.8.x line only.** `apply-schema.mjs` diffs the live
-  database against `schema-2.8.prisma` and refuses unless the only differences
-  are the two B-tree indexes `pgExtras.ts` creates beyond `schema.prisma`
-  (`idx_ticket_events_assignee_occurred`, `idx_ticket_events_team_occurred`).
-  Prisma's diff does not model the other pgExtras objects (extensions,
-  GIN/partial/functional indexes, CHECK constraints, triggers) at all.
-  Older installs upgrade to 2.8.2 first with the 2.8.2 image, then continue.
+- **Eligibility is the 2.8.x line only**, and it is decided by **two** checks
+  that must both pass. Older installs upgrade to 2.8.2 first with the 2.8.2
+  image, then continue.
+
+  1. **`prisma migrate diff`** against `schema-2.8.prisma` — tables, columns,
+     types, defaults, enums, foreign keys, and Prisma-declared indexes. The
+     only differences tolerated are the two B-tree indexes `pgExtras.ts`
+     creates beyond `schema.prisma`
+     (`idx_ticket_events_assignee_occurred`, `idx_ticket_events_team_occurred`).
+  2. **A catalog check**, because Prisma's diff does not model CHECK
+     constraints, triggers, extensions, or partial/GIN/functional indexes *at
+     all* — a database with an extra CHECK constraint, a dropped append-only
+     trigger, or an unrelated UNIQUE index wearing an allowlisted name looked
+     identical to stock 2.8 without it. The catalog check requires exactly the
+     2.8 CHECK constraint (`sessions_scope_principal_check`) and the three
+     pgExtras triggers, and, where an allowlisted index exists, that its
+     definition is the one AnchorDesk creates.
+
+  **What the fingerprint does not cover:** row contents, and adoption outside
+  the `public` schema — a non-`public` install is refused rather than adopted
+  on an untested path. Objects `pgExtras.ts` treats as optional extras may be
+  absent (it recreates them on boot); if present, they must be correct.
 
 ## Fixtures
 

@@ -8,9 +8,15 @@
 //   fresh      empty database            -> migrate deploy, 0_init recorded
 //   2.8.x      real 2.8 install + rows   -> adopted as 0_init; rows and schema unchanged
 //   rerun      the adopted 2.8.x db      -> no-op, still exactly one 0_init row
-//   2.7.2      real 2.7 install          -> refused, nothing written
-//   tampered   2.8.x + one rogue column  -> refused, nothing written
+//   2.7.2      real 2.7 install + rows   -> refused; rows and schema untouched
+//   tampered   2.8.x + a rogue column    -> refused; rows and schema untouched
+//   catalog    2.8.x + an extra CHECK, a dropped trigger, or an unrelated index
+//              wearing an allowlisted name -> refused (Prisma's diff sees none of these)
+//   enum-only  no tables but a stray enum -> refused (deploy would half-apply)
 //   unknown    unrelated table only      -> refused, nothing written
+//   interrupted history table without the baseline row -> re-verified, then finished;
+//              the same state on a 2.7.2 database is refused
+//   failed     a recorded failed migration -> refused, with the resolve command
 //   equivalent fresh vs adopted 2.8.x    -> differ only by the pgExtras-owned indexes
 //
 // Usage: DATABASE_URL=<url of a database on a server where this role may
@@ -77,8 +83,9 @@ function snapshot(db) {
   return psql(
     db,
     `SELECT string_agg(line, E'\\n' ORDER BY line) FROM (
-       SELECT 'col ' || table_name || '.' || column_name || ' ' || data_type || ' ' || is_nullable
-              || ' ' || coalesce(column_default, '') AS line
+       SELECT 'col ' || table_name || '.' || column_name || ' ' || data_type
+              || '(' || coalesce(character_maximum_length::text, numeric_precision::text, '') || ')'
+              || ' ' || is_nullable || ' ' || coalesce(column_default, '') AS line
          FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name <> '_prisma_migrations'
        UNION ALL
@@ -95,6 +102,13 @@ function snapshot(db) {
         WHERE pronamespace = 'public'::regnamespace
        UNION ALL
        SELECT 'ext ' || extname FROM pg_extension
+       UNION ALL
+       SELECT 'enum ' || t.typname || ' ' || e.enumlabel
+         FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid
+        WHERE t.typnamespace = 'public'::regnamespace
+       UNION ALL
+       SELECT 'seq ' || sequencename || ' ' || coalesce(last_value::text, 'unused')
+         FROM pg_sequences WHERE schemaname = 'public'
      ) objects`,
   );
 }
@@ -123,6 +137,13 @@ const SEED = `
     VALUES ((SELECT id FROM tickets LIMIT 1), 'Internal note that must survive', 'fixture', now());
   INSERT INTO ticket_events (ticket_id, kind) VALUES ((SELECT id FROM tickets LIMIT 1), 'created');
 `;
+const SEED_OLD = `
+  INSERT INTO companies (name, updated_at) VALUES ('Acme Fixture Co', now());
+  INSERT INTO tickets (title, company_id, updated_at)
+    VALUES ('Baseline fixture: printer offline', (SELECT id FROM companies LIMIT 1), now());
+  INSERT INTO notes (ticket_id, content, author, updated_at)
+    VALUES ((SELECT id FROM tickets LIMIT 1), 'Internal note that must survive', 'fixture', now());
+`;
 const DATA_FINGERPRINT = `
   SELECT md5(string_agg(t, '|' ORDER BY t)) FROM (
     SELECT 'c' || c::text AS t FROM companies c UNION ALL
@@ -138,13 +159,19 @@ function check(name, ok, detail = '') {
   if (!ok) failures.push(name);
 }
 
-function expectRefused(label, db) {
+function expectRefused(label, db, { seeded = false } = {}) {
   const before = snapshot(db);
+  const dataBefore = seeded ? psql(db, DATA_FINGERPRINT) : null;
   const { status, output } = applySchema(db);
   check(`${label}: refused (non-zero exit)`, status !== 0, `exit ${status}`);
   check(`${label}: refusal says why`, /Refusing to (adopt|guess)/.test(output));
   check(`${label}: no _prisma_migrations written`, !hasMigrationsTable(db));
   check(`${label}: schema untouched`, snapshot(db) === before);
+  if (seeded) {
+    // A refusal that quietly destroyed rows would otherwise pass every check
+    // above: empty fixtures cannot detect row loss.
+    check(`${label}: rows untouched`, psql(db, DATA_FINGERPRINT) === dataBefore);
+  }
 }
 
 const DB = {
@@ -153,6 +180,13 @@ const DB = {
   old: 'adk_verify_2_7_2',
   tampered: 'adk_verify_tampered',
   unknown: 'adk_verify_unknown',
+  check: 'adk_verify_check',
+  trigger: 'adk_verify_trigger',
+  index: 'adk_verify_index',
+  enumOnly: 'adk_verify_enum_only',
+  interrupted: 'adk_verify_interrupted',
+  interruptedBad: 'adk_verify_interrupted_bad',
+  failed: 'adk_verify_failed',
 };
 
 try {
@@ -182,15 +216,88 @@ try {
 
   // refusals
   loadFixture(DB.old, 'installed-2.7.2.schema.sql');
-  expectRefused('2.7.2', DB.old);
+  psql(DB.old, SEED_OLD);
+  expectRefused('2.7.2', DB.old, { seeded: true });
 
   loadFixture(DB.tampered, 'installed-2.8.x.schema.sql');
+  psql(DB.tampered, SEED);
   psql(DB.tampered, 'ALTER TABLE tickets ADD COLUMN rogue_column text');
-  expectRefused('tampered 2.8.x', DB.tampered);
+  expectRefused('tampered 2.8.x', DB.tampered, { seeded: true });
+
+  // Objects Prisma's migrate diff cannot see. Each of these was adopted
+  // silently before the catalog check existed.
+  loadFixture(DB.check, 'installed-2.8.x.schema.sql');
+  psql(DB.check, SEED);
+  psql(DB.check, 'ALTER TABLE tickets ADD CONSTRAINT rogue CHECK (false) NOT VALID');
+  expectRefused('extra CHECK constraint', DB.check, { seeded: true });
+
+  loadFixture(DB.trigger, 'installed-2.8.x.schema.sql');
+  psql(DB.trigger, SEED);
+  psql(DB.trigger, 'DROP TRIGGER trg_ticket_events_append_only ON ticket_events');
+  expectRefused('missing append-only trigger', DB.trigger, { seeded: true });
+
+  loadFixture(DB.index, 'installed-2.8.x.schema.sql');
+  psql(DB.index, SEED);
+  psql(DB.index, 'DROP INDEX idx_ticket_events_team_occurred');
+  psql(DB.index, 'CREATE UNIQUE INDEX idx_ticket_events_team_occurred ON users(username)');
+  expectRefused('allowlisted index name, wrong index', DB.index, { seeded: true });
+
+  // "No tables" is not "empty": migrate deploy would create migration history
+  // and then fail on the pre-existing enum.
+  recreate(DB.enumOnly);
+  psql(DB.enumOnly, `CREATE TYPE "CustomFieldType" AS ENUM ('alien')`);
+  expectRefused('enum-only database', DB.enumOnly);
 
   recreate(DB.unknown);
   psql(DB.unknown, 'CREATE TABLE something_else (id int)');
   expectRefused('unknown', DB.unknown);
+
+  // Adoption interrupted after migrate resolve created the history table but
+  // before it recorded the baseline: the next start must re-verify and finish,
+  // not deploy 0_init over a populated database.
+  loadFixture(DB.interrupted, 'installed-2.8.x.schema.sql');
+  psql(DB.interrupted, SEED);
+  const interruptedData = psql(DB.interrupted, DATA_FINGERPRINT);
+  psql(
+    DB.interrupted,
+    `CREATE TABLE _prisma_migrations (id varchar(36) primary key, checksum varchar(64) not null,
+      finished_at timestamptz, migration_name varchar(255) not null, logs text,
+      rolled_back_at timestamptz, started_at timestamptz not null default now(),
+      applied_steps_count integer not null default 0)`,
+  );
+  r = applySchema(DB.interrupted);
+  check('interrupted adoption: recovers (exit 0)', r.status === 0, `exit ${r.status}`);
+  check('interrupted adoption: 0_init recorded once', appliedBaselineRows(DB.interrupted) === 1);
+  check('interrupted adoption: rows unchanged', psql(DB.interrupted, DATA_FINGERPRINT) === interruptedData);
+
+  // Same interruption, but the schema is NOT 2.8 — recovery must refuse.
+  loadFixture(DB.interruptedBad, 'installed-2.7.2.schema.sql');
+  psql(
+    DB.interruptedBad,
+    `CREATE TABLE _prisma_migrations (id varchar(36) primary key, checksum varchar(64) not null,
+      finished_at timestamptz, migration_name varchar(255) not null, logs text,
+      rolled_back_at timestamptz, started_at timestamptz not null default now(),
+      applied_steps_count integer not null default 0)`,
+  );
+  r = applySchema(DB.interruptedBad);
+  check('interrupted adoption of a 2.7.2 database: refused', r.status !== 0, `exit ${r.status}`);
+  check('interrupted adoption of a 2.7.2 database: no baseline row',
+    appliedBaselineRows(DB.interruptedBad) === 0);
+
+  // A failed migration must never be deployed over.
+  loadFixture(DB.failed, 'installed-2.8.x.schema.sql');
+  psql(
+    DB.failed,
+    `CREATE TABLE _prisma_migrations (id varchar(36) primary key, checksum varchar(64) not null,
+      finished_at timestamptz, migration_name varchar(255) not null, logs text,
+      rolled_back_at timestamptz, started_at timestamptz not null default now(),
+      applied_steps_count integer not null default 0);
+     INSERT INTO _prisma_migrations (id, checksum, migration_name, logs)
+     VALUES ('x', 'y', '0_init', 'boom')`,
+  );
+  r = applySchema(DB.failed);
+  check('failed migration: refused (exit non-zero)', r.status !== 0, `exit ${r.status}`);
+  check('failed migration: says how to resolve it', /migrate resolve --rolled-back/.test(r.output));
 
   // equivalent: a fresh migration-built install and an adopted 2.8.x install
   // differ relationally only by the two indexes pgExtras creates at boot.

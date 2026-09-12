@@ -158,11 +158,14 @@ jobs:
         working-directory: backend
         shell: bash
         run: |
-          diff \
-            <(npx prisma migrate diff --from-empty \
-                --to-schema-datamodel ./prisma/baseline/schema-2.8.prisma --script \
-              | grep -v '^--' | sed '/^[[:space:]]*$/d') \
-            <(grep -v '^--' ./prisma/migrations/0_init/migration.sql | sed '/^[[:space:]]*$/d')
+          set -euo pipefail
+          # Generate into a file first: with process substitution, a generator
+          # that prints matching SQL and then fails still leaves diff happy.
+          npx prisma migrate diff --from-empty \
+            --to-schema-datamodel ./prisma/baseline/schema-2.8.prisma --script > /tmp/baseline.sql
+          grep -v '^--' /tmp/baseline.sql | sed '/^[[:space:]]*$/d' > /tmp/baseline.norm
+          grep -v '^--' ./prisma/migrations/0_init/migration.sql | sed '/^[[:space:]]*$/d' > /tmp/0_init.norm
+          diff /tmp/baseline.norm /tmp/0_init.norm
 
       - name: Verify baseline adoption against historical installs
         working-directory: backend

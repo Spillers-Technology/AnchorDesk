@@ -63,17 +63,30 @@ already applied, then deploys anything newer. Adoption is only correct for a
 database that really is the 2.8 schema, so it is **fingerprinted first**:
 
 - **Upgrading from 2.8.0, 2.8.1, or 2.8.2** — supported. `apply-schema.mjs`
-  diffs your database against the frozen 2.8 datamodel
-  (`backend/prisma/baseline/schema-2.8.prisma`). A real 2.8.x install differs
-  only by two indexes AnchorDesk itself creates at boot; it is adopted with no
-  schema or row changes. Verified on every CI run against real databases built
-  by the published 2.8.0 and 2.8.2 images (`scripts/verify-baseline-upgrade.mjs`).
+  checks your database two ways before recording the baseline: `prisma migrate
+  diff` against the frozen 2.8 datamodel
+  (`backend/prisma/baseline/schema-2.8.prisma`), **and** a catalog check of the
+  objects that diff cannot see — CHECK constraints, triggers, and the identity
+  of the two indexes AnchorDesk creates at boot. A real 2.8.x install passes
+  both and is adopted with no schema or row changes. Verified on every CI run
+  against real databases built by the published 2.8.0 and 2.8.2 images
+  (`scripts/verify-baseline-upgrade.mjs`).
+- **Adoption runs only in the `public` schema.** An install using a different
+  schema is refused rather than adopted down an untested path; ask before
+  upgrading one.
 - **Upgrading from 2.7.x or earlier** — upgrade to **2.8.2 first** with the
   2.8.2 image (follow the version notes below), confirm it starts, then upgrade
   to 2.9.0. Started directly against an older database, 2.9.0 refuses, lists
   the differences it found, and changes nothing.
-- **A 2.8.x database someone altered by hand** is refused the same way. Put
-  the schema back, or restore a clean backup, before retrying.
+- **A 2.8.x database someone altered by hand** is refused the same way — an
+  added column, an extra CHECK constraint, a dropped trigger, or a replaced
+  index all stop it. Put the schema back (starting 2.8.2 once restores the
+  objects AnchorDesk creates at boot), or restore a clean backup, then retry.
+- **If a previous attempt was interrupted** part-way — migration history exists
+  but the baseline was never recorded — the next start re-runs both checks and
+  finishes the adoption. It never deploys the baseline over a populated
+  database, and a recorded *failed* migration stops it with the
+  `prisma migrate resolve --rolled-back` command you need.
 - **If your deployment runs `db push --accept-data-loss` in its own init
   container or entrypoint** (as the 2.6/2.7 notes suggested for one supervised
   step), replace that command with `node scripts/apply-schema.mjs` when you
