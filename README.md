@@ -28,7 +28,11 @@ And it travels: the web client is **mobile-first**, so triaging the board, reply
 <img width="360" alt="AnchorDesk Kanban board on a phone: full toolbar, SLA and label chips, and touch-visible card actions at 412px" src="docs/assets/screenshots/anchordesk-mobile-board.jpg" />
 </div>
 
-## What ships in 2.8 (latest: 2.8.2)
+## What ships in 2.9 (latest: 2.9.0)
+
+- **🧱 Versioned schema migrations** — upgrades apply committed, recorded migrations instead of reconciling the schema to whatever image is running. An existing 2.8.x install is adopted as the baseline only after its schema is verified; anything else is refused rather than half-migrated. See [docs/upgrading.md](docs/upgrading.md).
+
+From 2.8:
 
 - **🚪 Customer portal** (2.7–2.8) — requesters sign in by magic link to submit and follow their own tickets. Access is a reviewable record: self-registration lands in an admin approval queue, each contact's access is an audited, revocable grant, company-wide visibility is an opt-in widening, and technicians stay anonymous unless both the shop and the technician opt in. The whole portal is **off by default**.
 - **📊 Reporting you can defend** (2.7) — response and resolution times as p50/p90 percentiles from an append-only event history, SLA targets frozen at the moment they were promised, a TIME calendar that shows a technician's unlogged gaps, and CSAT grouped by company. Any window touching backfilled data says so on the chart; every chart has a table view.
@@ -147,8 +151,8 @@ Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxie
 
 For the complete Compose stack, run `docker compose up --build`. Tagged release images are published as:
 
-- `ghcr.io/spillers-technology/anchordesk-backend:2.8.2`
-- `ghcr.io/spillers-technology/anchordesk-web-client:2.8.2`
+- `ghcr.io/spillers-technology/anchordesk-backend:2.9.0`
+- `ghcr.io/spillers-technology/anchordesk-web-client:2.9.0`
 
 Before running AnchorDesk for real work, read [docs/backup-restore.md](docs/backup-restore.md) — the database **and** your `ENCRYPTION_KEY` are both needed to restore.
 
@@ -219,7 +223,7 @@ The wire contract lives in [backend/src/providers/NetVizProvider.ts](backend/src
 - [docs/upgrading.md](docs/upgrading.md) — the upgrade procedure and per-version notes
 - [docs/backup-restore.md](docs/backup-restore.md) — what to back up, how, and a restore you can rehearse
 - [SECURITY.md](SECURITY.md) — supported versions and how to report a vulnerability
-- [docs/releases/](docs/releases/) — full per-version release notes (latest: [2.8.2 — First Coat](docs/releases/RELEASE_NOTES_v2.8.2.md)); see [CHANGELOG.md](CHANGELOG.md) for the condensed log
+- [docs/releases/](docs/releases/) — full per-version release notes (latest: [2.9.0 — True Bearing](docs/releases/RELEASE_NOTES_v2.9.0.md)); see [CHANGELOG.md](CHANGELOG.md) for the condensed log
 - [CLAUDE.md](CLAUDE.md) — developer reference
 
 ## Support and pricing

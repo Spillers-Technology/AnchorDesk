@@ -100,7 +100,7 @@ swap is safe — 2.9.0 adds no schema beyond 2.8, and the 2.8.2 image's
 
 ## Version notes
 
-### → 2.9.0 (unreleased — versioned migrations)
+### → 2.9.0 (True Bearing — versioned migrations)
 - Schema application moves from `db push` to `apply-schema.mjs` +
   `prisma migrate deploy`. No schema change: `0_init` is the 2.8 schema.
 - Upgrade from 2.8.x only; see

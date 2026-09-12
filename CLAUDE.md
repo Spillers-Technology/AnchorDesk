@@ -329,6 +329,19 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 > live arrival. No schema/API change. Later phases will look at Kanban drag physics, route
 > transitions, and the Reports charts individually.
 
+> **As of 2.9.0 ("True Bearing"):** the schema moves through **versioned migrations**, and the
+> public surface stops overclaiming. `scripts/apply-schema.mjs` replaces `db push` in Compose and
+> the Kubernetes init container: fresh databases get `prisma migrate deploy`; an existing 2.8.x
+> `db push` database is **adopted as `0_init` only after a fingerprint** — `prisma migrate diff`
+> against the frozen `prisma/baseline/schema-2.8.prisma` must show nothing beyond the two
+> pgExtras-owned `ticket_events` B-tree indexes, or it is refused with nothing written. The rule is
+> the one #51's review taught: *"a table called `tickets` exists" is not evidence of a schema.*
+> `scripts/verify-baseline-upgrade.mjs` proves it in CI against real installs built by the published
+> images. Docs: README integration-maturity table (Jira beta; ConnectWise/NinjaOne/Datto alpha),
+> a site Pricing section in place of an unbacked hosting offer, `SECURITY.md`, a rehearsed
+> `docs/backup-restore.md`, and an upgrade guide whose rollback advice is now true — an older
+> `db push` image drops newer tables, so rollback means restoring the pre-upgrade backup.
+
 Key design goals:
 - Excellent standalone ticketing experience first
 - Sync to/from external platforms second
@@ -723,11 +736,14 @@ cross-column checks, triggers, and similar objects belong there rather than in
 a Prisma migration. `backend/src/db/dataMigrations.ts` owns idempotent row-level
 repairs that run on every boot.
 
-**Adopting pre-migration installs is 2.8.x-only and fingerprinted.**
+**Adopting pre-migration installs is 2.8.x-only and fingerprinted twice.**
 `scripts/apply-schema.mjs` records `0_init` against an existing `db push`
-database only after `prisma migrate diff` shows it equals the frozen
+database only after (1) `prisma migrate diff` shows it equals the frozen
 `prisma/baseline/schema-2.8.prisma` apart from the two pgExtras-owned B-tree
-indexes; anything else is refused with nothing written. Never edit
+indexes, and (2) a catalog check confirms the objects that diff cannot see —
+the 2.8 CHECK constraint, the three append-only/hierarchy triggers, and each
+allowlisted index's real definition. Anything else is refused with nothing
+written; adoption outside the `public` schema is refused outright. Never edit
 `schema-2.8.prisma` or `0_init` — CI asserts they are the same schema, and the
 fixtures under `prisma/baseline/fixtures/` are real installs from the published
 images. `scripts/verify-baseline-upgrade.mjs` is the proof; run it (it needs a

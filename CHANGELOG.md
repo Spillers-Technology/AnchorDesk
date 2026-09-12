@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.9.0 — 2026-09-12 — True Bearing (minor)
+
+Schema application moves from `prisma db push` to versioned, recorded migrations, and the public
+surface — README, site, upgrade guide — is corrected to say exactly what AnchorDesk is. No schema
+change: `0_init` is the 2.8 schema.
+
+### Changed
+
+- **Versioned migrations.** Compose and Kubernetes run `backend/scripts/apply-schema.mjs`, which
+  applies `backend/prisma/migrations/` with `prisma migrate deploy`. An existing 2.8.x `db push`
+  install is adopted as `0_init` only after two checks agree: `prisma migrate diff` against the
+  frozen `prisma/baseline/schema-2.8.prisma` (tolerating only the two pgExtras-owned
+  `ticket_events` indexes), and a catalog check of what that diff cannot see — CHECK constraints,
+  the append-only triggers, and each allowlisted index's actual definition. Any other database is
+  refused with the differences listed and nothing written; an interrupted adoption is re-verified
+  and finished on the next start. Older installs upgrade to 2.8.2 first. (#55, superseding #51)
+- **Site and README maturity labels.** ConnectWise Manage is labelled alpha (never exercised
+  against a live tenant); Jira Cloud beta; NinjaOne and Datto alpha. The managed-hosting offer is
+  withdrawn and replaced by a Pricing section. (#54)
+- **`docs/upgrading.md`** — 2.6.0–2.9.0 notes; rollback corrected: an older `db push` image started
+  against a newer database drops the newer tables. (#54)
+
+### Added
+
+- `SECURITY.md`, `docs/backup-restore.md` (rehearsed end to end), and the provider identity-probe
+  rule in `docs/providers.md` (#45). (#54)
+- `backend/scripts/verify-baseline-upgrade.mjs` — 51 checks against real PostgreSQL using schema
+  fixtures built by the published 2.7.2, 2.8.0, and 2.8.2 images; runs in the `migration-drift` CI
+  job alongside a check that `0_init` is exactly the frozen 2.8 datamodel. (#55)
+
 ## 2.8.2 — 2026-08-22 — First Coat (patch)
 
 Phase one of an ongoing UX/quality pass: a shared motion system (`theme.ts`) replaces three
