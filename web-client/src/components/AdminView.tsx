@@ -32,7 +32,7 @@ import TicketSyncPanel from "./admin/TicketSyncPanel";
  * Panels are built from the kit in `admin/kit.tsx`; navigation metadata lives
  * in `admin/nav.tsx`.
  */
-export default function AdminView({ onOpenTickets }: { onOpenTickets?: () => void }) {
+export default function AdminView({ onOpenTickets, onOpenTicket }: { onOpenTickets?: () => void; onOpenTicket?: (ticketId: number) => void }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const raw = searchParams.get("admin") as AdminSection | null;
   const section: AdminSection = raw && NAV_IDS.has(raw) ? raw : "overview";
@@ -88,7 +88,7 @@ export default function AdminView({ onOpenTickets }: { onOpenTickets?: () => voi
           {section === "checklists" && <ChecklistTemplatesPanel />}
           {section === "knowledge-base" && <KbArticlesPanel />}
           {section === "automations" && <AutomationsPanel />}
-          {section === "ticket-sync" && <TicketSyncPanel />}
+          {section === "ticket-sync" && <TicketSyncPanel onOpenTicket={onOpenTicket} />}
           {section === "probes" && <ProbesPanel />}
           {section === "devices" && <DevicesPanel onNavigate={setSection} />}
           {section === "audit" && <AuditPanel />}

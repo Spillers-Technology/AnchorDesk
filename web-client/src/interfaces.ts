@@ -65,7 +65,7 @@ export interface Ticket {
   externalProvider?: string;
   externalId?: string;
   // Two-way sync state for external tickets (null/undefined for local ones).
-  syncState?: "synced" | "pending" | "conflict" | "error" | null;
+  syncState?: "synced" | "pending" | "conflict" | "error" | "detached" | null;
   syncedAt?: string | null;
   // Local-only ticket relationships (2.6).
   parentId?: number | null;

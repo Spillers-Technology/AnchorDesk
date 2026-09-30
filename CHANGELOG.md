@@ -1,5 +1,52 @@
 # Changelog
 
+## Unreleased — sync scope: what decides how much syncs
+
+"Syncs to a PSA" now has a definite answer: each job owns the tickets it imported, filters by
+technician **ID**, sends its filter to the remote, can be previewed before it's enabled, and a
+ticket that leaves its scope stops syncing *visibly*. Tickets can also be created in the PSA from
+AnchorDesk. Design and decisions: `docs/roadmap-sync-scope.md`. Migration `1_sync_scope`
+(additive: ticket ownership/detach columns, `detached` sync state, bypass requests).
+
+### Added
+
+- **Sync to external PSA** on New ticket, and **Send to PSA** on any local ticket (email tickets
+  included): created in Jira (job's project; issue type configurable) or ConnectWise (job's board;
+  company by exact name, else the job's default company). The local ticket is created first, so a
+  refusal never loses it; sent tickets stay in sync regardless of the job's filter.
+- **Technician filters by ID.** Pick people from Jira or ConnectWise in the job editor; matched by
+  Jira accountId, or ConnectWise owner and every assigned resource.
+- **Preview first run** in the job editor: how many tickets the job would import (Jira approximate;
+  an upper bound when some clauses are checked only after fetching).
+- **Sync stopped, with a reason.** A ticket that leaves its job's filter gets the change that took it
+  out (closed, reassigned), then stops syncing: local copy kept, a timeline note and audit row say
+  why, and it resumes automatically if it comes back into scope. Full scans also catch tickets a
+  narrowed filter or board move no longer returns.
+- **Bypass requests.** Anyone who can edit tickets may ask for a stopped ticket to keep syncing; any
+  admin approves or rejects — from the ticket or the queue in Admin → Ticket sync. Admins are
+  notified of requests; requesters of decisions.
+
+### Changed
+
+- ConnectWise pushes the filter's includes (status, priority, company, technicians) into its query
+  instead of downloading the whole board and discarding most of it.
+- A ticket imported by one job is no longer also reconciled by every other job on the same account.
+- Run summaries count tickets that stopped syncing.
+
+### Fixed
+
+- A ConnectWise technician filter never matched tickets with more than one resource
+  (`"jsmith, bdoe"` was compared as one string).
+- The ticket header's chips ran under the download/close buttons on phones.
+
+### Tests
+
+- Backend: the scope decision table, the run-level final-reconcile/detach and full-scan sweep,
+  provider push-down and creation, filter explanations, bypass/send route access, and a Postgres
+  proof of the ownership backfill. Web: the stopped-sync banner, bypass requests, Send to PSA, and
+  New ticket's create-then-send flow. The mobile matrix adds the stopped ticket and New ticket's
+  PSA picker.
+
 ## Unreleased — admin console redesign
 
 The admin console gets the same level-up netviz's UI did: one kit, one header, one way to say

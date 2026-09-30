@@ -19,6 +19,8 @@ interface TicketProvider {
   getTicket?(externalTicketId: string): Promise<ExternalTicket | null>;
   fetchNotes(externalTicketId: string): Promise<ExternalNote[]>;
   pushTicket?(ticket: { title: string; description?: string; companyName?: string }): Promise<string>;
+  createBlocker?(): string | null;
+  previewFirstRun?(): Promise<{ count: number; approximate: boolean; localOnly: string[] }>;
   updateTicket?(externalTicketId: string, changes: TicketWriteback): Promise<void>;
   pushNote?(externalTicketId: string, note: { content: string; author: string }): Promise<string | void>;
 }
@@ -161,7 +163,15 @@ export function createTicketProvider(
   syncs. Two tenants can both have `HELP-1`; never deduplicate globally by
   provider type alone.
 - For two-way sync, set `canWriteBack = true` and implement `getTicket`, `updateTicket`, and `pushNote`
-- `pushTicket` is optional and only needed when the provider can create a new remote ticket from a local ticket
+- `pushTicket` creates a remote ticket from a local one ("Sync to external PSA" on New ticket, "Send to
+  PSA" on a ticket). Implement `createBlocker` to say, in words, when a job can't create (Jira: no
+  project key). See `docs/roadmap-sync-scope.md` §6.
+- **Scope.** Put every remote identity on a ticket in `ExternalTicket.assigneeIds` (Jira `accountId`;
+  ConnectWise owner + each `resources` member) — that is what the filter's `assigneeId` matches, and
+  `assigneeNames` when a ticket can carry several people. Push the filter's includes into the
+  *first-run* query only, and keep any push-down a superset of `syncFilter.matches()`; incremental
+  runs must use the unfiltered base scope so tickets leaving the filter are still returned and can
+  stop syncing visibly. `previewFirstRun` counts that first run without fetching it.
 - Every attempt is a `SyncRun`; record activity is linked in `sync_log`.
 - If your platform doesn't paginate the same way, handle pagination internally in `fetchTickets` and return a flat array
 - Add the new provider type to the connection/job route allowlists before

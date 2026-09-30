@@ -56,16 +56,20 @@ import { useIsPhone } from "../../theme/useIsPhone";
 import { TICKET_PRIORITIES, TICKET_STATUSES } from "../../ticketVocab";
 import ConfirmDialog from "./ConfirmDialog";
 import SyncRunHistoryDialog, { SyncHealthChip } from "./SyncRunHistoryDialog";
+import SyncBypassQueue from "./SyncBypassQueue";
 import SyncOutlined from "@mui/icons-material/SyncOutlined";
 import { AdminPage, PanelLoading } from "./kit";
 
-type IncludeField = keyof Omit<api.SyncFilterInput, "exclude">;
+type IncludeField = "status" | "priority" | "assignee" | "assigneeId" | "companyName";
 
-const FILTER_FIELDS: { key: IncludeField; label: string; options: readonly string[] }[] = [
+const ALL_FILTER_KEYS: IncludeField[] = ["status", "priority", "assignee", "assigneeId", "companyName"];
+
+/** Free-text/value fields. Technicians (assigneeId) have their own picker. */
+const FILTER_FIELDS: { key: Exclude<IncludeField, "assigneeId">; label: string; options: readonly string[] }[] = [
   { key: "status", label: "Status", options: TICKET_STATUSES },
   { key: "priority", label: "Priority", options: TICKET_PRIORITIES },
-  { key: "assignee", label: "Assignee", options: [] },
   { key: "companyName", label: "Company", options: [] },
+  { key: "assignee", label: "Assignee name (legacy — prefer Technicians)", options: [] },
 ];
 
 function formatDate(iso: string | null): string {
@@ -116,7 +120,8 @@ function RunResultAlert({
     <Alert severity={severity} onClose={onClose}>
       <strong>{result.providerName}</strong> — {result.ticketsCreated} created, {result.ticketsUpdated} updated,{" "}
       {result.notesUpserted} notes, {result.ticketsFiltered} filtered locally, {result.ticketsSkipped} skipped,{" "}
-      {result.ticketsConflicted} conflicts, {result.errorCount} errors · {result.durationMs}ms
+      {result.ticketsConflicted} conflicts,{" "}
+      {result.ticketsDetached ? `${result.ticketsDetached} stopped syncing (left scope), ` : ""}{result.errorCount} errors · {result.durationMs}ms
       {result.errors.slice(0, 3).map((message, index) => (
         <Box key={index} sx={{ fontSize: 12, mt: 0.5, overflowWrap: "anywhere" }}>{message}</Box>
       ))}
@@ -129,7 +134,7 @@ interface NewJobDefaults {
   connectionId?: number;
 }
 
-export default function TicketSyncPanel() {
+export default function TicketSyncPanel({ onOpenTicket }: { onOpenTicket?: (ticketId: number) => void } = {}) {
   const [connections, setConnections] = useState<api.Connection[] | null>(null);
   const [jobs, setJobs] = useState<api.SyncProvider[] | null>(null);
   const [connectwise, setConnectwise] = useState<api.IntegrationsView["connectwise"] | null>(null);
@@ -193,6 +198,7 @@ export default function TicketSyncPanel() {
         ) : undefined}
     >
       <Stack spacing={3}>
+      <SyncBypassQueue onOpenTicket={onOpenTicket} />
 
       {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
 
@@ -983,7 +989,8 @@ function JobCard({
             <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
               Latest run: {latestRun.ticketsCreated} created, {latestRun.ticketsUpdated} updated,{" "}
               {latestRun.ticketsFiltered} filtered locally, {latestRun.ticketsSkipped} skipped,{" "}
-              {latestRun.ticketsConflicted} conflicts, {latestRun.errorCount} errors
+              {latestRun.ticketsConflicted} conflicts,{" "}
+              {latestRun.ticketsDetached ? `${latestRun.ticketsDetached} stopped syncing (left scope), ` : ""}{latestRun.errorCount} errors
             </Typography>
           )}
           <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
@@ -1076,6 +1083,8 @@ export function JobEditorDialog({
   const [projectKey, setProjectKey] = useState(job?.config.projectKey ?? "");
   const [jql, setJql] = useState(job?.config.jql ?? "");
   const [board, setBoard] = useState(job?.config.board ?? "");
+  const [createIssueType, setCreateIssueType] = useState(job?.config.createIssueType ?? "");
+  const [createCompany, setCreateCompany] = useState(job?.config.createCompany ?? "");
   const [enabled, setEnabled] = useState(job?.enabled ?? true);
   const [filter, setFilter] = useState<api.SyncFilterInput | undefined>(job?.config.filter);
   const [saving, setSaving] = useState(false);
@@ -1092,10 +1101,12 @@ export function JobEditorDialog({
     const jiraConfig = {
       projectKey: projectKey.trim(),
       jql: jql.trim(),
+      createIssueType: createIssueType.trim(),
       filter: filter ?? {},
     };
     const connectWiseConfig = {
       board: board.trim(),
+      createCompany: createCompany.trim(),
       filter: filter ?? {},
     };
     try {
@@ -1211,7 +1222,46 @@ export function JobEditorDialog({
             />
           )}
 
-          <FilterEditor value={filter} onChange={setFilter} />
+          <FilterEditor
+            value={filter}
+            onChange={setFilter}
+            type={type}
+            connectionId={type === "jira" ? (connectionId === "" ? null : connectionId) : null}
+          />
+
+          <PreviewLine
+            type={type}
+            connectionId={type === "jira" ? (connectionId === "" ? null : connectionId) : null}
+            config={type === "jira" ? { projectKey: projectKey.trim(), jql: jql.trim(), filter: filter ?? {} } : { board: board.trim(), filter: filter ?? {} }}
+            ready={type === "jira" ? connectionId !== "" && (!!projectKey.trim() || !!jql.trim()) : !!board.trim()}
+          />
+
+          <Box>
+            <Typography variant="subtitle2">Tickets sent from AnchorDesk</Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
+              New tickets can be created in {type === "jira" ? "Jira" : "ConnectWise"} through this job. A ticket
+              someone sends keeps syncing even if it doesn't match the filter.
+            </Typography>
+            {type === "jira" ? (
+              <TextField
+                fullWidth
+                label="Issue type"
+                value={createIssueType}
+                onChange={(e) => setCreateIssueType(e.target.value)}
+                placeholder="Task"
+                helperText={projectKey.trim() ? "Blank uses the project's Task type, else its first standard type." : "Needs a project key above — a JQL-only job can't create issues."}
+              />
+            ) : (
+              <TextField
+                fullWidth
+                label="Default company identifier"
+                value={createCompany}
+                onChange={(e) => setCreateCompany(e.target.value)}
+                placeholder="SpillersTech"
+                helperText="Used when a ticket's company has no exact match by name in ConnectWise. Blank: such tickets can't be sent."
+              />
+            )}
+          </Box>
 
           <FormControlLabel control={<Checkbox checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />} label={'Enabled (included in scheduled and "Run all" syncs)'} />
         </Stack>
@@ -1250,39 +1300,79 @@ export function JobEditorDialog({
 // ─── Filter editor ──────────────────────────────────────────────────────────
 //
 // Deliberately a plain structured form, not a query language: the backend
-// vocabulary is four fixed fields with include/exclude semantics
+// vocabulary is a few fixed fields with include/exclude semantics
 // (syncFilter.ts) — a general rule builder would promise expressiveness that
 // doesn't exist. Values within a field are OR'd, fields are AND'd, and
 // exclude always wins over include.
+//
+// Technicians are picked from the remote system and stored by ID (Jira
+// accountId, ConnectWise member identifier), with display names alongside for
+// rendering. The old free-text "assignee name" field only appears for jobs that
+// already use it.
 
 function isEmptyFilter(f: api.SyncFilterInput | undefined): boolean {
   if (!f) return true;
   const hasAny = (obj?: Partial<Record<IncludeField, string[]>>) =>
-    !!obj && FILTER_FIELDS.some(({ key }) => (obj[key]?.length ?? 0) > 0);
+    !!obj && ALL_FILTER_KEYS.some((key) => (obj[key]?.length ?? 0) > 0);
   return !hasAny(f) && !hasAny(f.exclude);
 }
 
-function FilterEditor({ value, onChange }: { value: api.SyncFilterInput | undefined; onChange: (v: api.SyncFilterInput | undefined) => void }) {
+function FilterEditor({
+  value,
+  onChange,
+  type,
+  connectionId,
+}: {
+  value: api.SyncFilterInput | undefined;
+  onChange: (v: api.SyncFilterInput | undefined) => void;
+  type: "jira" | "connectwise";
+  connectionId: number | null;
+}) {
   const set = (mode: "include" | "exclude", key: IncludeField, values: string[]) => {
     const next: api.SyncFilterInput = { ...value };
     if (mode === "include") next[key] = values;
     else next.exclude = { ...next.exclude, [key]: values };
     onChange(isEmptyFilter(next) ? undefined : next);
   };
+  const setPeople = (mode: "include" | "exclude", people: api.SyncPerson[]) => {
+    const labels = { ...(value?.labels ?? {}) };
+    for (const p of people) labels[p.id] = p.name;
+    const next: api.SyncFilterInput = { ...value, labels };
+    if (mode === "include") next.assigneeId = people.map((p) => p.id);
+    else next.exclude = { ...next.exclude, assigneeId: people.map((p) => p.id) };
+    // Keep only labels some clause still uses.
+    const used = new Set([...(next.assigneeId ?? []), ...(next.exclude?.assigneeId ?? [])]);
+    next.labels = Object.fromEntries(Object.entries(labels).filter(([id]) => used.has(id)));
+    if (!Object.keys(next.labels).length) delete next.labels;
+    onChange(isEmptyFilter(next) ? undefined : next);
+  };
+  const people = (ids: string[] | undefined): api.SyncPerson[] =>
+    (ids ?? []).map((id) => ({ id, name: value?.labels?.[id] ?? id }));
+  const showLegacyNames = (value?.assignee?.length ?? 0) > 0 || (value?.exclude?.assignee?.length ?? 0) > 0;
+  const fields = FILTER_FIELDS.filter((f) => f.key !== "assignee" || showLegacyNames);
 
   return (
     <Box>
       <Typography variant="subtitle2">Filter (optional)</Typography>
       <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
         Values in a field are "or"; fields are "and"; an exclusion always wins. No values anywhere means
-        every ticket is imported.
+        every ticket is imported. A ticket that later falls outside the filter stops syncing, keeps its
+        local copy, and says why.
       </Typography>
       {isEmptyFilter(value) && (
         <Alert severity="warning" variant="outlined" sx={{ mb: 1 }}>No filter set — this job will import every ticket in scope.</Alert>
       )}
       <Stack spacing={1.5}>
         <Typography variant="caption" sx={{ fontWeight: 600 }}>Include</Typography>
-        {FILTER_FIELDS.map((f) => (
+        <PeoplePicker
+          label="Technicians"
+          helper={type === "connectwise" ? "Matches the ticket owner or any assigned resource." : "Matches the Jira assignee."}
+          type={type}
+          connectionId={connectionId}
+          value={people(value?.assigneeId)}
+          onChange={(p) => setPeople("include", p)}
+        />
+        {fields.map((f) => (
           <Autocomplete
             key={`inc-${f.key}`}
             multiple
@@ -1296,7 +1386,14 @@ function FilterEditor({ value, onChange }: { value: api.SyncFilterInput | undefi
         ))}
         <Divider />
         <Typography variant="caption" sx={{ fontWeight: 600 }}>Exclude</Typography>
-        {FILTER_FIELDS.map((f) => (
+        <PeoplePicker
+          label="Technicians"
+          type={type}
+          connectionId={connectionId}
+          value={people(value?.exclude?.assigneeId)}
+          onChange={(p) => setPeople("exclude", p)}
+        />
+        {fields.map((f) => (
           <Autocomplete
             key={`exc-${f.key}`}
             multiple
@@ -1310,5 +1407,132 @@ function FilterEditor({ value, onChange }: { value: api.SyncFilterInput | undefi
         ))}
       </Stack>
     </Box>
+  );
+}
+
+/**
+ * Pick people from the remote system. Stores their stable IDs; shows names.
+ * Searching needs credentials, so a Jira job must have its account chosen.
+ */
+function PeoplePicker({
+  label,
+  helper,
+  type,
+  connectionId,
+  value,
+  onChange,
+}: {
+  label: string;
+  helper?: string;
+  type: "jira" | "connectwise";
+  connectionId: number | null;
+  value: api.SyncPerson[];
+  onChange: (people: api.SyncPerson[]) => void;
+}) {
+  const [input, setInput] = useState("");
+  const [options, setOptions] = useState<api.SyncPerson[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const blocked = type === "jira" && connectionId == null;
+
+  useEffect(() => {
+    const q = input.trim();
+    if (blocked || q.length < 2) {
+      setOptions([]);
+      return;
+    }
+    let live = true;
+    setLoading(true);
+    const timer = setTimeout(() => {
+      api
+        .searchSyncPeople(type, connectionId, q)
+        .then((found) => { if (live) { setOptions(found); setError(null); } })
+        .catch((e) => { if (live) setError(e instanceof Error ? e.message : "Search failed"); })
+        .finally(() => { if (live) setLoading(false); });
+    }, 250);
+    return () => { live = false; clearTimeout(timer); };
+  }, [input, type, connectionId, blocked]);
+
+  return (
+    <Autocomplete
+      multiple
+      size="small"
+      disabled={blocked}
+      options={options}
+      value={value}
+      loading={loading}
+      filterOptions={(x) => x}
+      isOptionEqualToValue={(a, b) => a.id === b.id}
+      getOptionLabel={(p) => p.name}
+      onInputChange={(_e, v) => setInput(v)}
+      onChange={(_e, v) => onChange(v)}
+      noOptionsText={input.trim().length < 2 ? "Type at least 2 letters" : "Nobody matches"}
+      renderOption={(props, p) => (
+        <li {...props} key={p.id}>
+          <Box>
+            <Typography variant="body2">{p.name}</Typography>
+            {p.detail && <Typography variant="caption" sx={{ color: "text.secondary" }}>{p.detail}</Typography>}
+          </Box>
+        </li>
+      )}
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          label={label}
+          placeholder={value.length ? "" : "Search people…"}
+          error={!!error}
+          helperText={blocked ? "Choose the Jira connection first — people are searched in that account." : error ?? helper}
+        />
+      )}
+    />
+  );
+}
+
+/**
+ * "How much would this import?" — counted by the remote without fetching, for
+ * the configuration as currently edited. Jira's count is approximate; clauses
+ * checked only after fetching make it an upper bound.
+ */
+function PreviewLine({ type, connectionId, config, ready }: { type: "jira" | "connectwise"; connectionId: number | null; config: Record<string, unknown>; ready: boolean }) {
+  const [state, setState] = useState<{ loading: boolean; result?: api.SyncPreview; error?: string }>({ loading: false });
+  const key = JSON.stringify([type, connectionId, config]);
+  // A preview describes one configuration; editing invalidates it.
+  useEffect(() => setState({ loading: false }), [key]);
+
+  const run = async () => {
+    setState({ loading: true });
+    try {
+      setState({ loading: false, result: await api.previewSyncJob(type, connectionId, config) });
+    } catch (e) {
+      setState({ loading: false, error: e instanceof Error ? e.message : "Preview failed" });
+    }
+  };
+
+  const r = state.result;
+  return (
+    <Alert
+      severity={state.error ? "error" : r ? "info" : "success"}
+      variant="outlined"
+      icon={false}
+      action={
+        <Button size="small" onClick={() => void run()} disabled={!ready || state.loading} startIcon={state.loading ? <CircularProgress size={14} /> : undefined}>
+          {r ? "Recount" : "Preview first run"}
+        </Button>
+      }
+    >
+      {state.error
+        ? state.error
+        : r
+          ? (
+            <>
+              The first run would import {r.localOnly.length ? "at most " : r.approximate ? "about " : ""}
+              <strong>{r.count.toLocaleString()}</strong> ticket{r.count === 1 ? "" : "s"}
+              {r.localOnly.length ? ` — ${r.localOnly.join(", ")} is checked after fetching` : ""}.
+            </>
+          )
+          : ready
+            ? "See how many tickets this job would import before you save it."
+            : "Fill in the scope above to preview how many tickets this job would import."}
+    </Alert>
   );
 }

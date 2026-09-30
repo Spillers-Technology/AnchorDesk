@@ -62,12 +62,13 @@ export function splitOrderBy(jql: string): { restriction: string; ordering: stri
 /**
  * Fold the provider-neutral sync filter into JQL so the remote does the work.
  *
- * Only `status`, `priority`, and `companyName` (Jira's project) are pushed down:
- * all three are matched by name in JQL. Assignee is deliberately left out —
- * AnchorDesk holds a display name while JQL wants an accountId, and a wrong
- * guess would silently drop tickets. Anything not pushed down is still enforced
- * by `syncFilter.matches()` after the fetch, so the filter is always correct;
- * push-down only decides how much data crosses the wire.
+ * `status`, `priority`, and `companyName` (Jira's project) are matched by name
+ * in JQL; `assigneeId` is an accountId, which is exactly what JQL's `assignee`
+ * takes. The display-name `assignee` clause is deliberately left out — JQL wants
+ * an accountId, and a wrong guess would silently drop tickets. Anything not
+ * pushed down is still enforced by `syncFilter.matches()` after the fetch, so
+ * the filter is always correct; push-down only decides how much data crosses
+ * the wire.
  */
 function appendFilterClauses(jql: string, filter?: SyncFilter | null): string {
   if (!filter) return jql;
@@ -92,9 +93,11 @@ function appendFilterClauses(jql: string, filter?: SyncFilter | null): string {
   push('status', filter.status, false);
   push('priority', filter.priority, false);
   push('project', filter.companyName, false);
+  push('assignee', filter.assigneeId, false);
   push('status', filter.exclude?.status, true);
   push('priority', filter.exclude?.priority, true);
   push('project', filter.exclude?.companyName, true);
+  push('assignee', filter.exclude?.assigneeId, true);
 
   if (clauses.length === 0) return jql;
 
@@ -111,6 +114,9 @@ export class JiraProvider implements TicketProvider {
   private readonly baseJql: string;
   private readonly firstRunJql: string;
   private readonly creds: jira.JiraCredentials;
+  private readonly filter: SyncFilter | null;
+  private readonly projectKey: string | null;
+  private readonly createIssueType: string | null;
 
   /**
    * @param creds      credentials for one Jira site. Explicit rather than
@@ -120,7 +126,13 @@ export class JiraProvider implements TicketProvider {
    * @param projectKey this job's project, used only to build the default query
    *                   when `jql` is not given.
    */
-  constructor(creds: jira.JiraCredentials, jql?: string, filter?: SyncFilter | null, projectKey?: string) {
+  constructor(
+    creds: jira.JiraCredentials,
+    jql?: string,
+    filter?: SyncFilter | null,
+    projectKey?: string,
+    options: { createIssueType?: string | null } = {}
+  ) {
     // Do not hide terminal statuses in an implicit provider default. A ticket
     // that moves to Done must still appear in the next incremental result so
     // AnchorDesk can close it locally. Scope belongs to the job's explicit
@@ -135,6 +147,40 @@ export class JiraProvider implements TicketProvider {
     this.creds = creds;
     this.baseJql = base;
     this.firstRunJql = appendFilterClauses(base, filter);
+    this.filter = filter ?? null;
+    this.projectKey = projectKey?.trim() || null;
+    this.createIssueType = options.createIssueType?.trim() || null;
+  }
+
+  /**
+   * How many issues the first run would import. Jira's count is approximate by
+   * definition, and the display-name assignee clause is enforced only locally,
+   * so the number is an upper bound whenever `localOnly` is non-empty.
+   */
+  async previewFirstRun(): Promise<{ count: number; approximate: boolean; localOnly: string[] }> {
+    const { restriction } = splitOrderBy(this.firstRunJql);
+    const count = await jira.approximateCount(this.creds, restriction);
+    const localOnly: string[] = [];
+    if (this.filter?.assignee?.length) localOnly.push('assignee (by name)');
+    if (this.filter?.exclude?.assignee?.length) localOnly.push('excluded assignee (by name)');
+    return { count, approximate: true, localOnly };
+  }
+
+  /** Creating needs a project to create in; a JQL-only job doesn't name one. */
+  createBlocker(): string | null {
+    return this.projectKey ? null : 'set a project key on this job to create issues from AnchorDesk';
+  }
+
+  async pushTicket(ticket: { title: string; description?: string; companyName?: string }): Promise<string> {
+    const blocker = this.createBlocker();
+    if (blocker) throw new Error(blocker);
+    const type = await jira.resolveIssueType(this.creds, this.projectKey!, this.createIssueType);
+    return jira.createIssue(this.creds, {
+      projectKey: this.projectKey!,
+      issueTypeId: type.id,
+      summary: ticket.title,
+      description: ticket.description,
+    });
   }
 
   async fetchTickets(since?: Date): Promise<ExternalTicket[]> {
@@ -266,6 +312,7 @@ export class JiraProvider implements TicketProvider {
       // Jira has no company concept — the project name is the closest analogue.
       companyName: f.project?.name ?? '',
       assignee: f.assignee?.displayName ?? '',
+      assigneeIds: f.assignee?.accountId ? [f.assignee.accountId] : [],
       updatedAt: f.updated ? new Date(f.updated) : undefined,
     };
   }

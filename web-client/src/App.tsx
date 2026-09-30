@@ -666,7 +666,7 @@ function App() {
 
         {viewMode === "admin" ? (
           <Suspense fallback={<Box sx={{ display: "grid", placeItems: "center", py: 6 }}><CircularProgress /></Box>}>
-            <AdminView onOpenTickets={() => setViewMode("kanban")} />
+            <AdminView onOpenTickets={() => setViewMode("kanban")} onOpenTicket={openTicketById} />
           </Suspense>
         ) : viewMode === "reports" ? (
           <Suspense fallback={<Box sx={{ display: "grid", placeItems: "center", py: 6 }}><CircularProgress /></Box>}>

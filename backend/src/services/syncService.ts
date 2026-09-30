@@ -8,7 +8,7 @@
  * TicketProvider implementation based on the sync_providers.type column.
  */
 
-import { SyncRunStatus, SyncRunTrigger, TicketSource } from '@prisma/client';
+import { ProviderType, SyncRunStatus, SyncRunTrigger, TicketSource } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import {
   localVisibilityForExternalNote,
@@ -18,7 +18,9 @@ import { createTicketProvider, resolveCredentials } from '../providers/ticketPro
 import * as ticketRepo from '../repositories/ticketRepository';
 import * as noteRepo from '../repositories/noteRepository';
 import * as twoWaySync from './twoWaySync';
-import { matches, parseSyncFilter } from './syncFilter';
+import { explainMismatch, parseSyncFilter, SyncFilter } from './syncFilter';
+import { LocalSyncRow, planScope, ScopePlan } from './syncScope';
+import * as scopeRepo from '../repositories/syncScopeRepository';
 import * as syncRunRepo from '../repositories/syncRunRepository';
 import {
   syncAccountKeyForProvider,
@@ -46,6 +48,8 @@ export interface SyncResult {
   ticketsFiltered: number;
   ticketsSkipped: number;
   ticketsConflicted: number;
+  /** Owned tickets that left this job's filter this run and stopped syncing. */
+  ticketsDetached: number;
   errorCount: number;
   errors: string[];
   durationMs: number;
@@ -102,6 +106,7 @@ function emptyResult(providerRow: Pick<ProviderRow, 'id' | 'name'>): SyncResult 
     ticketsFiltered: 0,
     ticketsSkipped: 0,
     ticketsConflicted: 0,
+    ticketsDetached: 0,
     errorCount: 0,
     errors: [],
     durationMs: 0,
@@ -206,6 +211,12 @@ async function executeSync(providerRow: ProviderRow, runId: number): Promise<Syn
         where: {
           externalProvider: provider.name,
           syncConnectionId: connectionId,
+          // Another job's tickets are its own backlog; a detached ticket has
+          // stopped syncing, so its local edits and notes wait for a resume.
+          AND: [
+            { OR: [{ syncJobId: null }, { syncJobId: providerRow.id }] },
+            { OR: [{ syncState: null }, { NOT: { syncState: 'detached' } }] },
+          ],
           OR: [
             { syncState: { in: ['pending', 'error'] } },
             // A persisted customer-visible note is the durable outbox. Include
@@ -273,27 +284,56 @@ async function executeSync(providerRow: ProviderRow, runId: number): Promise<Syn
     result.durationMs = Date.now() - start;
     return result;
   }
-  if (filter) {
-    const outOfFilter = externalTickets.filter((ticket) => !matches(ticket, filter));
-    if (outOfFilter.length > 0) {
-      // Filters scope discovery, not lifecycle tracking. Once a record was
-      // imported, keep following it even when it transitions out of the filter
-      // (for example an open-only ticket closing remotely).
-      const known = await prisma.ticket.findMany({
-        where: {
-          externalProvider: provider.name,
-          syncConnectionId: connectionId,
-          externalId: { in: outOfFilter.map((ticket) => ticket.externalId) },
-        },
-        select: { externalId: true },
-      });
-      const knownIds = new Set(known.map((ticket) => ticket.externalId));
-      externalTickets = externalTickets.filter(
-        (ticket) => matches(ticket, filter) || knownIds.has(ticket.externalId)
-      );
-      result.ticketsFiltered = outOfFilter.length - knownIds.size;
+  const returnedIds = new Set(externalTickets.map((t) => t.externalId));
+
+  // Scope: which fetched tickets this job owns and processes, and which have
+  // left its filter and stop syncing. The decision table is in syncScope.ts.
+  let scope: ScopePlan;
+  try {
+    scope = await planJobScope(providerRow, provider.name, connectionId, filter, externalTickets);
+    await scopeRepo.adopt(scope.adopt, providerRow.id);
+    for (const ticketId of scope.resume) {
+      await scopeRepo.resume({ ticketId, why: 'back-in-scope', jobName: providerRow.name });
     }
+  } catch (err) {
+    result.status = 'error';
+    result.errorCount++;
+    addIssue(result, `Could not work out the scope of ${providerRow.name}: ${(err as Error).message}`);
+    result.durationMs = Date.now() - start;
+    return result;
   }
+  result.ticketsFiltered = scope.filtered;
+  if (scope.ambiguous.length) {
+    addIssue(
+      result,
+      `${scope.ambiguous.length} ticket(s) outside this job's filter predate per-job ownership and share an account ` +
+        `with other jobs, so they were left unchanged (e.g. ${scope.ambiguous.slice(0, 3).join(', ')})`
+    );
+  }
+  // Tickets leaving scope get one final reconcile — so the change that took
+  // them out (closed, reassigned) lands locally — and are detached after it.
+  const leaving = new Map(scope.detach.map((d) => [d.externalId, d]));
+  externalTickets = [...scope.process, ...scope.detach.map((d) => d.ext)];
+  const finishLeaving = async (externalId: string, outcome: string) => {
+    const d = leaving.get(externalId);
+    if (!d) return;
+    // A conflict must be settled by a person first; an error is retried next
+    // run. Detaching either would hide the problem behind "sync stopped".
+    if (outcome === 'conflict' || outcome === 'error') return;
+    if (await scopeRepo.detach({ ticketId: d.ticketId, jobId: providerRow.id, jobName: providerRow.name, reason: d.reason })) {
+      result.ticketsDetached++;
+      await prisma.syncLog.create({
+        data: {
+          providerId: providerRow.id,
+          runId,
+          externalId,
+          direction: 'inbound',
+          status: 'skipped',
+          message: `left job scope; sync stopped: ${d.reason}`.slice(0, 2000),
+        },
+      });
+    }
+  };
 
   const source = provider.name as TicketSource;
   // Failures that left no local row behind — the only kind that must pin the
@@ -335,6 +375,7 @@ async function executeSync(providerRow: ProviderRow, runId: number): Promise<Syn
               externalId: ext.externalId,
               externalProvider: provider.name,
               syncConnectionId: connectionId,
+              syncJobId: providerRow.id,
             },
             'system'
           );
@@ -369,7 +410,7 @@ async function executeSync(providerRow: ProviderRow, runId: number): Promise<Syn
         // A merged tombstone left alone is the design working, not a fault. It
         // is counted so the run is still an honest inventory of what was seen,
         // but it must not degrade health or raise an issue every single run.
-        if (r.outcome === 'merged') result.ticketsSkipped++;
+        if (r.outcome === 'merged' || r.outcome === 'detached') result.ticketsSkipped++;
 
         await prisma.syncLog.create({
           data: {
@@ -380,12 +421,13 @@ async function executeSync(providerRow: ProviderRow, runId: number): Promise<Syn
             status:
               r.outcome === 'error'
                 ? 'error'
-                : r.outcome === 'conflict' || r.outcome === 'skipped' || r.outcome === 'merged'
+                : r.outcome === 'conflict' || r.outcome === 'skipped' || r.outcome === 'merged' || r.outcome === 'detached'
                   ? 'skipped'
                   : 'success',
             message: reconcileMessage,
           },
         });
+        await finishLeaving(ext.externalId, r.outcome);
         continue;
       }
 
@@ -403,6 +445,7 @@ async function executeSync(providerRow: ProviderRow, runId: number): Promise<Syn
           ticketNumber: ext.ticketNumber,
           source,
           syncConnectionId: connectionId,
+          syncJobId: providerRow.id,
         },
         'system'
       );
@@ -505,6 +548,38 @@ async function executeSync(providerRow: ProviderRow, runId: number): Promise<Syn
         },
       });
     }
+  }
+
+  // A full scan (first run, or the first after a scope edit) fetched through
+  // the filter, so owned tickets now outside it were never returned at all.
+  if (twoWay && !since) {
+    await sweepUnreturned({
+      providerRow,
+      provider,
+      filter,
+      connectionId,
+      runId,
+      result,
+      returnedIds,
+      processedLocalIds,
+      finishLeaving: async (ticketId, externalId, reason, outcome) => {
+        if (outcome === 'conflict' || outcome === 'error') return;
+        if (await scopeRepo.detach({ ticketId, jobId: providerRow.id, jobName: providerRow.name, reason })) {
+          result.ticketsDetached++;
+          await prisma.syncLog.create({
+            data: {
+              providerId: providerRow.id,
+              runId,
+              externalId,
+              internalId: ticketId,
+              direction: 'inbound',
+              status: 'skipped',
+              message: `left job scope; sync stopped: ${reason}`.slice(0, 2000),
+            },
+          });
+        }
+      },
+    });
   }
 
   // Two-way providers: also reconcile local edits that the remote query could
@@ -632,6 +707,7 @@ export async function runAllSync(context: SyncRunContext): Promise<SyncResult[]>
         ticketsFiltered: 0,
         ticketsSkipped: 0,
         ticketsConflicted: 0,
+        ticketsDetached: 0,
         errorCount: 1,
         errors: [syncRunRepo.sanitizeSyncError(`Sync run failed: ${(err as Error).message}`)],
         durationMs: 0,
@@ -640,4 +716,125 @@ export async function runAllSync(context: SyncRunContext): Promise<SyncResult[]>
   }
 
   return results;
+}
+
+/** Chunk size for `externalId IN (...)` lookups on large first runs. */
+const SCOPE_LOOKUP_CHUNK = 1000;
+
+/**
+ * Look up the local copies of fetched tickets and plan this job's scope. Local
+ * rows are matched by account, exactly as import matches them.
+ */
+async function planJobScope(
+  providerRow: ProviderRow,
+  providerName: string,
+  connectionId: number | null,
+  filter: SyncFilter | null,
+  fetched: Awaited<ReturnType<TicketProvider['fetchTickets']>>
+): Promise<ScopePlan> {
+  const locals = new Map<string, LocalSyncRow>();
+  if (fetched.length === 0) {
+    return planScope({ jobId: providerRow.id, filter, fetched, locals, soleJobForAccount: true });
+  }
+  const ids = fetched.map((t) => t.externalId);
+  for (let i = 0; i < ids.length; i += SCOPE_LOOKUP_CHUNK) {
+    const rows = await prisma.ticket.findMany({
+      where: {
+        externalProvider: providerName,
+        syncConnectionId: connectionId,
+        externalId: { in: ids.slice(i, i + SCOPE_LOOKUP_CHUNK) },
+      },
+      select: { id: true, externalId: true, syncJobId: true, syncScopePinned: true, syncState: true },
+    });
+    for (const row of rows) {
+      if (row.externalId) locals.set(row.externalId, { ...row, externalId: row.externalId });
+    }
+  }
+  const jobsOnAccount = await prisma.syncProvider.count({
+    where: { type: providerRow.type as ProviderType, connectionId: providerRow.connectionId ?? null },
+  });
+  return planScope({
+    jobId: providerRow.id,
+    filter,
+    fetched,
+    locals,
+    soleJobForAccount: jobsOnAccount <= 1,
+  });
+}
+
+/**
+ * Full scans only: tickets this job owns that the remote did not return. Each
+ * is read back by id. A pinned ticket is reconciled and keeps syncing; any
+ * other one gets its final reconcile and is detached, with the reason — the
+ * filter clause it now fails, or that it left the job's project/board. A
+ * ticket that can't be read back is left alone and reported: a network error
+ * must never look like "left scope".
+ */
+async function sweepUnreturned(ctx: {
+  providerRow: ProviderRow;
+  provider: TicketProvider;
+  filter: SyncFilter | null;
+  connectionId: number | null;
+  runId: number;
+  result: SyncResult;
+  returnedIds: Set<string>;
+  processedLocalIds: Set<number>;
+  finishLeaving: (ticketId: number, externalId: string, reason: string, outcome: string) => Promise<void>;
+}): Promise<void> {
+  if (!ctx.provider.getTicket) return;
+  const owned = await prisma.ticket.findMany({
+    where: {
+      syncJobId: ctx.providerRow.id,
+      externalProvider: ctx.provider.name,
+      syncConnectionId: ctx.connectionId,
+      mergedIntoId: null,
+      externalId: { not: null },
+      OR: [{ syncState: null }, { NOT: { syncState: 'detached' } }],
+    },
+    select: { id: true, externalId: true, syncScopePinned: true },
+  });
+  const unreturned = owned.filter((t) => t.externalId && !ctx.returnedIds.has(t.externalId));
+  let unreadable = 0;
+  const scopeWord = ctx.providerRow.type === 'jira' ? "project or JQL" : 'board';
+
+  for (const t of unreturned) {
+    ctx.processedLocalIds.add(t.id);
+    const remote = await ctx.provider.getTicket(t.externalId!).catch(() => null);
+    if (!remote) {
+      unreadable++;
+      continue;
+    }
+    const reason = t.syncScopePinned
+      ? null
+      : explainMismatch(remote, ctx.filter) ?? `it's no longer in this job's ${scopeWord}`;
+    try {
+      const r = await twoWaySync.reconcileTicketWithinAccountLock(t.id, { remote, actor: 'system' });
+      ctx.result.notesUpserted += r.notesUpserted ?? 0;
+      if (r.outcome === 'pulled' || r.outcome === 'pushed') ctx.result.ticketsUpdated++;
+      if (r.outcome === 'conflict') {
+        ctx.result.status = 'degraded';
+        ctx.result.ticketsConflicted++;
+        addIssue(ctx.result, `Ticket ${t.externalId}: conflict held for manual resolution`);
+      }
+      if (r.outcome === 'error') {
+        ctx.result.status = 'degraded';
+        ctx.result.errorCount++;
+        addIssue(ctx.result, `Ticket ${t.externalId}: ${r.message ?? 'reconcile failed'}`);
+      }
+      if (reason) await ctx.finishLeaving(t.id, t.externalId!, reason, r.outcome);
+    } catch (err) {
+      ctx.result.status = 'degraded';
+      ctx.result.errorCount++;
+      addIssue(ctx.result, `Ticket ${t.externalId}: ${(err as Error).message}`);
+    }
+  }
+
+  if (unreadable > 0) {
+    ctx.result.status = 'degraded';
+    addIssue(
+      ctx.result,
+      `${unreadable} ticket(s) this job owns weren't returned by the remote and couldn't be read back; ` +
+        "they keep their current sync state and are checked again on the next full scan"
+    );
+  }
 }

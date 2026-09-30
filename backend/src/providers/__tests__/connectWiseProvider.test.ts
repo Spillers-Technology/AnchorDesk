@@ -2,6 +2,7 @@ import {
   CONNECTWISE_MAX_PAGES,
   CONNECTWISE_PAGE_SIZE,
   ConnectWiseProvider,
+  connectWisePeople,
 } from "../ConnectWiseProvider";
 import { createCwm } from "../../services/connectwiseService";
 
@@ -295,5 +296,74 @@ describe("ConnectWise board scope", () => {
     expect(getServiceTickets.mock.calls[0]![0].conditions).toContain(
       'board/name = "Support"',
     );
+  });
+});
+
+describe("ConnectWise scope", () => {
+  it("pushes filter includes into the first run's conditions, owner or any resource", async () => {
+    getServiceTickets.mockResolvedValue([]);
+    await new ConnectWiseProvider("Support", {}, {
+      status: ["New"],
+      assigneeId: ["jsmith"],
+      exclude: { status: ["Closed"] },
+    }).fetchTickets();
+    const conditions = getServiceTickets.mock.calls[0]![0].conditions as string;
+    expect(conditions).toContain('board/name = "Support"');
+    expect(conditions).toContain('(status/name in ("New"))');
+    expect(conditions).toContain('(owner/identifier in ("jsmith") OR resources contains "jsmith")');
+    // Excludes stay local: pushed down they could drop tickets for good.
+    expect(conditions).not.toContain("Closed");
+  });
+
+  it("uses the unfiltered board scope on incremental runs", async () => {
+    getServiceTickets.mockResolvedValue([]);
+    await new ConnectWiseProvider("Support", {}, { assigneeId: ["jsmith"] }).fetchTickets(new Date("2026-07-24T00:00:00Z"));
+    const conditions = getServiceTickets.mock.calls[0]![0].conditions as string;
+    expect(conditions).not.toContain("jsmith");
+    expect(conditions).toContain("_info/lastUpdated >");
+  });
+
+  it("lists the owner and every resource as people on the ticket", () => {
+    expect(connectWisePeople({ owner: { identifier: "jsmith", name: "John Smith" }, resources: "jsmith, bdoe" })).toEqual({
+      assigneeIds: ["jsmith", "bdoe"],
+      assigneeNames: ["John Smith", "jsmith", "bdoe"],
+    });
+    expect(connectWisePeople({ resources: "" })).toEqual({ assigneeIds: [], assigneeNames: [] });
+  });
+});
+
+describe("ConnectWise ticket creation", () => {
+  const postServiceTickets = jest.fn();
+  const getCompanyCompanies = jest.fn();
+
+  beforeEach(() => {
+    mockedCreateCwm.mockReturnValue({
+      ServiceAPI: { getServiceTickets, getServiceTicketsByParentIdNotes, postServiceTickets },
+      CompanyAPI: { getCompanyCompanies },
+    } as never);
+    postServiceTickets.mockResolvedValue({ id: 4321 });
+  });
+
+  it("creates on the job's board for the exactly-matching company, summary capped at 100", async () => {
+    getCompanyCompanies.mockResolvedValue([{ id: 55 }]);
+    const id = await new ConnectWiseProvider("Support", {}).pushTicket({ title: "x".repeat(150), companyName: "Acme" });
+    expect(id).toBe("4321");
+    const body = postServiceTickets.mock.calls[0]![0];
+    expect(body).toMatchObject({ board: { name: "Support" }, company: { id: 55 } });
+    expect(body.summary).toHaveLength(100);
+  });
+
+  it("falls back to the job's default company, and refuses to guess without one", async () => {
+    getCompanyCompanies.mockResolvedValue([]);
+    await new ConnectWiseProvider("Support", {}, null, { createCompany: "SpillersTech" }).pushTicket({ title: "t", companyName: "Nope" });
+    expect(postServiceTickets.mock.calls[0]![0]).toMatchObject({ company: { identifier: "SpillersTech" } });
+
+    await expect(new ConnectWiseProvider("Support", {}).pushTicket({ title: "t", companyName: "Nope" })).rejects.toThrow(/no ConnectWise company is named "Nope"/);
+  });
+
+  it("refuses when several companies share the name", async () => {
+    getCompanyCompanies.mockResolvedValue([{ id: 1 }, { id: 2 }]);
+    await expect(new ConnectWiseProvider("Support", {}).pushTicket({ title: "t", companyName: "Acme" })).rejects.toThrow(/more than one/);
+    expect(postServiceTickets).not.toHaveBeenCalled();
   });
 });

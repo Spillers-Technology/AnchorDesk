@@ -301,6 +301,21 @@ model Ticket {
   // credentials by provider type alone and could push a ticket back to the wrong
   // tenant. Null means "the legacy single account" (env/settings-seeded).
   syncConnectionId      Int?         @map("sync_connection_id")
+  // Which sync job owns this ticket. Scope ("does this ticket still belong in
+  // the sync?") is a per-job question; without an owner, overlapping jobs on
+  // one account each reconciled the same ticket and none could say it left.
+  // See docs/roadmap-sync-scope.md.
+  syncJobId             Int?         @map("sync_job_id")
+  // Set when the ticket stopped syncing because it no longer matches its job's
+  // filter (syncState = detached). The local copy stays; the reason is shown.
+  syncDetachedAt        DateTime?    @map("sync_detached_at")
+  syncDetachReason      String?      @map("sync_detach_reason") @db.Text
+  // syncRevision at the moment of detach: on resume, a higher revision means
+  // the ticket was edited locally while detached and has changes to push.
+  syncDetachedRevision  Int?         @map("sync_detached_revision")
+  // Keep syncing regardless of the job filter: an approved bypass request, or a
+  // ticket a person explicitly sent to the PSA from AnchorDesk.
+  syncScopePinned       Boolean      @default(false) @map("sync_scope_pinned")
   // SLA tracking. The resolved policy (slaPolicyId) yields response/resolution
   // deadlines, recomputed when priority or company changes. firstRespondedAt is
   // stamped on the first outbound tech note/email and freezes the response clock.
@@ -335,23 +350,25 @@ model Ticket {
   createdAt             DateTime     @default(now()) @map("created_at")
   updatedAt             DateTime     @updatedAt @map("updated_at")
 
-  assigneeUser  User?            @relation("AssignedTickets", fields: [assigneeId], references: [id])
+  assigneeUser       User?               @relation("AssignedTickets", fields: [assigneeId], references: [id])
   // Deletion is routed through repositories so each affected ticket gets an
   // audited metric-context transition. Restrict prevents a direct delete from
   // silently nulling dimensions behind the reporting spine.
-  team          Team?            @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  company       Company?         @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  contact       Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  slaPolicy     SlaPolicy?       @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
-  notes         Note[]
-  syncEntries   SyncLog[]
-  deviceLinks   DeviceLink[]
-  scriptJobs    ScriptJob[]
-  attachments   Attachment[]
-  notifications Notification[]
-  labels        TicketLabel[]
-  checklist     ChecklistItem[]
-  feedback      TicketFeedback[]
+  team               Team?               @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  company            Company?            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  contact            Contact?            @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  slaPolicy          SlaPolicy?          @relation(fields: [slaPolicyId], references: [id], onDelete: SetNull)
+  syncJob            SyncProvider?       @relation(fields: [syncJobId], references: [id], onDelete: SetNull)
+  syncBypassRequests SyncBypassRequest[]
+  notes              Note[]
+  syncEntries        SyncLog[]
+  deviceLinks        DeviceLink[]
+  scriptJobs         ScriptJob[]
+  attachments        Attachment[]
+  notifications      Notification[]
+  labels             TicketLabel[]
+  checklist          ChecklistItem[]
+  feedback           TicketFeedback[]
 
   parent         Ticket?       @relation("TicketHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children       Ticket[]      @relation("TicketHierarchy")
@@ -371,6 +388,7 @@ model Ticket {
   // ingests always record their resolved connection.)
   @@unique([externalId, externalProvider, syncConnectionId])
   @@index([syncConnectionId])
+  @@index([syncJobId])
   @@index([companyId])
   @@index([teamId])
   @@index([responseDueAt])
@@ -714,6 +732,7 @@ model SyncProvider {
 
   syncLogs SyncLog[]
   syncRuns SyncRun[]
+  tickets  Ticket[]
 
   @@index([connectionId])
   @@map("sync_providers")
@@ -743,6 +762,8 @@ model SyncRun {
   ticketsFiltered   Int            @default(0) @map("tickets_filtered")
   ticketsSkipped    Int            @default(0) @map("tickets_skipped")
   ticketsConflicted Int            @default(0) @map("tickets_conflicted")
+  /// Owned tickets that left the job's filter this run and stopped syncing.
+  ticketsDetached   Int            @default(0) @map("tickets_detached")
   errorCount        Int            @default(0) @map("error_count")
   latestError       String?        @map("latest_error") @db.Text
 
@@ -1070,6 +1091,14 @@ enum SyncState {
   pending
   conflict
   error
+  /// Left its job's filter: sync stopped, local copy kept. See Ticket.syncDetachReason.
+  detached
+}
+
+enum SyncBypassStatus {
+  pending
+  approved
+  rejected
 }
 
 enum NoteType {
@@ -1374,4 +1403,29 @@ model TicketFeedback {
   @@index([companyId, submittedAt])
   @@index([assigneeId, submittedAt])
   @@map("ticket_feedback")
+}
+
+/// A request to keep syncing a ticket that fell out of its sync job's scope.
+/// Anyone who can edit tickets may ask; any admin may decide. Approval pins the
+/// ticket (Ticket.syncScopePinned). Rows are kept after a decision as the record
+/// of who allowed a ticket outside the convention, and why.
+model SyncBypassRequest {
+  id            Int              @id @default(autoincrement())
+  ticketId      Int              @map("ticket_id")
+  status        SyncBypassStatus @default(pending)
+  reason        String           @db.Text
+  requestedBy   String           @map("requested_by") @db.VarChar(255)
+  /// The requesting staff user, so the decision can notify them. Null for the
+  /// dev administrator and other accounts without a users row.
+  requestedById Int?             @map("requested_by_id")
+  requestedAt   DateTime         @default(now()) @map("requested_at")
+  reviewedBy    String?          @map("reviewed_by") @db.VarChar(255)
+  reviewedAt    DateTime?        @map("reviewed_at")
+  reviewNote    String?          @map("review_note") @db.Text
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([status, requestedAt])
+  @@index([ticketId])
+  @@map("sync_bypass_requests")
 }

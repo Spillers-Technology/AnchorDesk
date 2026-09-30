@@ -18,6 +18,11 @@ export interface ExternalTicket {
   priority?: string;
   companyName?: string;
   assignee?: string;
+  /** Every remote identity on the ticket — Jira accountId; ConnectWise owner and
+   *  resource member identifiers. What the sync filter's `assigneeId` matches. */
+  assigneeIds?: string[];
+  /** Every person's name, when a ticket can carry several (ConnectWise resources). */
+  assigneeNames?: string[];
   /** Remote's own last-updated stamp, used for conflict detection. */
   updatedAt?: Date;
 }
@@ -95,9 +100,16 @@ export interface TicketProvider {
   /** Fetch notes for a single ticket by its external ID. */
   fetchNotes(externalTicketId: string): Promise<ExternalNote[]>;
 
-  /** Push a local ticket to the external system. Returns the external ID.
-   *  Optional — outbound sync is not required for all providers. */
+  /** Create a local ticket in the external system. Returns the external ID.
+   *  Optional — outbound creation is not required for all providers. */
   pushTicket?(ticket: { title: string; description?: string; companyName?: string }): Promise<string>;
+
+  /** Why this job can't create remote tickets (e.g. no project), or null. */
+  createBlocker?(): string | null;
+
+  /** Count what this job's first run would import, and which filter clauses
+   *  are enforced only after the fetch (making the count an upper bound). */
+  previewFirstRun?(): Promise<{ count: number; approximate: boolean; localOnly: string[] }>;
 
   /** Push field changes (status/priority/assignee) to the external system. */
   updateTicket?(externalTicketId: string, changes: TicketWriteback): Promise<void>;

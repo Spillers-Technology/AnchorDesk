@@ -113,6 +113,8 @@ export function createTicketProvider(
       return new ConnectWiseProvider(
         requireConnectWiseBoard(cfg.board),
         credentials,
+        filter,
+        { createCompany: typeof cfg.createCompany === "string" ? cfg.createCompany : null },
       );
     case "jira":
       return new JiraProvider(
@@ -120,6 +122,7 @@ export function createTicketProvider(
         (cfg.jql as string) ?? undefined,
         filter,
         (cfg.projectKey as string) ?? undefined,
+        { createIssueType: typeof cfg.createIssueType === "string" ? cfg.createIssueType : null },
       );
     default:
       throw new Error(`Unknown ticket provider type: ${type}`);

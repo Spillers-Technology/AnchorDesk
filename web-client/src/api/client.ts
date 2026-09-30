@@ -967,6 +967,10 @@ export interface SyncProvider {
     projectKey?: string;
     jql?: string;
     board?: string;
+    /** Jira: issue type for tickets sent from AnchorDesk (default: Task). */
+    createIssueType?: string;
+    /** ConnectWise: company identifier when a sent ticket's company has no exact match. */
+    createCompany?: string;
     filter?: SyncFilterInput;
   };
 }
@@ -991,6 +995,8 @@ export interface SyncRunSummary {
   ticketsFiltered: number;
   ticketsSkipped: number;
   ticketsConflicted: number;
+  /** Owned tickets that left the job's filter and stopped syncing. */
+  ticketsDetached?: number;
   errorCount: number;
   latestError: string | null;
 }
@@ -1008,15 +1014,20 @@ export interface SyncHealthSummary {
  *  Values within a field are OR'd, fields are AND'd, exclude wins. */
 export interface SyncFilterInput {
   assignee?: string[];
+  /** Remote identities: Jira accountId or ConnectWise member identifier. */
+  assigneeId?: string[];
   status?: string[];
   priority?: string[];
   companyName?: string[];
   exclude?: {
     assignee?: string[];
+    assigneeId?: string[];
     status?: string[];
     priority?: string[];
     companyName?: string[];
   };
+  /** Display names for assigneeId values; rendering only, never matched. */
+  labels?: Record<string, string>;
 }
 
 export function listSyncProviders() {
@@ -1033,13 +1044,13 @@ export type CreateSyncProviderInput =
       type: "jira";
       /** Required tenant binding; generic job creation must make the admin choose it. */
       connectionId: number;
-      config?: { projectKey?: string; jql?: string; filter?: SyncFilterInput | null };
+      config?: { projectKey?: string; jql?: string; createIssueType?: string; filter?: SyncFilterInput | null };
     })
   | (SyncProviderCreateBase & {
       type: "connectwise";
       /** ConnectWise is still one global account, but its job scope is explicit. */
       connectionId?: null;
-      config: { board: string; filter?: SyncFilterInput | null };
+      config: { board: string; createCompany?: string; filter?: SyncFilterInput | null };
     });
 
 export function createSyncProvider(data: CreateSyncProviderInput) {
@@ -1056,7 +1067,7 @@ export function updateSyncProvider(
     enabled?: boolean;
     /** Jira may change to another explicit id; null is only valid for ConnectWise. */
     connectionId?: number | null;
-    config?: { projectKey?: string; jql?: string; board?: string; filter?: SyncFilterInput | null };
+    config?: { projectKey?: string; jql?: string; board?: string; createIssueType?: string; createCompany?: string; filter?: SyncFilterInput | null };
   }
 ) {
   return request<SyncProvider>(`/sync/providers/${providerId}`, {
@@ -1097,6 +1108,8 @@ export interface SyncRunResult {
   ticketsFiltered: number;
   ticketsSkipped: number;
   ticketsConflicted: number;
+  /** Owned tickets that left the job's filter and stopped syncing. */
+  ticketsDetached?: number;
   errorCount: number;
   errors: string[];
   durationMs: number;
@@ -2022,4 +2035,121 @@ export function getSetupStatus() {
 /** First-run: create the initial admin (only works while no users exist). */
 export function runFirstRunSetup(data: { username: string; password: string; displayName?: string; email?: string }) {
   return request<{ ok: boolean; username: string }>("/auth/setup", { method: "POST", body: JSON.stringify(data) });
+}
+
+// ─── Sync scope (docs/roadmap-sync-scope.md) ─────────────────────────────────
+
+export interface SyncDestination {
+  jobId: number;
+  name: string;
+  type: "jira" | "connectwise";
+  /** e.g. "Jira · project HELP" */
+  target: string;
+  /** Why this job can't create tickets right now, or null. */
+  blocker: string | null;
+}
+
+/** Enabled two-way sync jobs a ticket can be created through. */
+export function listSyncDestinations() {
+  return request<SyncDestination[]>("/sync/destinations");
+}
+
+export interface SendToPsaResult {
+  ticketId: number;
+  externalId: string;
+  provider: string;
+  jobName: string;
+  warnings: string[];
+}
+
+/** Create a local ticket in the PSA behind a sync job, and link it. */
+export function sendTicketToPsa(ticketId: number, jobId: number) {
+  return request<SendToPsaResult>(`/tickets/${ticketId}/sync-out`, { method: "POST", body: JSON.stringify({ jobId }) });
+}
+
+export type SyncBypassStatus = "pending" | "approved" | "rejected";
+
+export interface SyncBypassRequest {
+  id: number;
+  ticketId: number;
+  status: SyncBypassStatus;
+  reason: string;
+  requestedBy: string;
+  requestedAt: string;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+}
+
+export interface TicketSyncScope {
+  job: { id: number; name: string; type: string } | null;
+  /** Left its job's filter: sync stopped, local copy kept. */
+  detached: boolean;
+  detachReason: string | null;
+  detachedAt: string | null;
+  /** Keeps syncing regardless of the job filter (approved bypass, or sent from here). */
+  pinned: boolean;
+  requests: SyncBypassRequest[];
+}
+
+export function getTicketSyncScope(ticketId: number) {
+  return request<TicketSyncScope>(`/tickets/${ticketId}/sync-scope`);
+}
+
+/** Ask to keep a detached ticket syncing. An admin asking is approved at once. */
+export function requestSyncBypass(ticketId: number, reason: string) {
+  return request<SyncBypassRequest>(`/tickets/${ticketId}/sync-bypass`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+/** Admin: remove an approved bypass. */
+export function removeSyncBypass(ticketId: number) {
+  return request<void>(`/tickets/${ticketId}/sync-bypass`, { method: "DELETE" });
+}
+
+export interface SyncBypassQueueItem extends SyncBypassRequest {
+  ticket: {
+    id: number;
+    ticketNumber: string | null;
+    title: string;
+    externalId: string | null;
+    externalProvider: string | null;
+    syncDetachReason: string | null;
+    syncDetachedAt: string | null;
+    syncJob: { id: number; name: string } | null;
+  };
+}
+
+export function listSyncBypassRequests(status?: SyncBypassStatus) {
+  return request<SyncBypassQueueItem[]>(`/sync/bypass-requests${status ? `?status=${status}` : ""}`);
+}
+
+export function decideSyncBypass(requestId: number, decision: "approve" | "reject", note?: string) {
+  return request<SyncBypassRequest>(`/sync/bypass-requests/${requestId}/${decision}`, {
+    method: "POST",
+    body: JSON.stringify(note ? { note } : {}),
+  });
+}
+
+export interface SyncPerson {
+  /** What the filter stores: Jira accountId or ConnectWise member identifier. */
+  id: string;
+  name: string;
+  detail?: string;
+}
+
+export function searchSyncPeople(type: "jira" | "connectwise", connectionId: number | null, q: string) {
+  const qs = new URLSearchParams({ type, q });
+  if (connectionId != null) qs.set("connectionId", String(connectionId));
+  return request<SyncPerson[]>(`/sync/people?${qs}`);
+}
+
+export interface SyncPreview {
+  count: number;
+  approximate: boolean;
+  /** Filter clauses checked only after fetching; the count is an upper bound. */
+  localOnly: string[];
+}
+
+export function previewSyncJob(type: "jira" | "connectwise", connectionId: number | null, config: Record<string, unknown>) {
+  return request<SyncPreview>("/sync/preview", { method: "POST", body: JSON.stringify({ type, connectionId, config }) });
 }

@@ -46,7 +46,9 @@ export type ReconcileOutcome =
   | 'conflict'
   | 'error'
   | 'skipped'
-  | 'merged';
+  | 'merged'
+  /** Left its sync job's scope: sync stopped by design, local copy kept. */
+  | 'detached';
 
 export interface ReconcileResult {
   ticketId: number;
@@ -137,6 +139,16 @@ export async function reconcileTicketWithinAccountLock(
       ticketId,
       outcome: 'merged',
       message: `merged into #${ticket.mergedIntoId}; local record only`,
+    };
+  }
+
+  // A detached ticket left its job's scope: sync stopped on purpose and resumes
+  // only by coming back into scope or by an approved bypass (syncScopeRepository).
+  if (ticket.syncState === 'detached') {
+    return {
+      ticketId,
+      outcome: 'detached',
+      message: `sync stopped: ${ticket.syncDetachReason ?? 'outside its sync job scope'}`,
     };
   }
 
@@ -485,12 +497,13 @@ async function pushUnsyncedNotes(ticket: Ticket, provider: TicketProvider): Prom
 export async function pushNoteOut(ticketId: number, noteId: number): Promise<void> {
   const identity = await prisma.ticket.findUnique({
     where: { id: ticketId },
-    select: { externalProvider: true, syncConnectionId: true, mergedIntoId: true },
+    select: { externalProvider: true, syncConnectionId: true, mergedIntoId: true, syncState: true },
   });
   // Checked before the lock, not after: a merged ticket will never push, so
   // taking the account-wide lock to discover that would make note activity on
-  // tombstones contend with real sync runs for no reason.
-  if (identity?.mergedIntoId) return;
+  // tombstones contend with real sync runs for no reason. A detached ticket's
+  // note stays queued (syncPending) and goes out if sync resumes.
+  if (identity?.mergedIntoId || identity?.syncState === 'detached') return;
   const accountKey = syncAccountKeyForTicket(
     identity?.externalProvider ?? null,
     identity?.syncConnectionId ?? null
@@ -506,7 +519,7 @@ async function pushNoteOutWithinAccountLock(ticketId: number, noteId: number): P
   if (!ticket?.externalId || !ticket.externalProvider) return;
   // Same tombstone rule as reconcile: a merge makes no remote change, so a note
   // landing on a merged ticket must not be the exception that does.
-  if (ticket.mergedIntoId) return;
+  if (ticket.mergedIntoId || ticket.syncState === 'detached') return;
   const provider = await tryCreateTicketProviderFor(ticket.externalProvider, ticket.syncConnectionId);
   if (!provider?.canWriteBack || !provider.pushNote) return;
   const note = await prisma.note.findFirst({

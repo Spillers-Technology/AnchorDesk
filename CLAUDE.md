@@ -423,6 +423,19 @@ never been exercised against a live tenant and `connectionTest.ts` says so rathe
 faking a pass — alpha. Keep README "Integration maturity", `docs/documentation.html`
 integration tags, and this section in agreement when either changes.
 
+**Sync scope (unreleased; `docs/roadmap-sync-scope.md`).** What a job syncs is decided per job:
+`Ticket.syncJobId` records the owning job (boot backfill assigns it where provable). The shared
+filter (`services/syncFilter.ts`) matches technicians by remote ID (`assigneeId`: Jira accountId,
+ConnectWise owner/resource identifier) and both providers push includes into the first-run query.
+`services/syncScope.ts` is the pure decision table; when an owned, unpinned ticket leaves its job's
+filter it gets one final reconcile (so "closed" or "reassigned" lands locally) and then
+`syncState = detached` with a plain-language `syncDetachReason` — local copy kept, nothing travels,
+automatic resume if it comes back into scope. Full scans sweep owned tickets the remote didn't return
+(narrowed filters, moved boards). Anyone may request a bypass; any admin approves
+(`services/syncBypassService.ts`), which pins the ticket (`syncScopePinned`). New ticket can create in
+the PSA (`services/syncOutService.ts`, `POST /tickets/:id/sync-out`); sent tickets are pinned and
+adopt the PSA's status/priority vocabulary. `POST /sync/preview` counts a job's first run.
+
 ### Auth flow (1.1.0)
 - `middleware/auth.ts` runs on every request. It resolves a **session cookie** (browser login), a **personal access token** (`Authorization: Bearer adk_…`, resolved locally — see below), or an **OIDC bearer token** (API clients) to a `request.user` carrying a role, then enforces baseline RBAC (`readonly` can't mutate). `requireRole('admin')` gates admin surfaces. Public paths: `/ping`, `/probe/*`, and the `/auth/*` login endpoints.
 
@@ -664,6 +677,9 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | `web-client/src/components/admin/kit.tsx` · `nav.tsx` · `AdminRail.tsx` | The console kit (`AdminPage`, `SectionCard`, `SettingRow`, `EmptyState`/`EmptyRow`, `StatusChip`, `PanelLoading`/`PanelError`, `CopyField`, `useAdminToast`, `hideOnPhone`) — build new panels from it, colors from the palette only; section registry (labels, descriptions, search keywords); desktop rail + phone bottom-sheet switcher |
 | `web-client/src/components/admin/OverviewPanel.tsx` | Stat tiles, setup readiness (`buildChecks` over integrations/auth/SLA/mailboxes/probes), activity timeline |
 | `web-client/src/components/admin/TicketSyncPanel.tsx` · `SyncRunHistoryDialog.tsx` | Connection/job setup, filters, truthful health, and activity drill-down |
+| `backend/src/services/syncScope.ts` · `syncFilter.ts` · `repositories/syncScopeRepository.ts` | Sync scope: per-job ownership, technician-ID filters, detach/resume with reasons |
+| `backend/src/services/syncBypassService.ts` · `syncOutService.ts` · `syncScopeQueries.ts` · `routes/syncScope.ts` | Bypass requests, create-in-PSA, people picker and first-run preview |
+| `web-client/src/components/SyncScopeBar.tsx` · `admin/SyncBypassQueue.tsx` | Ticket view: why sync stopped, bypass request/approve, Send to PSA; admin approval queue |
 | `web-client/src/App.tsx` | Main React component, auth gating, state management |
 | `docs/architecture.md` | Architecture diagram and pattern rationale |
 | `docs/schema.md` | Database schema documentation |

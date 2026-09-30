@@ -1,7 +1,7 @@
 jest.mock('../db/prisma', () => ({
   prisma: {
     syncLog: { create: jest.fn() },
-    syncProvider: { updateMany: jest.fn(), findMany: jest.fn() },
+    syncProvider: { updateMany: jest.fn(), findMany: jest.fn(), count: jest.fn() },
     ticket: { findFirst: jest.fn(), findMany: jest.fn() },
     note: { findFirst: jest.fn() },
   },
@@ -19,6 +19,12 @@ jest.mock('../repositories/ticketRepository', () => ({
 
 jest.mock('../repositories/noteRepository', () => ({
   create: jest.fn(),
+}));
+
+jest.mock('../repositories/syncScopeRepository', () => ({
+  adopt: jest.fn().mockResolvedValue(0),
+  resume: jest.fn().mockResolvedValue(true),
+  detach: jest.fn().mockResolvedValue(true),
 }));
 
 jest.mock('./twoWaySync', () => ({
@@ -53,6 +59,8 @@ import {
 } from '../providers/ticketProviderFactory';
 import * as syncRunRepo from '../repositories/syncRunRepository';
 import * as twoWaySync from './twoWaySync';
+import * as scopeRepo from '../repositories/syncScopeRepository';
+import * as ticketRepo from '../repositories/ticketRepository';
 import {
   runSync,
   SyncAlreadyRunningError,
@@ -61,7 +69,7 @@ import {
 
 const db = prisma as unknown as {
   syncLog: { create: jest.Mock };
-  syncProvider: { updateMany: jest.Mock; findMany: jest.Mock };
+  syncProvider: { updateMany: jest.Mock; findMany: jest.Mock; count: jest.Mock };
   ticket: { findFirst: jest.Mock; findMany: jest.Mock };
 };
 const mockedCreateProvider = jest.mocked(createTicketProvider);
@@ -99,6 +107,7 @@ describe('durable sync run recording', () => {
     db.syncLog.create.mockResolvedValue({});
     db.syncProvider.updateMany.mockResolvedValue({ count: 1 });
     db.ticket.findMany.mockResolvedValue([]);
+    db.syncProvider.count.mockResolvedValue(1);
   });
 
   it('records a successful zero-ticket manual run', async () => {
@@ -285,5 +294,139 @@ describe('durable sync run recording', () => {
     expect(result.errors).toHaveLength(20);
     expect(result.errors.at(-1)).toContain('HELP-25');
     expect(result.errors[0]).toContain('HELP-6');
+  });
+});
+
+describe('sync scope', () => {
+  const mockedScope = jest.mocked(scopeRepo);
+  const scopedRow = { ...providerRow, config: { filter: { assigneeId: ['joe'], labels: { joe: 'Joe Tran' } } } };
+  const leaving = { externalId: 'HELP-2', title: 'Reassigned', status: 'Open', assigneeIds: ['bob'] };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedRuns.start.mockResolvedValue({ id: 44 } as never);
+    mockedRuns.finish.mockResolvedValue({ id: 44 } as never);
+    mockedResolveCredentials.mockResolvedValue({ connectionId: 3, credentials: {} as never });
+    db.syncLog.create.mockResolvedValue({});
+    db.syncProvider.updateMany.mockResolvedValue({ count: 1 });
+    db.syncProvider.count.mockResolvedValue(1);
+    mockedCreateProvider.mockReturnValue(
+      provider({ canWriteBack: true, fetchTickets: jest.fn().mockResolvedValue([leaving]) }) as never
+    );
+    db.ticket.findFirst.mockResolvedValue({ id: 12 });
+    // First findMany is the outbound backlog (empty); second is the scope lookup.
+    db.ticket.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 12, externalId: 'HELP-2', syncJobId: 7, syncScopePinned: false, syncState: 'synced' }]);
+  });
+
+  it('applies the change that took a ticket out of scope, then stops syncing it', async () => {
+    mockedTwoWay.reconcileTicketWithinAccountLock.mockResolvedValue({ ticketId: 12, outcome: 'pulled' });
+
+    const result = await runSync(scopedRow, { trigger: 'manual', actor: 'admin' });
+
+    expect(mockedTwoWay.reconcileTicketWithinAccountLock).toHaveBeenCalledWith(12, expect.anything());
+    expect(mockedScope.detach).toHaveBeenCalledWith({
+      ticketId: 12,
+      jobId: 7,
+      jobName: 'Contoso Jira',
+      reason: "it's assigned to “bob”; this job only syncs Joe Tran",
+    });
+    expect(result).toMatchObject({ ticketsDetached: 1, status: 'success' });
+  });
+
+  it('holds off detaching when the final reconcile is a conflict', async () => {
+    mockedTwoWay.reconcileTicketWithinAccountLock.mockResolvedValue({ ticketId: 12, outcome: 'conflict' });
+
+    const result = await runSync(scopedRow, { trigger: 'manual', actor: 'admin' });
+
+    expect(mockedScope.detach).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ticketsDetached: 0, ticketsConflicted: 1 });
+  });
+
+  it('stamps new imports with the job that imported them', async () => {
+    db.ticket.findMany.mockReset().mockResolvedValue([]);
+    db.ticket.findFirst.mockResolvedValue(null);
+    mockedCreateProvider.mockReturnValue(
+      provider({ canWriteBack: true, fetchTickets: jest.fn().mockResolvedValue([{ ...leaving, assigneeIds: ['joe'] }]) }) as never
+    );
+    jest.mocked(ticketRepo.create).mockResolvedValue({ id: 50 } as never);
+    mockedTwoWay.reconcileTicketWithinAccountLock.mockResolvedValue({ ticketId: 50, outcome: 'synced' });
+
+    await runSync(scopedRow, { trigger: 'manual', actor: 'admin' });
+
+    expect(ticketRepo.create).toHaveBeenCalledWith(expect.objectContaining({ syncJobId: 7 }), 'system');
+  });
+});
+
+describe('full-scan sweep', () => {
+  const mockedScope = jest.mocked(scopeRepo);
+  const scopedRow = { ...providerRow, config: { filter: { assigneeId: ['joe'], labels: { joe: 'Joe Tran', bob: 'Bob Smith' } } } };
+  const getTicket = jest.fn();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedRuns.start.mockResolvedValue({ id: 44 } as never);
+    mockedRuns.finish.mockResolvedValue({ id: 44 } as never);
+    mockedResolveCredentials.mockResolvedValue({ connectionId: 3, credentials: {} as never });
+    db.syncLog.create.mockResolvedValue({});
+    db.syncProvider.updateMany.mockResolvedValue({ count: 1 });
+    db.syncProvider.count.mockResolvedValue(1);
+    // The narrowed first run returns nothing; the job still owns HELP-9.
+    mockedCreateProvider.mockReturnValue(
+      provider({ canWriteBack: true, getTicket, fetchTickets: jest.fn().mockResolvedValue([]) }) as never
+    );
+    mockedTwoWay.reconcileTicketWithinAccountLock.mockResolvedValue({ ticketId: 9, outcome: 'pulled' });
+  });
+
+  const owns = (row: Record<string, unknown>) =>
+    db.ticket.findMany
+      .mockReset()
+      .mockResolvedValueOnce([]) // outbound backlog
+      .mockResolvedValueOnce([{ id: 9, externalId: 'HELP-9', syncScopePinned: false, ...row }]) // owned by the job
+      .mockResolvedValue([]);
+
+  it('detaches an owned ticket the narrowed scan no longer returns, naming the clause it fails', async () => {
+    owns({});
+    getTicket.mockResolvedValue({ externalId: 'HELP-9', title: 't', status: 'Open', assigneeIds: ['bob'] });
+
+    const result = await runSync(scopedRow, { trigger: 'manual', actor: 'admin' });
+
+    expect(mockedTwoWay.reconcileTicketWithinAccountLock).toHaveBeenCalledWith(9, expect.objectContaining({ remote: expect.anything() }));
+    expect(mockedScope.detach).toHaveBeenCalledWith(expect.objectContaining({
+      ticketId: 9,
+      reason: "it's assigned to “Bob Smith”; this job only syncs Joe Tran",
+    }));
+    expect(result.ticketsDetached).toBe(1);
+  });
+
+  it("says a ticket left the job's project when it still matches the filter", async () => {
+    owns({});
+    getTicket.mockResolvedValue({ externalId: 'HELP-9', title: 't', status: 'Open', assigneeIds: ['joe'] });
+    await runSync(scopedRow, { trigger: 'manual', actor: 'admin' });
+    expect(mockedScope.detach).toHaveBeenCalledWith(expect.objectContaining({ reason: "it's no longer in this job's project or JQL" }));
+  });
+
+  it('keeps syncing a pinned ticket and never detaches it', async () => {
+    owns({ syncScopePinned: true });
+    getTicket.mockResolvedValue({ externalId: 'HELP-9', title: 't', status: 'Open', assigneeIds: ['bob'] });
+    await runSync(scopedRow, { trigger: 'manual', actor: 'admin' });
+    expect(mockedTwoWay.reconcileTicketWithinAccountLock).toHaveBeenCalled();
+    expect(mockedScope.detach).not.toHaveBeenCalled();
+  });
+
+  it("leaves a ticket it can't read back alone and reports it", async () => {
+    owns({});
+    getTicket.mockResolvedValue(null);
+    const result = await runSync(scopedRow, { trigger: 'manual', actor: 'admin' });
+    expect(mockedScope.detach).not.toHaveBeenCalled();
+    expect(result.status).toBe('degraded');
+    expect(result.errors.join(' ')).toMatch(/couldn't be read back/);
+  });
+
+  it('does not sweep incremental runs', async () => {
+    owns({});
+    await runSync({ ...scopedRow, lastSyncedAt: new Date() }, { trigger: 'manual', actor: 'admin' });
+    expect(getTicket).not.toHaveBeenCalled();
   });
 });

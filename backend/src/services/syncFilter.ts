@@ -11,7 +11,8 @@
  *
  *  1. **Push-down (optional, per provider).** A provider may translate whatever
  *     subset it understands into its native query so the remote does the work
- *     and the response stays small. `JiraProvider` folds these into JQL.
+ *     and the response stays small. Push-down must be a *superset* of what the
+ *     local predicate accepts: anything dropped remotely can never be recovered.
  *  2. **Local predicate (always).** `matches()` is applied to every fetched
  *     ticket regardless. A provider that pushes nothing down still filters
  *     correctly, and a push-down that is subtly wider than intended cannot leak
@@ -22,47 +23,123 @@
  * values are OR'd; across fields they are AND'd. Comparison is
  * case-insensitive and whitespace-trimmed, because external systems are
  * inconsistent about both. `exclude` is applied after `include` and wins.
+ *
+ * People. A ticket can have several people on it (ConnectWise's owner plus every
+ * member in `resources`). `assigneeId` matches the remote's stable identity —
+ * Jira accountId, ConnectWise member identifier — and matches when ANY person
+ * on the ticket is listed; an exclude rejects when any listed person is on it.
+ * `assignee` is the older display-name match, kept for existing jobs.
  */
 
 /** Ticket fields that can be filtered on. Provider-neutral by design. */
-export const FILTERABLE_FIELDS = ['assignee', 'status', 'priority', 'companyName'] as const;
+export const FILTERABLE_FIELDS = ['assignee', 'assigneeId', 'status', 'priority', 'companyName'] as const;
 export type FilterableField = (typeof FILTERABLE_FIELDS)[number];
 
 export type SyncFilter = Partial<Record<FilterableField, string[]>> & {
   exclude?: Partial<Record<FilterableField, string[]>>;
+  /**
+   * Display names for the IDs in `assigneeId`, as picked in the editor. For
+   * rendering and explanations only — never consulted when matching, so a
+   * renamed person still matches by ID.
+   */
+  labels?: Record<string, string>;
 };
 
 /** The subset of an external ticket a filter can see. */
-export type FilterableTicket = Partial<Record<FilterableField, string | undefined>>;
+export type FilterableTicket = Partial<Record<Exclude<FilterableField, 'assigneeId'>, string | undefined>> & {
+  /** Every remote identity on the ticket (owner, resources, assignee). */
+  assigneeIds?: string[];
+  /** Every display name on the ticket, when there can be more than one. */
+  assigneeNames?: string[];
+};
 
 const norm = (v: string | undefined): string => (v ?? '').trim().toLowerCase();
 
-function listMatches(values: string[] | undefined, actual: string | undefined): boolean {
-  if (!values || values.length === 0) return true;
-  const a = norm(actual);
-  return values.some((v) => norm(v) === a);
+/** The values a ticket presents for one field. Never empty: "unset" is ''. */
+function valuesOf(ticket: FilterableTicket, field: FilterableField): string[] {
+  let values: (string | undefined)[];
+  if (field === 'assigneeId') values = ticket.assigneeIds ?? [];
+  else if (field === 'assignee') values = ticket.assigneeNames?.length ? ticket.assigneeNames : [ticket.assignee];
+  else values = [ticket[field]];
+  const normalized = values.map(norm).filter((v, i, all) => v !== '' || all.length === 1);
+  return normalized.length ? normalized : [''];
+}
+
+function anyListed(listed: string[], actual: string[]): boolean {
+  const wanted = new Set(listed.map(norm));
+  return actual.some((a) => wanted.has(a));
 }
 
 /** True when the ticket satisfies the filter. An empty filter matches everything. */
 export function matches(ticket: FilterableTicket, filter?: SyncFilter | null): boolean {
-  if (!filter) return true;
+  return explainMismatch(ticket, filter) === null;
+}
+
+/**
+ * Why a ticket fails the filter, in words a technician can act on, or null if
+ * it matches. Used for the reason shown when a ticket stops syncing.
+ */
+export function explainMismatch(ticket: FilterableTicket, filter?: SyncFilter | null): string | null {
+  if (!filter) return null;
+  const name = (id: string) => filter.labels?.[id] ?? id;
+  const shown = (field: FilterableField, values: string[]) =>
+    (field === 'assigneeId' ? values.map(name) : values).join(', ');
+  const current = (field: FilterableField) => {
+    if (field === 'assigneeId') {
+      const ids = ticket.assigneeIds ?? [];
+      return ids.length ? ids.map(name).join(', ') : 'nobody';
+    }
+    if (field === 'assignee') {
+      const names = ticket.assigneeNames?.length ? ticket.assigneeNames : [ticket.assignee];
+      return names.filter(Boolean).join(', ') || 'nobody';
+    }
+    return ticket[field] || 'empty';
+  };
+
+  // People read as a sentence about the ticket ("it's assigned to “Bob”"),
+  // other fields as a field value ("status is “Closed”").
+  const describe = (field: FilterableField) => {
+    if (field === 'assigneeId' || field === 'assignee') {
+      const who = current(field);
+      return who === 'nobody' ? "it's unassigned" : `it's assigned to ${quote(who)}`;
+    }
+    return `${FIELD_WORDS[field]} is ${quote(current(field))}`;
+  };
 
   for (const field of FILTERABLE_FIELDS) {
-    if (!listMatches(filter[field], ticket[field])) return false;
+    const listed = filter[field];
+    if (!listed || listed.length === 0) continue;
+    if (!anyListed(listed, valuesOf(ticket, field))) {
+      return `${describe(field)}; this job only syncs ${field === 'assigneeId' || field === 'assignee' ? '' : `${FIELD_WORDS[field]} `}${shown(field, listed)}`;
+    }
   }
 
   const excl = filter.exclude;
   if (excl) {
     for (const field of FILTERABLE_FIELDS) {
-      const values = excl[field];
-      if (!values || values.length === 0) continue;
-      const a = norm(ticket[field]);
-      if (values.some((v) => norm(v) === a)) return false;
+      const listed = excl[field];
+      if (!listed || listed.length === 0) continue;
+      const actual = valuesOf(ticket, field).filter((v) => v !== '');
+      if (anyListed(listed, actual)) {
+        return field === 'assigneeId' || field === 'assignee'
+          ? `${describe(field)}, whom this job excludes`
+          : `${describe(field)}, which this job excludes`;
+      }
     }
   }
 
-  return true;
+  return null;
 }
+
+const FIELD_WORDS: Record<FilterableField, string> = {
+  assignee: 'assignee',
+  assigneeId: 'assignee',
+  status: 'status',
+  priority: 'priority',
+  companyName: 'company',
+};
+
+const quote = (s: string) => `“${s}”`;
 
 /**
  * Validate and normalize a filter coming off the wire (provider config JSON).
@@ -88,7 +165,7 @@ export function parseSyncFilter(raw: unknown): SyncFilter | null {
   };
 
   for (const [key, value] of Object.entries(src)) {
-    if (key === 'exclude') continue;
+    if (key === 'exclude' || key === 'labels') continue;
     if (!FILTERABLE_FIELDS.includes(key as FilterableField)) {
       throw new Error(`unknown filter field "${key}" (allowed: ${FILTERABLE_FIELDS.join(', ')})`);
     }
@@ -111,20 +188,37 @@ export function parseSyncFilter(raw: unknown): SyncFilter | null {
     if (Object.keys(exclude).length) out.exclude = exclude;
   }
 
-  return Object.keys(out).length ? out : null;
+  const hasClauses = Object.keys(out).length > 0;
+
+  if (src.labels != null) {
+    if (typeof src.labels !== 'object' || Array.isArray(src.labels)) {
+      throw new Error('filter.labels must be an object of id → display name');
+    }
+    const labels: Record<string, string> = {};
+    for (const [id, label] of Object.entries(src.labels as Record<string, unknown>)) {
+      if (typeof label !== 'string') throw new Error('filter.labels values must be strings');
+      if (id.trim() && label.trim()) labels[id.trim()] = label.trim();
+    }
+    // Labels alone are not a filter: they only name IDs a clause uses.
+    if (hasClauses && Object.keys(labels).length) out.labels = labels;
+  }
+
+  return hasClauses ? out : null;
 }
 
 /** Human-readable one-liner for logs and the Sync view. */
 export function describeSyncFilter(filter?: SyncFilter | null): string {
   if (!filter) return 'no filter (all tickets)';
+  const name = (field: FilterableField, v: string[]) =>
+    (field === 'assigneeId' ? v.map((id) => filter.labels?.[id] ?? id) : v).join(', ');
   const parts: string[] = [];
   for (const field of FILTERABLE_FIELDS) {
     const v = filter[field];
-    if (v?.length) parts.push(`${field} in [${v.join(', ')}]`);
+    if (v?.length) parts.push(`${field} in [${name(field, v)}]`);
   }
   for (const field of FILTERABLE_FIELDS) {
     const v = filter.exclude?.[field];
-    if (v?.length) parts.push(`${field} not in [${v.join(', ')}]`);
+    if (v?.length) parts.push(`${field} not in [${name(field, v)}]`);
   }
   return parts.length ? parts.join(' AND ') : 'no filter (all tickets)';
 }

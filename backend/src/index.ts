@@ -19,6 +19,7 @@ import { mailRoutes } from './routes/mail';
 import { mailConfigRoutes } from './routes/mailConfig';
 import { cwRoutes } from './routes/cw';
 import { syncRoutes } from './routes/sync';
+import { syncScopeRoutes } from './routes/syncScope';
 import { connectionRoutes } from './routes/connections';
 import { pingRoutes } from './routes/ping';
 import { mcpRoutes } from './routes/mcp';
@@ -169,6 +170,7 @@ async function start() {
   server.register(cwRoutes);
   // Sync management (trigger runs, view providers, view log)
   server.register(syncRoutes);
+  server.register(syncScopeRoutes);
   server.register(connectionRoutes);
   // Health check
   server.register(pingRoutes);

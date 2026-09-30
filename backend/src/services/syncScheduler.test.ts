@@ -27,6 +27,7 @@ function result(over: Record<string, unknown> = {}) {
     ticketsFiltered: 0,
     ticketsSkipped: 0,
     ticketsConflicted: 0,
+    ticketsDetached: 0,
     errorCount: 0,
     errors: [],
     durationMs: 10,

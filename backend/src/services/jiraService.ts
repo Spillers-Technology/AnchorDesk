@@ -381,3 +381,89 @@ export async function transitionToStatus(c: JiraCredentials, key: string, status
     body: JSON.stringify({ transition: { id: target.id } }),
   });
 }
+
+// ─── Scope, people and creation (docs/roadmap-sync-scope.md) ─────────────────
+
+/**
+ * Approximate number of issues a JQL matches, without fetching them. Used to
+ * preview a sync job before it is enabled. `/search/approximate-count` is the
+ * counting companion of `/search/jql` on Jira Cloud; it is approximate by
+ * Atlassian's own definition, and callers must present it that way. Like
+ * `/search/jql`, it rejects unbounded JQL.
+ */
+export async function approximateCount(c: JiraCredentials, jql: string): Promise<number> {
+  const res = await jira<{ count?: number }>(c, '/rest/api/3/search/approximate-count', {
+    method: 'POST',
+    body: JSON.stringify({ jql }),
+  });
+  if (typeof res?.count !== 'number') throw new Error('Jira did not return a count');
+  return res.count;
+}
+
+export interface JiraPerson {
+  accountId: string;
+  displayName: string;
+  emailAddress?: string;
+}
+
+/**
+ * People matching a query, for the sync filter's technician picker. Only real
+ * Atlassian accounts: app and customer accounts can't be assignees of a job's
+ * work in the sense the filter means. Email is often hidden by privacy settings.
+ */
+export async function searchPeople(c: JiraCredentials, query: string, max = 20): Promise<JiraPerson[]> {
+  const qs = new URLSearchParams({ query, maxResults: String(max) });
+  const users = await jira<Array<{ accountId?: string; displayName?: string; emailAddress?: string; accountType?: string; active?: boolean }>>(
+    c,
+    `/rest/api/3/user/search?${qs.toString()}`
+  );
+  return (users ?? [])
+    .filter((u) => u.accountId && (u.accountType ?? 'atlassian') === 'atlassian' && u.active !== false)
+    .map((u) => ({ accountId: u.accountId!, displayName: u.displayName ?? u.accountId!, emailAddress: u.emailAddress }));
+}
+
+/** Issue types that can be created in a project (sub-tasks excluded). */
+export async function listCreatableIssueTypes(c: JiraCredentials, projectKey: string): Promise<Array<{ id: string; name: string }>> {
+  const res = await jira<{ issueTypes?: Array<{ id?: string; name?: string; subtask?: boolean }>; values?: Array<{ id?: string; name?: string; subtask?: boolean }> }>(
+    c,
+    `/rest/api/3/issue/createmeta/${encodeURIComponent(projectKey)}/issuetypes`
+  );
+  return (res.issueTypes ?? res.values ?? [])
+    .filter((t) => t.id && t.name && !t.subtask)
+    .map((t) => ({ id: t.id!, name: t.name! }));
+}
+
+/**
+ * Choose the issue type for a ticket created from AnchorDesk: the job's
+ * configured name when given (and it exists), else "Task", else the project's
+ * first standard type. Throws with the available names when the configured one
+ * is missing, rather than silently creating something else.
+ */
+export async function resolveIssueType(c: JiraCredentials, projectKey: string, wanted?: string | null): Promise<{ id: string; name: string }> {
+  const types = await listCreatableIssueTypes(c, projectKey);
+  if (types.length === 0) throw new Error(`Jira project ${projectKey} has no issue types these credentials can create`);
+  const byName = (n: string) => types.find((t) => t.name.toLowerCase() === n.trim().toLowerCase());
+  if (wanted?.trim()) {
+    const hit = byName(wanted);
+    if (!hit) throw new Error(`Jira project ${projectKey} has no issue type "${wanted}" (available: ${types.map((t) => t.name).join(', ')})`);
+    return hit;
+  }
+  return byName('Task') ?? types[0];
+}
+
+/** Create an issue; returns its key (e.g. HELP-123). */
+export async function createIssue(
+  c: JiraCredentials,
+  input: { projectKey: string; issueTypeId: string; summary: string; description?: string | null }
+): Promise<string> {
+  const fields: Record<string, unknown> = {
+    project: { key: input.projectKey },
+    issuetype: { id: input.issueTypeId },
+    // Jira caps summary at 255 characters and rejects newlines in it.
+    summary: input.summary.replace(/\s+/g, ' ').trim().slice(0, 255) || '(no subject)',
+  };
+  if (input.description?.trim()) fields.description = toADF(input.description);
+  const res = await jira<{ key?: string }>(c, '/rest/api/3/issue', { method: 'POST', body: JSON.stringify({ fields }) });
+  if (!res?.key) throw new Error('Jira created the issue but returned no key');
+  return res.key;
+}
