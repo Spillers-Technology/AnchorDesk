@@ -236,3 +236,32 @@ describe('empty-result authentication check', () => {
     expect(getMyself).not.toHaveBeenCalled();
   });
 });
+
+describe('technician IDs', () => {
+  it('pushes accountIds into JQL on the first run, excludes re-admitting unassigned issues', async () => {
+    await new JiraProvider(creds, undefined, { assigneeId: ['712020:aaa'], exclude: { assigneeId: ['712020:bbb'] } }, 'HELP').fetchTickets();
+    expect(lastJql()).toContain('assignee IN ("712020:aaa")');
+    expect(lastJql()).toContain('(assignee NOT IN ("712020:bbb") OR assignee IS EMPTY)');
+  });
+
+  it('leaves the filter out of incremental runs so tickets leaving scope are still seen', async () => {
+    const since = new Date('2026-07-24T14:00:00.000Z');
+    await new JiraProvider(creds, undefined, { assigneeId: ['712020:aaa'] }, 'HELP').fetchTickets(since);
+    expect(lastJql()).not.toContain('assignee');
+  });
+
+  it('reports the accountId of the assignee on each ticket', async () => {
+    searchIssues.mockResolvedValueOnce([
+      { key: 'HELP-1', fields: { summary: 's', assignee: { accountId: '712020:aaa', displayName: 'Joe' } } } as never,
+    ]);
+    const [t] = await new JiraProvider(creds, undefined, null, 'HELP').fetchTickets();
+    expect(t.assigneeIds).toEqual(['712020:aaa']);
+  });
+});
+
+describe('creating issues', () => {
+  it('refuses when the job names no project', () => {
+    expect(new JiraProvider(creds, 'assignee = currentUser()').createBlocker()).toMatch(/project key/);
+    expect(new JiraProvider(creds, undefined, null, 'HELP').createBlocker()).toBeNull();
+  });
+});

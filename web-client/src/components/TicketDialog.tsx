@@ -51,6 +51,7 @@ import HtmlContent from "./HtmlContent";
 import RunScriptDialog from "./RunScriptDialog";
 import SlaChip from "./SlaChip";
 import SyncBadges from "./SyncBadges";
+import SyncScopeBar from "./SyncScopeBar";
 import { SYNC_PROVIDER_LABELS } from "../syncBadges";
 import * as api from "../api/client";
 import { TICKET_STATUSES, TICKET_PRIORITIES } from "../ticketVocab";
@@ -530,12 +531,17 @@ const TicketDialog: React.FC<TicketDialogProps> = ({
             alignItems: "flex-start",
             justifyContent: "space-between"
           }}>
-          <Box sx={{ minWidth: 0 }}>
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            {/* Wraps: on phones the ticket number, provenance, sync state and SLA
+                chips don't fit one line and would otherwise run under the icons. */}
             <Stack
               direction="row"
               spacing={1}
+              useFlexGap
               sx={{
                 alignItems: "center",
+                flexWrap: "wrap",
+                rowGap: 0.75,
                 mb: 0.5
               }}>
               <Chip size="small" label={`#${ticket.ticketnumber}`} sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "inherit", fontWeight: 700 }} />
@@ -630,7 +636,15 @@ const TicketDialog: React.FC<TicketDialogProps> = ({
           </Alert>
         )}
         {relationError && <Alert severity="error" sx={{ mb: 2 }}>{relationError}</Alert>}
-        {effectiveMergedIntoId == null && source !== "local" && full?.externalId && (
+        {ticket.localId != null && effectiveMergedIntoId == null && (
+          <SyncScopeBar
+            ticketId={ticket.localId}
+            ticket={full}
+            canMutate={canMutate}
+            onChanged={() => { reloadFull(); onNotesChanged?.(); onUpdated?.("sync"); }}
+          />
+        )}
+        {effectiveMergedIntoId == null && full?.externalId && (source !== "local" || ["jira", "connectwise"].includes(full?.externalProvider)) && full?.syncState !== "detached" && (
           <SyncStatusBar
             state={full?.syncState as string | undefined}
             provider={externalProvider ?? source}

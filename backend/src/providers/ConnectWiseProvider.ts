@@ -8,6 +8,7 @@
 
 import { createCwm } from "../services/connectwiseService";
 import { ConditionBuilder } from "../services/conditionBuilder";
+import { SyncFilter } from "../services/syncFilter";
 import {
   TicketProvider,
   ExternalTicket,
@@ -110,6 +111,55 @@ function withIdCursor(
     : cursorCondition;
 }
 
+/** ConnectWise caps a ticket summary at 100 characters. */
+const CW_SUMMARY_MAX = 100;
+
+const cwQuote = (v: string) => `"${v.replace(/"/g, '\\"')}"`;
+
+/**
+ * Fold the provider-neutral filter into ConnectWise conditions for the first
+ * run. Only includes are pushed down: an include is a superset of what the
+ * local predicate keeps, while a pushed-down exclude would also have to re-admit
+ * empty fields and multi-resource tickets exactly as `matches()` does — get that
+ * wrong and tickets are dropped remotely where nothing can recover them. The
+ * name-based assignee clause stays local too (CW's `resources` holds member
+ * identifiers, not names).
+ *
+ * A technician matches as the ticket owner or as any listed resource.
+ * `resources contains "jo"` also matches "joe"; that is fine — push-down may be
+ * wider, the local predicate compares exactly.
+ */
+export function connectWiseFilterConditions(filter: SyncFilter | null | undefined): string[] {
+  if (!filter) return [];
+  const clauses: string[] = [];
+  const inList = (field: string, values?: string[]) => {
+    if (values?.length) clauses.push(`${field} in (${values.map(cwQuote).join(",")})`);
+  };
+  inList("status/name", filter.status);
+  inList("priority/name", filter.priority);
+  inList("company/name", filter.companyName);
+  if (filter.assigneeId?.length) {
+    const people = [
+      `owner/identifier in (${filter.assigneeId.map(cwQuote).join(",")})`,
+      ...filter.assigneeId.map((id) => `resources contains ${cwQuote(id)}`),
+    ];
+    clauses.push(`(${people.join(" OR ")})`);
+  }
+  return clauses;
+}
+
+/** Filter clauses this provider enforces only after the fetch. */
+function connectWiseLocalOnly(filter: SyncFilter | null | undefined): string[] {
+  if (!filter) return [];
+  const out: string[] = [];
+  if (filter.assignee?.length) out.push("assignee (by name)");
+  const ex = filter.exclude ?? {};
+  for (const [field, values] of Object.entries(ex)) {
+    if (values?.length) out.push(`excluded ${field}`);
+  }
+  return out;
+}
+
 export class ConnectWiseProvider implements TicketProvider {
   readonly name = "connectwise";
   readonly canWriteBack = true;
@@ -119,10 +169,83 @@ export class ConnectWiseProvider implements TicketProvider {
   private readonly board: string;
   /** One credential/client snapshot for the complete account-locked operation. */
   private readonly cwm: ReturnType<typeof createCwm>;
+  private readonly filter: SyncFilter | null;
+  /** Company identifier used when creating a ticket whose company has no exact CW match. */
+  private readonly createCompany: string | null;
 
-  constructor(board: string, credentials?: Record<string, unknown>) {
+  constructor(
+    board: string,
+    credentials?: Record<string, unknown>,
+    filter?: SyncFilter | null,
+    options: { createCompany?: string | null } = {},
+  ) {
     this.board = requireConnectWiseBoard(board);
     this.cwm = createCwm(credentials);
+    this.filter = filter ?? null;
+    this.createCompany = options.createCompany?.trim() || null;
+  }
+
+  /** The job's base scope: its board, top-level tickets only. */
+  private baseConditions(): ConditionBuilder {
+    return new ConditionBuilder()
+      .addCondition("board/name", "=", this.board)
+      .addCondition("parentTicketId", "=", null);
+  }
+
+  /** Base scope narrowed by the filter's pushed-down includes (first run only). */
+  private firstRunConditions(): string {
+    const cb = this.baseConditions();
+    for (const clause of connectWiseFilterConditions(this.filter)) cb.addGroup(clause);
+    return cb.build();
+  }
+
+  async previewFirstRun(): Promise<{ count: number; approximate: boolean; localOnly: string[] }> {
+    const res = await this.cwm.ServiceAPI.getServiceTicketsCount({ conditions: this.firstRunConditions() });
+    const count = Number((res as { count?: number })?.count);
+    if (!Number.isFinite(count)) throw new Error("ConnectWise did not return a ticket count");
+    return { count, approximate: false, localOnly: connectWiseLocalOnly(this.filter) };
+  }
+
+  createBlocker(): string | null {
+    return null;
+  }
+
+  /**
+   * Create a service ticket on this job's board. ConnectWise requires a
+   * company: the ticket's company is matched by exact name, else the job's
+   * `createCompany` identifier is used, else creation fails with a message that
+   * says how to fix it — never a guess.
+   */
+  async pushTicket(ticket: { title: string; description?: string; companyName?: string }): Promise<string> {
+    let company: { id?: number; identifier?: string } | null = null;
+    if (ticket.companyName?.trim()) {
+      const hits = await this.cwm.CompanyAPI.getCompanyCompanies({
+        conditions: `name = ${cwQuote(ticket.companyName.trim())} AND deletedFlag = false`,
+        pageSize: 2,
+      });
+      if (Array.isArray(hits) && hits.length === 1 && hits[0]?.id) company = { id: hits[0].id };
+      else if (Array.isArray(hits) && hits.length > 1) {
+        throw new Error(`more than one ConnectWise company is named "${ticket.companyName}"; set a default company on the sync job or rename one`);
+      }
+    }
+    if (!company && this.createCompany) company = { identifier: this.createCompany };
+    if (!company) {
+      throw new Error(
+        ticket.companyName
+          ? `no ConnectWise company is named "${ticket.companyName}"; set a default company identifier on the sync job`
+          : "the ticket has no company; set a default company identifier on the sync job",
+      );
+    }
+    const summary = ticket.title.replace(/\s+/g, " ").trim() || "(no subject)";
+    const created = await this.cwm.ServiceAPI.postServiceTickets({
+      summary: summary.length > CW_SUMMARY_MAX ? `${summary.slice(0, CW_SUMMARY_MAX - 1)}…` : summary,
+      initialDescription: ticket.description ?? undefined,
+      board: { name: this.board },
+      company,
+    } as Parameters<typeof this.cwm.ServiceAPI.postServiceTickets>[0]);
+    const id = (created as { id?: number })?.id;
+    if (!id) throw new Error("ConnectWise created the ticket but returned no id");
+    return String(id);
   }
 
   async getTicket(externalTicketId: string): Promise<ExternalTicket | null> {
@@ -186,15 +309,17 @@ export class ConnectWiseProvider implements TicketProvider {
   }
 
   async fetchTickets(since?: Date): Promise<ExternalTicket[]> {
-    const cb = new ConditionBuilder()
-      .addCondition("board/name", "=", this.board)
-      .addCondition("parentTicketId", "=", null);
-
+    // The filter narrows discovery on the first run only. Incremental runs use
+    // the unfiltered board scope so an owned ticket that moves out of the
+    // filter is still returned, and the sync service can stop syncing it
+    // visibly instead of silently losing track of it.
+    let conditions: string;
     if (since) {
-      cb.addCondition("_info/lastUpdated", ">", since);
+      conditions = this.baseConditions().addCondition("_info/lastUpdated", ">", since).build();
+    } else {
+      conditions = this.firstRunConditions();
     }
 
-    const conditions = cb.build();
     const raw = await fetchAllById("tickets", (lastSeenId) =>
       this.cwm.ServiceAPI.getServiceTickets({
         conditions: withIdCursor(conditions, lastSeenId),
@@ -240,6 +365,7 @@ export class ConnectWiseProvider implements TicketProvider {
       priority: String(priority?.["name"] ?? ""),
       companyName: String(company?.["name"] ?? ""),
       assignee: String(t["resources"] ?? ""),
+      ...connectWisePeople(t),
       updatedAt: lastUpdated ? new Date(String(lastUpdated)) : undefined,
     };
   }
@@ -274,4 +400,22 @@ export class ConnectWiseProvider implements TicketProvider {
         : undefined,
     };
   }
+}
+
+/**
+ * Everyone on a CW ticket: the owner plus each member identifier in the
+ * comma-joined `resources` string. Identifiers are what the member picker stores
+ * and what `resources` contains; the owner's display name is added to the names
+ * so a legacy name filter can match the owner too.
+ */
+export function connectWisePeople(t: Record<string, unknown>): { assigneeIds: string[]; assigneeNames: string[] } {
+  const owner = t["owner"] as Record<string, unknown> | undefined;
+  const resources = String(t["resources"] ?? "")
+    .split(",")
+    .map((r) => r.trim())
+    .filter(Boolean);
+  const ids = [...(owner?.["identifier"] ? [String(owner["identifier"])] : []), ...resources];
+  const names = [...(owner?.["name"] ? [String(owner["name"])] : []), ...resources];
+  const unique = (list: string[]) => [...new Map(list.map((v) => [v.toLowerCase(), v])).values()];
+  return { assigneeIds: unique(ids), assigneeNames: unique(names) };
 }

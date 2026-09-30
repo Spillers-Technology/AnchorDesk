@@ -22,7 +22,7 @@ export function syncProvidersForTicket(ticket: TicketSyncSource): string[] {
   );
 }
 
-export type SyncState = "synced" | "pending" | "conflict" | "error";
+export type SyncState = "synced" | "pending" | "conflict" | "error" | "detached";
 
 /** Presentation for the two-way sync-state chip (label + MUI Chip color). */
 export const SYNC_STATE_META: Record<SyncState, { label: string; color: "success" | "warning" | "error" | "info" }> = {
@@ -30,4 +30,6 @@ export const SYNC_STATE_META: Record<SyncState, { label: string; color: "success
   pending: { label: "Pending sync", color: "info" },
   conflict: { label: "Conflict", color: "error" },
   error: { label: "Sync error", color: "warning" },
+  // Left its sync job's scope: sync stopped on purpose, local copy kept.
+  detached: { label: "Sync stopped", color: "warning" },
 };

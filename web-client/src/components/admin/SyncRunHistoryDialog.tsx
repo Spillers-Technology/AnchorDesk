@@ -57,6 +57,7 @@ function Counts({ run }: { run: api.SyncRunSummary }) {
     ["Filtered locally", run.ticketsFiltered],
     ["Skipped", run.ticketsSkipped],
     ["Conflicts", run.ticketsConflicted],
+    ["Stopped syncing (left scope)", run.ticketsDetached ?? 0],
     ["Errors", run.errorCount],
   ] as const;
 

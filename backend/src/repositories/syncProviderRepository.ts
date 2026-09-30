@@ -25,9 +25,30 @@ export type SyncProviderType = (typeof SUPPORTED_PROVIDER_TYPES)[number];
 
 /** Type-specific scope fields a job may set, beyond the shared `filter`. */
 const JOB_CONFIG_FIELDS: Record<SyncProviderType, string[]> = {
-  jira: ['projectKey', 'jql'],
-  connectwise: ['board'],
+  // createIssueType / createCompany only affect tickets sent *to* the PSA from
+  // AnchorDesk (syncOutService); they never change what a run fetches.
+  jira: ['projectKey', 'jql', 'createIssueType'],
+  connectwise: ['board', 'createCompany'],
 };
+
+/** Config keys that shape outbound creation only, not what a run fetches. */
+const CREATE_ONLY_FIELDS = new Set(['createIssueType', 'createCompany']);
+
+/** The part of a job's config that decides what it fetches: create-only keys
+ *  and the filter's display labels removed. */
+function fetchScope(config: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config)) {
+    if (CREATE_ONLY_FIELDS.has(key)) continue;
+    if (key === 'filter' && value && typeof value === 'object') {
+      const { labels: _labels, ...clauses } = value as Record<string, unknown>;
+      out.filter = clauses;
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
 
 export class SyncProviderValidationError extends Error {}
 export class SyncProviderBusyError extends Error {}
@@ -171,7 +192,7 @@ export function syncScopeChanged(
 ): boolean {
   return (
     existingConnectionId !== nextConnectionId ||
-    JSON.stringify(existingConfig) !== JSON.stringify(nextConfig)
+    JSON.stringify(fetchScope(existingConfig)) !== JSON.stringify(fetchScope(nextConfig))
   );
 }
 

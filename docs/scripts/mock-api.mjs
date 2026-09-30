@@ -330,7 +330,13 @@ const ticketRows = [
     source: "connectwise",
     externalProvider: "connectwise",
     externalId: "CW-88231",
-    syncState: "pending",
+    // Left its sync job's scope (sync scope, docs/roadmap-sync-scope.md): the
+    // ticket view shows why sync stopped and a pending bypass request.
+    syncState: "detached",
+    syncJobId: 2,
+    syncScopePinned: false,
+    syncDetachReason: "it's assigned to “Sam Rivera”; this job only syncs Jess Spillers, Priya Shah",
+    syncDetachedAt: daysFromNow(0, 9, 5),
     responseDueAt: null,
     resolutionDueAt: daysFromNow(3, 17),
     firstRespondedAt: daysFromNow(-1, 14),
@@ -2340,6 +2346,67 @@ export async function handleApi(route) {
         ],
       },
     ]);
+  }
+
+  // Sync scope: destinations, a stopped ticket's status, the bypass queue,
+  // and the job editor's people picker and preview.
+  if (method === "GET" && apiPath === "/sync/destinations") {
+    return json(route, [
+      { jobId: 1, name: "SpillersTech — Jira helpdesk", type: "jira", target: "Jira · project HELP", blocker: null },
+      { jobId: 2, name: "Northwind — service board", type: "connectwise", target: "ConnectWise · board Service Desk", blocker: null },
+      { jobId: 3, name: "Contoso — escalations JQL", type: "jira", target: "Jira", blocker: "set a project key on this job to create issues from AnchorDesk" },
+    ]);
+  }
+  const bypassRequest = {
+    id: 31,
+    ticketId: 104,
+    status: "pending",
+    reason: "Sam is covering Priya's accounts this week — keep the customer's thread in ConnectWise.",
+    requestedBy: "sam",
+    requestedAt: daysFromNow(0, 9, 40),
+    reviewedBy: null,
+    reviewedAt: null,
+    reviewNote: null,
+  };
+  let scopeMatch = apiPath.match(/^\/tickets\/(\d+)\/sync-scope$/);
+  if (method === "GET" && scopeMatch) {
+    const t = ticketRows.find((x) => x.id === Number(scopeMatch[1]));
+    return json(route, {
+      job: t?.syncJobId === 2 ? { id: 2, name: "Northwind — service board", type: "connectwise" } : null,
+      detached: t?.syncState === "detached",
+      detachReason: t?.syncDetachReason ?? null,
+      detachedAt: t?.syncDetachedAt ?? null,
+      pinned: !!t?.syncScopePinned,
+      requests: t?.id === 104 ? [bypassRequest] : [],
+    });
+  }
+  if (method === "GET" && apiPath === "/sync/bypass-requests") {
+    const t = ticketRows.find((x) => x.id === 104);
+    return json(route, [{
+      ...bypassRequest,
+      ticket: {
+        id: 104,
+        ticketNumber: t?.ticketNumber ?? "10485",
+        title: t?.title ?? "Patch reboot window",
+        externalId: "CW-88231",
+        externalProvider: "connectwise",
+        syncDetachReason: t?.syncDetachReason ?? null,
+        syncDetachedAt: t?.syncDetachedAt ?? null,
+        syncJob: { id: 2, name: "Northwind — service board" },
+      },
+    }]);
+  }
+  if (method === "GET" && apiPath === "/sync/people") {
+    const q = (url.searchParams.get("q") ?? "").toLowerCase();
+    const people = [
+      { id: "712020:6c1f-jess", name: "Jess Spillers", detail: "jess@spillerstech.com" },
+      { id: "712020:9a4e-priya", name: "Priya Shah", detail: "priya@spillerstech.com" },
+      { id: "712020:2b7d-sam", name: "Sam Rivera", detail: "sam@spillerstech.com" },
+    ];
+    return json(route, people.filter((p) => p.name.toLowerCase().includes(q)));
+  }
+  if (method === "POST" && apiPath === "/sync/preview") {
+    return json(route, { count: 184, approximate: true, localOnly: [] });
   }
 
   let match = apiPath.match(/^\/tickets\/(\d+)\/checklist$/);

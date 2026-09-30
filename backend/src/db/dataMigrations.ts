@@ -369,6 +369,34 @@ export async function runDataMigrations(log: FastifyBaseLogger): Promise<void> {
   await adoptLegacyCredentialsAsConnections(log);
   await purgeIllegalConnectwiseConnections(log);
   await disableUnscopedConnectwiseJobs(log);
+  const owned = await assignSyncJobOwners();
+  if (owned > 0) log.info(`Data migrations assigned ${owned} synced ticket(s) to the sync job that owns them.`);
+}
+
+/**
+ * Sync scope — every external ticket belongs to one sync job (Ticket.syncJobId).
+ * Tickets imported before ownership existed are assigned only where the owner is
+ * provable: the account (provider type + connection) has exactly one job. Where
+ * several jobs share an account, the first job whose filter a ticket matches
+ * adopts it at run time instead of this guessing. Idempotent: only ownerless
+ * rows are touched. See docs/roadmap-sync-scope.md.
+ */
+export async function assignSyncJobOwners(): Promise<number> {
+  return prisma.$executeRaw`
+    WITH sole AS (
+      SELECT MIN(id) AS job_id, type::text AS provider, connection_id
+      FROM sync_providers
+      GROUP BY type, connection_id
+      HAVING COUNT(*) = 1
+    )
+    UPDATE tickets t
+       SET sync_job_id = sole.job_id
+      FROM sole
+     WHERE t.sync_job_id IS NULL
+       AND t.external_id IS NOT NULL
+       AND t.external_provider = sole.provider
+       AND t.sync_connection_id IS NOT DISTINCT FROM sole.connection_id
+  `;
 }
 
 /**

@@ -17,6 +17,8 @@ import {
   FormControlLabel,
   Typography,
   Divider,
+  FormHelperText,
+  ListItemText,
 } from "@mui/material";
 import * as api from "../api/client";
 import {
@@ -27,6 +29,16 @@ import {
 } from "../ticketVocab";
 import { PrioritySignal, StatusSignal } from "./TicketSignals";
 import { useIsPhone } from "../theme/useIsPhone";
+import { SYNC_PROVIDER_LABELS } from "../syncBadges";
+
+/** Per-browser memory of the last PSA destination picked, as a convenience only. */
+const LAST_DESTINATION_KEY = "anchordesk.syncDestination";
+const readLastDestination = (): number | "" => {
+  try { const v = Number(localStorage.getItem(LAST_DESTINATION_KEY)); return Number.isInteger(v) && v > 0 ? v : ""; } catch { return ""; }
+};
+const rememberDestination = (jobId: number | "") => {
+  try { if (jobId === "") localStorage.removeItem(LAST_DESTINATION_KEY); else localStorage.setItem(LAST_DESTINATION_KEY, String(jobId)); } catch { /* storage blocked */ }
+};
 
 interface Props {
   open: boolean;
@@ -58,6 +70,10 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
   const [contactId, setContactId] = useState<number | "">("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [destinations, setDestinations] = useState<api.SyncDestination[]>([]);
+  const [syncJobId, setSyncJobId] = useState<number | "">("");
+  // Created locally, but the PSA refused it: the ticket is safe; say so and stay open.
+  const [partial, setPartial] = useState<{ ticketNumber: string; message: string } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -65,6 +81,14 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
     api.listCompanies().then(setCompanies).catch(() => setCompanies([]));
     api.listTeams().then(setTeams).catch(() => setTeams([]));
     api.listCustomFields().then(setCustomFieldDefs).catch(() => setCustomFieldDefs([]));
+    setPartial(null);
+    api.listSyncDestinations()
+      .then((found) => {
+        setDestinations(found);
+        const last = readLastDestination();
+        setSyncJobId(found.some((d) => d.jobId === last && !d.blocker) ? last : "");
+      })
+      .catch(() => setDestinations([]));
   }, [open]);
 
   const pickCompany = async (value: api.Company | string | null) => {
@@ -100,7 +124,7 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
     setError(null);
     try {
       const assignee = assignees.find((a) => a.id === form.assigneeId);
-      await api.createTicket({
+      const created = (await api.createTicket({
         title: form.title,
         summary: form.summary,
         description: form.description,
@@ -113,11 +137,20 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
         assignee: assignee ? assignee.displayName || assignee.username : undefined,
         teamId: form.teamId === "" ? undefined : form.teamId,
         customFields,
-      });
+      })) as { id: number; ticketNumber?: string | null };
       setForm({ ...emptyForm });
       setCompany(null); setContacts([]); setContactId("");
       setCustomFields({});
+      rememberDestination(syncJobId);
       onCreated();
+      if (syncJobId !== "") {
+        try {
+          await api.sendTicketToPsa(created.id, syncJobId);
+        } catch (err) {
+          setPartial({ ticketNumber: created.ticketNumber ?? String(created.id), message: (err as Error).message });
+          return;
+        }
+      }
       onClose();
     } catch (err) {
       setError((err as Error).message);
@@ -132,6 +165,12 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
+          {partial && (
+            <Alert severity="warning">
+              Ticket #{partial.ticketNumber} was created in AnchorDesk, but the PSA refused it: {partial.message}.
+              Fix that and use <strong>Send to PSA</strong> on the ticket to try again.
+            </Alert>
+          )}
           <TextField label="Title" required value={form.title} onChange={(e) => setField("title", e.target.value)} fullWidth autoFocus />
           <TextField label="Summary" value={form.summary} onChange={(e) => setField("summary", e.target.value)} fullWidth />
           <TextField label="Description" value={form.description} onChange={(e) => setField("description", e.target.value)} fullWidth multiline rows={4} />
@@ -194,6 +233,28 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
               {teams.map((team) => <MenuItem key={team.id} value={team.id}>{team.name}</MenuItem>)}
             </Select>
           </FormControl>
+          {destinations.length > 0 && (
+            <FormControl fullWidth size="small">
+              <InputLabel shrink id="create-sync-destination-label">Sync to external PSA</InputLabel>
+              <Select<number | ""> labelId="create-sync-destination-label" value={syncJobId} label="Sync to external PSA" displayEmpty notched
+                onChange={(e) => setSyncJobId(e.target.value === "" ? "" : Number(e.target.value))}
+                renderValue={(v) => v === "" ? "AnchorDesk only" : destinations.find((d) => d.jobId === v)?.target ?? ""}>
+                <MenuItem value="">
+                  <ListItemText primary="AnchorDesk only" secondary="Don't create it in a PSA" />
+                </MenuItem>
+                {destinations.map((d) => (
+                  <MenuItem key={d.jobId} value={d.jobId} disabled={!!d.blocker} sx={{ whiteSpace: "normal" }}>
+                    <ListItemText primary={d.target} secondary={d.blocker ?? `Syncs through “${d.name}”`} />
+                  </MenuItem>
+                ))}
+              </Select>
+              <FormHelperText>
+                {syncJobId === ""
+                  ? "Created here only. You can send it to a PSA later from the ticket."
+                  : `Also created in ${SYNC_PROVIDER_LABELS[destinations.find((d) => d.jobId === syncJobId)?.type ?? ""] ?? "the PSA"} and kept in sync.`}
+              </FormHelperText>
+            </FormControl>
+          )}
           {customFieldDefs.length > 0 && (
             <>
               <Divider><Typography variant="caption" sx={{
@@ -212,10 +273,16 @@ export default function CreateTicketDialog({ open, onClose, onCreated }: Props) 
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button onClick={handleSubmit} variant="contained" disabled={saving}>
-          {saving ? "Creating…" : "Create ticket"}
-        </Button>
+        {partial ? (
+          <Button variant="contained" onClick={onClose}>Done</Button>
+        ) : (
+          <>
+            <Button onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSubmit} variant="contained" disabled={saving}>
+              {saving ? (syncJobId === "" ? "Creating…" : "Creating and sending…") : "Create ticket"}
+            </Button>
+          </>
+        )}
       </DialogActions>
     </Dialog>
   );

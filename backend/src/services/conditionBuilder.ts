@@ -43,6 +43,12 @@ export class ConditionBuilder {
     return this;
   }
 
+  /** A pre-built clause, parenthesized so it composes with AND (used for OR groups). */
+  addGroup(clause: string): this {
+    if (clause.trim()) this.conditions.push(`(${clause})`);
+    return this;
+  }
+
   build(): string {
     return this.conditions.join(' AND ');
   }

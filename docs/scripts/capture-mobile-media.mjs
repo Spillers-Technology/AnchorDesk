@@ -267,6 +267,30 @@ async function captureDevice(browser, device) {
       await page.getByRole("heading", { name: "Advanced search" }).waitFor({ state: "hidden", timeout: 5_000 });
     }
 
+    // Sync scope (docs/roadmap-sync-scope.md): New ticket's PSA destination,
+    // and a ticket that stopped syncing because it left its job's scope.
+    if (view("create-ticket-psa")) {
+      // The New ticket button is icon-only below `sm`, so find it by its icon.
+      await page.locator('button:has(svg[data-testid="AddIcon"])').first().click();
+      await page.getByRole("combobox", { name: "Sync to external PSA" }).click();
+      await page.getByRole("option", { name: /Jira · project HELP/ }).waitFor({ timeout: 20_000 });
+      await shoot(page, device, "create-ticket-psa");
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
+      await page.getByRole("heading", { name: "New ticket" }).waitFor({ state: "hidden", timeout: 5_000 });
+    }
+
+    if (view("ticket-sync-stopped")) {
+      const stopped = page.getByText("Patch reboot window for accounting PCs", { exact: true }).first();
+      await stopped.evaluate((el) => el.scrollIntoView({ block: "center", inline: "center" }));
+      await page.waitForTimeout(200);
+      await stopped.dispatchEvent("click");
+      await page.getByText("Sync with ConnectWise stopped", { exact: true }).waitFor({ timeout: 20_000 });
+      await shoot(page, device, "ticket-sync-stopped");
+      await page.keyboard.press("Escape");
+      await page.getByText("Sync with ConnectWise stopped", { exact: true }).waitFor({ state: "hidden", timeout: 5_000 });
+    }
+
     if (view("ticket") || view("composer") || view("ticket-history")) {
       // On phone viewports scrollIntoViewIfNeeded can park the card under the
       // fixed AppBar, which makes a real click fail actionability. Center it

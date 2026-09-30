@@ -68,6 +68,7 @@ function run(over: Partial<SyncRun> = {}): SyncRun {
     ticketsFiltered: 4,
     ticketsSkipped: 0,
     ticketsConflicted: 0,
+    ticketsDetached: 0,
     errorCount: 0,
     latestError: null,
     ...over,

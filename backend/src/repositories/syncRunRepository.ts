@@ -23,6 +23,9 @@ export interface SyncRunCounts {
   ticketsFiltered: number;
   ticketsSkipped: number;
   ticketsConflicted: number;
+  /** Owned tickets that left the job's filter and stopped syncing. Optional so
+   *  callers that predate detach reporting still type-check. */
+  ticketsDetached?: number;
   errorCount: number;
   errors: string[];
   durationMs: number;
@@ -165,6 +168,7 @@ export async function finish(
       ticketsFiltered: result.ticketsFiltered,
       ticketsSkipped: result.ticketsSkipped,
       ticketsConflicted: result.ticketsConflicted,
+      ticketsDetached: result.ticketsDetached ?? 0,
       errorCount: result.errorCount,
       latestError:
         result.errors.length > 0
@@ -263,6 +267,7 @@ export function toPublicSummary(run: SyncRun) {
     ticketsFiltered: run.ticketsFiltered,
     ticketsSkipped: run.ticketsSkipped,
     ticketsConflicted: run.ticketsConflicted,
+    ticketsDetached: run.ticketsDetached,
     errorCount: run.errorCount,
     latestError: run.latestError ? sanitizeSyncError(run.latestError) : null,
   };

@@ -490,7 +490,7 @@ export async function solveTicket(
       // attempting a nested transaction while the ownership lock is held.
       if (before.externalId && before.externalProvider) {
         data.syncRevision = { increment: 1 };
-        if (before.syncState !== 'conflict') data.syncState = 'pending';
+        if (before.syncState !== 'conflict' && before.syncState !== 'detached') data.syncState = 'pending';
       }
       const ticket = await transaction.ticket.update({ where: { id: targetId }, data });
       const auditRow = await audit.record({

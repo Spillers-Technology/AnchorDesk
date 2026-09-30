@@ -6,7 +6,8 @@
 //
 // Cases:
 //   fresh      empty database            -> migrate deploy, 0_init recorded
-//   2.8.x      real 2.8 install + rows   -> adopted as 0_init; rows and schema unchanged
+//   2.8.x      real 2.8 install + rows   -> adopted as 0_init, later migrations applied;
+//                                           every row keeps its values, no 2.8 object altered
 //   rerun      the adopted 2.8.x db      -> no-op, still exactly one 0_init row
 //   2.7.2      real 2.7 install + rows   -> refused; rows and schema untouched
 //   tampered   2.8.x + a rogue column    -> refused; rows and schema untouched
@@ -23,6 +24,7 @@
 // CREATE DATABASE> node scripts/verify-baseline-upgrade.mjs
 // Requires the `psql` client on PATH.
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -153,6 +155,47 @@ const DATA_FINGERPRINT = `
     SELECT 'u' || u::text FROM users u
   ) rows`;
 
+// Adoption records 0_init and then `migrate deploy` applies every later
+// migration, which may add columns. "Rows unchanged" therefore means every
+// row keeps every value it had in the columns that existed before adoption.
+const FINGERPRINT_TABLES = { c: 'companies', t: 'tickets', n: 'notes', e: 'ticket_events', u: 'users' };
+
+function columnsBefore(db) {
+  const out = {};
+  for (const table of Object.values(FINGERPRINT_TABLES)) {
+    out[table] = psql(
+      db,
+      `SELECT string_agg(column_name, ',' ORDER BY column_name) FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = '${table}'`,
+    ).split(',');
+  }
+  return out;
+}
+
+function dataFingerprint(db, columns) {
+  const parts = Object.entries(FINGERPRINT_TABLES).map(([tag, table]) => {
+    const cols = columns[table].map((c) => `'${c}'`).join(',');
+    return `SELECT '${tag}' || (SELECT jsonb_object_agg(key, value)::text FROM jsonb_each(to_jsonb(x))
+              WHERE key = ANY(ARRAY[${cols}]::text[])) AS t FROM ${table} x`;
+  });
+  return psql(db, `SELECT md5(string_agg(t, '|' ORDER BY t)) FROM (${parts.join(' UNION ALL ')}) rows`);
+}
+
+/** Every object line that existed before is still there, unchanged. Later
+ *  migrations may add objects; none may alter or drop a 2.8 one silently. */
+function onlyAdded(before, after) {
+  const now = new Set(after.split('\n'));
+  const missing = before.split('\n').filter((line) => !now.has(line));
+  return { ok: missing.length === 0, detail: missing.slice(0, 3).join(' | ') };
+}
+
+function appliedMigrationCount(db) {
+  return Number(psql(db, `SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`));
+}
+
+const MIGRATION_COUNT = fs.readdirSync(path.join(backendRoot, 'prisma', 'migrations'), { withFileTypes: true })
+  .filter((entry) => entry.isDirectory()).length;
+
 const failures = [];
 function check(name, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
@@ -199,20 +242,26 @@ try {
   // 2.8.x with data
   loadFixture(DB.current, 'installed-2.8.x.schema.sql');
   psql(DB.current, SEED);
-  const dataBefore = psql(DB.current, DATA_FINGERPRINT);
+  const cols = columnsBefore(DB.current);
+  const dataBefore = dataFingerprint(DB.current, cols);
   const schemaBefore = snapshot(DB.current);
   r = applySchema(DB.current);
   check('2.8.x: adopted (exit 0)', r.status === 0, `exit ${r.status}`);
   check('2.8.x: fingerprint matched', /Schema matches AnchorDesk 2\.8\.x/.test(r.output));
   check('2.8.x: 0_init recorded once', appliedBaselineRows(DB.current) === 1);
-  check('2.8.x: rows unchanged', psql(DB.current, DATA_FINGERPRINT) === dataBefore);
-  check('2.8.x: schema unchanged apart from _prisma_migrations', snapshot(DB.current) === schemaBefore);
+  check('2.8.x: every later migration applied', appliedMigrationCount(DB.current) === MIGRATION_COUNT,
+    `${appliedMigrationCount(DB.current)} of ${MIGRATION_COUNT}`);
+  check('2.8.x: rows keep every pre-existing value', dataFingerprint(DB.current, cols) === dataBefore);
+  const kept = onlyAdded(schemaBefore, snapshot(DB.current));
+  check('2.8.x: no 2.8 object altered or dropped (later migrations only add)', kept.ok, kept.detail);
 
   // rerun
+  const schemaAfterAdoption = snapshot(DB.current);
   r = applySchema(DB.current);
   check('rerun: no-op (exit 0)', r.status === 0, `exit ${r.status}`);
   check('rerun: still one 0_init row', appliedBaselineRows(DB.current) === 1);
-  check('rerun: rows unchanged', psql(DB.current, DATA_FINGERPRINT) === dataBefore);
+  check('rerun: rows unchanged', dataFingerprint(DB.current, cols) === dataBefore);
+  check('rerun: schema unchanged', snapshot(DB.current) === schemaAfterAdoption);
 
   // refusals
   loadFixture(DB.old, 'installed-2.7.2.schema.sql');
@@ -257,7 +306,8 @@ try {
   // not deploy 0_init over a populated database.
   loadFixture(DB.interrupted, 'installed-2.8.x.schema.sql');
   psql(DB.interrupted, SEED);
-  const interruptedData = psql(DB.interrupted, DATA_FINGERPRINT);
+  const interruptedCols = columnsBefore(DB.interrupted);
+  const interruptedData = dataFingerprint(DB.interrupted, interruptedCols);
   psql(
     DB.interrupted,
     `CREATE TABLE _prisma_migrations (id varchar(36) primary key, checksum varchar(64) not null,
@@ -268,7 +318,7 @@ try {
   r = applySchema(DB.interrupted);
   check('interrupted adoption: recovers (exit 0)', r.status === 0, `exit ${r.status}`);
   check('interrupted adoption: 0_init recorded once', appliedBaselineRows(DB.interrupted) === 1);
-  check('interrupted adoption: rows unchanged', psql(DB.interrupted, DATA_FINGERPRINT) === interruptedData);
+  check('interrupted adoption: rows keep every pre-existing value', dataFingerprint(DB.interrupted, interruptedCols) === interruptedData);
 
   // Same interruption, but the schema is NOT 2.8 — recovery must refuse.
   loadFixture(DB.interruptedBad, 'installed-2.7.2.schema.sql');

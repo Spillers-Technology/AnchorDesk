@@ -742,8 +742,11 @@ export async function unmergeTicket(sourceId: number, actorSub: string): Promise
         parentId: ledger.source.parentId,
         // The ticket re-enters sync scope, so its baseline must be re-established
         // rather than trusted: the remote has been moving unobserved since the
-        // merge. `pending` sends it through a full reconcile on the next run.
-        syncState: source.externalId && source.externalProvider ? 'pending' : null,
+        // merge. `pending` sends it through a full reconcile on the next run —
+        // unless it had left its sync job's scope, which a merge doesn't change.
+        syncState: source.syncState === 'detached'
+          ? 'detached'
+          : source.externalId && source.externalProvider ? 'pending' : null,
         syncRevision: { increment: 1 },
       },
     });

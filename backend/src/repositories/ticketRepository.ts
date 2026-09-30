@@ -159,6 +159,8 @@ export interface CreateTicketInput {
    *  authenticates against the same tenant. Null for legacy single-account
    *  installs and for locally created tickets. */
   syncConnectionId?: number | null;
+  /** The sync job that imported (and owns) this ticket. See docs/roadmap-sync-scope.md. */
+  syncJobId?: number | null;
 }
 
 export interface UpdateTicketInput {
@@ -466,6 +468,7 @@ export async function create(
         externalId: clamp(input.externalId, 255),
         externalProvider: clamp(input.externalProvider, 50),
         syncConnectionId: input.syncConnectionId ?? null,
+        syncJobId: input.syncJobId ?? null,
         slaPolicyId: sla.slaPolicyId ?? undefined,
         responseDueAt: sla.responseDueAt,
         resolutionDueAt: sla.resolutionDueAt,
@@ -627,7 +630,7 @@ export async function update(
       SYNC_RELEVANT_UPDATE_FIELDS.some((field) => input[field] !== undefined);
     if (localSyncMutation) {
       data.syncRevision = { increment: 1 };
-      if (before.syncState !== 'conflict') data.syncState = 'pending';
+      if (before.syncState !== 'conflict' && before.syncState !== 'detached') data.syncState = 'pending';
     }
 
     if (options.syncResult) {

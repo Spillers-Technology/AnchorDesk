@@ -28,6 +28,7 @@ vi.mock("../api/client", () => ({
   getCompany: () => Promise.resolve({ contacts: [] }),
   createCompany: () => Promise.resolve(null),
   createTicket: () => Promise.resolve({}),
+  listSyncDestinations: () => Promise.resolve([]),
   listScripts: () => Promise.resolve([]),
   runScript: () => Promise.resolve({}),
   getScriptJob: () => Promise.resolve({}),

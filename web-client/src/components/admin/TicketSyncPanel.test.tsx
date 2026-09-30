@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from "@mui/material/styles";
 import { buildTheme } from "../../theme";
+import { AdminToastProvider } from "./kit";
 import TicketSyncPanel, {
   ConnectionEditorDialog,
   JobEditorDialog,
@@ -29,6 +30,7 @@ const api = vi.hoisted(() => ({
   runSync: vi.fn(),
   listSyncRuns: vi.fn(),
   getSyncRun: vi.fn(),
+  listSyncBypassRequests: vi.fn(() => Promise.resolve([])),
 }));
 
 vi.mock("../../api/client", () => api);
@@ -93,7 +95,8 @@ function installMatchMedia() {
 }
 
 function renderInTheme(ui: React.ReactElement) {
-  return render(<ThemeProvider theme={buildTheme("default-light")}>{ui}</ThemeProvider>);
+  // The panel lives inside the admin console, which provides its toast.
+  return render(<ThemeProvider theme={buildTheme("default-light")}><AdminToastProvider>{ui}</AdminToastProvider></ThemeProvider>);
 }
 
 async function renderPanel({
