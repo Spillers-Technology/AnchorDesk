@@ -2719,6 +2719,47 @@ export async function handleApi(route) {
     });
   }
 
+  // Admin console fixtures: enough for every panel (and the Overview's setup
+  // readiness) to render populated, including one failing mailbox and a
+  // not-yet-required MFA so the attention states are exercised too.
+  if (method === "GET" && apiPath === "/auth/settings") {
+    return json(route, {
+      localEnabled: true,
+      oidc: { enabled: true, issuerUrl: "https://login.microsoftonline.com/spillerstech/v2.0", clientId: "7d1f3c2a-anchordesk", redirectUri: "https://desk.spillerstech.com/api/auth/oidc/callback", hasClientSecret: true },
+      saml: { enabled: false, entryPoint: null, issuer: null, callbackUrl: "https://desk.spillerstech.com/api/auth/saml/callback", hasIdpCert: false },
+      mfa: { required: false, issuer: "AnchorDesk" },
+    });
+  }
+  if (method === "GET" && apiPath === "/sla/policies") {
+    return json(route, [
+      { id: 1, name: "Standard", priority: null, companyId: null, responseMinutes: 240, resolutionMinutes: 4320, enabled: true },
+      { id: 2, name: "Urgent", priority: "Urgent", companyId: null, responseMinutes: 30, resolutionMinutes: 480, enabled: true },
+      { id: 3, name: "ACME priority care", priority: "High", companyId: 1, responseMinutes: 60, resolutionMinutes: 1440, enabled: true },
+    ]);
+  }
+  if (method === "GET" && apiPath === "/mailboxes") {
+    return json(route, [
+      { id: 1, name: "Helpdesk inbox", host: "imap.spillerstech.com", port: 993, secure: true, username: "help", hasPassword: true, folder: "INBOX", companyName: null, labelId: 1, enabled: true, lastUid: 812, lastPolledAt: daysFromNow(0, 10, 12), lastError: null },
+      { id: 2, name: "ACME escalations", host: "outlook.office365.com", port: 993, secure: true, username: "acme-escalations@spillerstech.com", hasPassword: true, folder: "INBOX", companyName: "ACME Manufacturing", labelId: 2, enabled: true, lastUid: 97, lastPolledAt: daysFromNow(0, 9, 40), lastError: "AUTHENTICATIONFAILED Invalid credentials" },
+      { id: 3, name: "Field techs", host: "imap.spillerstech.com", port: 993, secure: true, username: "field", hasPassword: true, folder: "INBOX", companyName: null, labelId: 3, enabled: false, lastUid: null, lastPolledAt: null, lastError: null },
+    ]);
+  }
+  if (method === "GET" && apiPath === "/mail/identities/all") {
+    return json(route, [
+      { id: 1, address: "support@example.com", displayName: "AnchorDesk Support", shared: true, userId: null, enabled: true },
+      { id: 2, address: "jess@example.com", displayName: "Jess Spillers", shared: false, userId: 1, enabled: true },
+    ]);
+  }
+  if (method === "GET" && apiPath === "/admin/audit") {
+    return json(route, [
+      { id: "11", entityType: "ticket", entityId: 101, action: "update", changedBy: "jess (web)", oldValue: {}, newValue: {}, occurredAt: daysFromNow(0, 10, 15) },
+      { id: "12", entityType: "ticket", entityId: 104, action: "update", changedBy: "automation:Escalate urgent", oldValue: {}, newValue: {}, occurredAt: daysFromNow(0, 9, 58) },
+      { id: "13", entityType: "ticket", entityId: 103, action: "sync", changedBy: "system", oldValue: {}, newValue: {}, occurredAt: daysFromNow(0, 9, 10) },
+      { id: "14", entityType: "user", entityId: 3, action: "create", changedBy: "jess (web)", oldValue: null, newValue: {}, occurredAt: daysFromNow(-1, 16, 30) },
+      { id: "15", entityType: "mailbox", entityId: 4, action: "delete", changedBy: "jess (web)", oldValue: {}, newValue: null, occurredAt: daysFromNow(-2, 11, 5) },
+    ]);
+  }
+
   if (method === "GET" && apiPath === "/admin/overview") {
     return json(route, {
       tickets: { open: 5, total: 6 },
@@ -2728,7 +2769,10 @@ export async function handleApi(route) {
       mailboxes: 3,
       recentAudit: [
         { id: "1", entityType: "ticket", entityId: 101, action: "update", changedBy: "jess (web)", oldValue: {}, newValue: {}, occurredAt: daysFromNow(0, 10, 15) },
+        { id: "3", entityType: "ticket", entityId: 104, action: "update", changedBy: "automation:Escalate urgent", oldValue: {}, newValue: {}, occurredAt: daysFromNow(0, 9, 58) },
         { id: "2", entityType: "ticket", entityId: 103, action: "sync", changedBy: "system", oldValue: {}, newValue: {}, occurredAt: daysFromNow(0, 9, 10) },
+        { id: "4", entityType: "user", entityId: 3, action: "create", changedBy: "jess (web)", oldValue: null, newValue: {}, occurredAt: daysFromNow(-1, 16, 30) },
+        { id: "5", entityType: "mailbox", entityId: 4, action: "delete", changedBy: "jess (web)", oldValue: {}, newValue: null, occurredAt: daysFromNow(-2, 11, 5) },
       ],
     });
   }

@@ -56,6 +56,8 @@ import { useIsPhone } from "../../theme/useIsPhone";
 import { TICKET_PRIORITIES, TICKET_STATUSES } from "../../ticketVocab";
 import ConfirmDialog from "./ConfirmDialog";
 import SyncRunHistoryDialog, { SyncHealthChip } from "./SyncRunHistoryDialog";
+import SyncOutlined from "@mui/icons-material/SyncOutlined";
+import { AdminPage, PanelLoading } from "./kit";
 
 type IncludeField = keyof Omit<api.SyncFilterInput, "exclude">;
 
@@ -174,16 +176,11 @@ export default function TicketSyncPanel() {
   const loading = connections === null || jobs === null;
 
   return (
-    <Stack spacing={3}>
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignItems: { sm: "center" }, justifyContent: "space-between" }}>
-        <Box>
-          <Typography variant="h5" sx={{ fontWeight: 600 }}>Ticket sync</Typography>
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Connect an external account, then create a sync job that scopes what comes in. The local
-            database always stays the source of truth.
-          </Typography>
-        </Box>
-        {jobs && jobs.length > 0 && (
+    <AdminPage
+      icon={SyncOutlined}
+      title="Ticket sync"
+      subtitle="Connect an external account, then create a sync job that scopes what comes in. The local database always stays the source of truth."
+      actions={jobs && jobs.length > 0 ? (
           <Button
             variant="contained"
             startIcon={runningAll ? <CircularProgress size={16} color="inherit" /> : <SyncIcon />}
@@ -193,8 +190,9 @@ export default function TicketSyncPanel() {
           >
             {runningAll ? "Running enabled jobs…" : "Run all enabled"}
           </Button>
-        )}
-      </Stack>
+        ) : undefined}
+    >
+      <Stack spacing={3}>
 
       {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
 
@@ -211,7 +209,7 @@ export default function TicketSyncPanel() {
       )}
 
       {loading ? (
-        <CircularProgress sx={{ alignSelf: "flex-start" }} />
+        <PanelLoading />
       ) : (
         <>
           <ConnectionsSection
@@ -267,7 +265,8 @@ export default function TicketSyncPanel() {
           onClose={() => setHistoryJob(null)}
         />
       )}
-    </Stack>
+      </Stack>
+    </AdminPage>
   );
 }
 

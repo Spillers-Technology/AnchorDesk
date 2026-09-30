@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
-  Box,
   Button,
-  Chip,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -20,14 +17,18 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import HowToRegOutlined from "@mui/icons-material/HowToRegOutlined";
 import * as api from "../../api/client";
+import { AdminPage, EmptyState, PanelLoading, StatusChip, When, type Tone } from "./kit";
 import { useIsPhone } from "../../theme/useIsPhone";
 
 const STATUS_OPTIONS: Array<"" | api.PortalRegistration["status"]> = ["", "pending", "approved", "rejected"];
 
-function statusColor(status: api.PortalRegistration["status"]): "warning" | "success" | "error" {
+function statusTone(status: api.PortalRegistration["status"]): Tone {
   return status === "pending" ? "warning" : status === "approved" ? "success" : "error";
 }
+
+const STATUS_LABEL: Record<api.PortalRegistration["status"], string> = { pending: "Pending", approved: "Approved", rejected: "Rejected" };
 
 export default function PortalRegistrationsPanel() {
   const [status, setStatus] = useState<"" | api.PortalRegistration["status"]>("pending");
@@ -62,23 +63,24 @@ export default function PortalRegistrationsPanel() {
   };
 
   return (
-    <Stack spacing={2}>
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignItems: { sm: "center" } }}>
-        <Box sx={{ flexGrow: 1 }}>
-          <Typography variant="h5">Portal access requests</Typography>
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Domain matches are only a review hint. Approving creates or reuses the contact, records a portal grant, and sends the sign-in email.
-          </Typography>
-        </Box>
+    <AdminPage
+      icon={HowToRegOutlined}
+      title="Portal access requests"
+      subtitle="Domain matches are only a review hint. Approving creates or reuses the contact, records a portal grant, and sends the sign-in email."
+      status={status === "pending" && rows && rows.length > 0 ? <StatusChip tone="warning" label={`${rows.length} waiting`} /> : undefined}
+      actions={
         <TextField select size="small" label="Status" value={status} onChange={(event) => setStatus(event.target.value as typeof status)} sx={{ minWidth: 150 }}>
           {STATUS_OPTIONS.map((option) => <MenuItem key={option || "all"} value={option}>{option ? option[0].toUpperCase() + option.slice(1) : "All requests"}</MenuItem>)}
         </TextField>
-      </Stack>
+      }
+    >
 
       {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
-      {!rows ? <CircularProgress /> : rows.length === 0 ? (
-        <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
-          <Typography>No {status || ""} portal access requests.</Typography>
+      {!rows ? <PanelLoading /> : rows.length === 0 ? (
+        <Paper variant="outlined">
+          <EmptyState icon={HowToRegOutlined} title={`No ${status || ""} portal access requests`.replace("  ", " ")}>
+            {status === "pending" ? "You're caught up. New requests from the portal's sign-up form land here for review." : "Try another status filter."}
+          </EmptyState>
         </Paper>
       ) : (
         <Paper variant="outlined" sx={{ overflowX: "auto" }}>
@@ -89,8 +91,8 @@ export default function PortalRegistrationsPanel() {
                 <TableRow key={row.id} hover>
                   <TableCell>{row.email}</TableCell>
                   <TableCell>{row.company?.name ?? "No domain match"}</TableCell>
-                  <TableCell>{new Date(row.createdAt).toLocaleString()}</TableCell>
-                  <TableCell><Chip size="small" label={row.status} color={statusColor(row.status)} /></TableCell>
+                  <TableCell><When iso={row.createdAt} /></TableCell>
+                  <TableCell><StatusChip tone={statusTone(row.status)} label={STATUS_LABEL[row.status] ?? row.status} /></TableCell>
                   <TableCell align="right"><Button size="small" onClick={() => setSelected(row)}>Review</Button></TableCell>
                 </TableRow>
               ))}
@@ -100,7 +102,7 @@ export default function PortalRegistrationsPanel() {
       )}
 
       {selected && <RegistrationDialog registration={selected} busy={busy} onClose={() => setSelected(null)} onReview={review} />}
-    </Stack>
+    </AdminPage>
   );
 }
 

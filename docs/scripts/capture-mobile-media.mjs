@@ -84,6 +84,17 @@ async function assertNoHorizontalPageScroll(page, view) {
   }
 }
 
+// Admin sections: below `md` the console shows one "Choose admin section"
+// switcher that opens the section list in a bottom sheet; at desktop widths the
+// same list is a rail. Either way the list is the "Admin sections" navigation.
+async function openAdminSection(page, label) {
+  const switcher = page.getByRole("button", { name: "Choose admin section" });
+  if (await switcher.isVisible()) await switcher.click();
+  await page.getByRole("navigation", { name: "Admin sections" }).getByText(label, { exact: true }).click();
+  // Wait for the sheet to finish leaving so it isn't caught mid-slide.
+  await page.getByRole("navigation", { name: "Admin sections" }).waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
+}
+
 // Every capture funnels through here, so every capture is guarded — there is
 // no direct-screenshot path that skips the overflow check. Do not add one;
 // call shoot()/shootSection() even for a one-off view.
@@ -476,29 +487,62 @@ async function captureDevice(browser, device) {
       }
     }
 
-    const adminViews = ["admin", "admin-teams", "admin-custom-fields", "admin-checklists", "checklist-template-editor", "admin-automations", "admin-ticket-sync", "ticket-sync-connection-editor", "ticket-sync-job-editor", "ticket-sync-run-history", "ticket-sync-run-detail", "admin-devices", "device-assets", "admin-portal-registrations"];
+    const adminViews = ["admin", "admin-sections", "admin-users", "admin-auth", "admin-teams", "admin-sla", "admin-labels", "admin-custom-fields", "admin-checklists", "checklist-template-editor", "admin-automations", "admin-mailboxes", "admin-mail", "admin-integrations", "admin-ticket-sync", "ticket-sync-connection-editor", "ticket-sync-job-editor", "ticket-sync-run-history", "ticket-sync-run-detail", "admin-probes", "admin-devices", "device-assets", "admin-audit", "admin-portal-registrations"];
     if (adminViews.some(view)) {
       await openDrawer(page, "Admin console");
       await page.getByText("Open tickets", { exact: false }).waitFor({ timeout: 20_000 });
+      await page.getByText("Setup readiness", { exact: true }).waitFor({ timeout: 20_000 });
       if (view("admin")) await shoot(page, device, "admin");
 
+      if (view("admin-sections")) {
+        const switcher = page.getByRole("button", { name: "Choose admin section" });
+        if (await switcher.isVisible()) {
+          await switcher.click();
+          await page.getByRole("navigation", { name: "Admin sections" }).waitFor({ timeout: 20_000 });
+          await shoot(page, device, "admin-sections");
+          await page.keyboard.press("Escape");
+          await page.getByRole("navigation", { name: "Admin sections" }).waitFor({ state: "hidden", timeout: 5_000 });
+        }
+      }
+
+      // Panels new to the matrix with the console redesign: each waits on
+      // text only its populated state renders.
+      const simplePanels = [
+        ["admin-users", "Users & Roles", "Priya Shah"],
+        ["admin-auth", "Authentication", "OpenID Connect"],
+        ["admin-sla", "SLA Policies", "ACME priority care"],
+        ["admin-labels", "Labels", "New label"],
+        ["admin-mailboxes", "Mailboxes", "ACME escalations"],
+        ["admin-mail", "Mail Identities", "Send-from identities"],
+        ["admin-integrations", "Integrations", "SMTP (outbound email)"],
+        ["admin-probes", "Probes", "ACME plant netviz"],
+        ["admin-audit", "Audit Log", "Automation · Escalate urgent"],
+      ];
+      for (const [name, label, marker] of simplePanels) {
+        if (!view(name)) continue;
+        await openAdminSection(page, label);
+        await page.getByText(marker, { exact: true }).first().waitFor({ timeout: 20_000 });
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await shoot(page, device, name);
+      }
+
       if (view("admin-teams")) {
-        await page.getByText("Teams", { exact: true }).first().click();
+        await openAdminSection(page, "Teams");
         await page.getByText("Route tickets to queues", { exact: false }).waitFor({ timeout: 20_000 });
         await shoot(page, device, "admin-teams");
       }
       if (view("admin-custom-fields")) {
-        await page.getByText("Custom Fields", { exact: true }).first().click();
+        await openAdminSection(page, "Custom Fields");
         await page.getByText("Define structured fields", { exact: false }).waitFor({ timeout: 20_000 });
         await shoot(page, device, "admin-custom-fields");
       }
       if (view("admin-portal-registrations")) {
-        await page.getByText("Portal Requests", { exact: true }).first().click();
+        await openAdminSection(page, "Portal Requests");
         await page.getByText("Portal access requests", { exact: true }).waitFor({ timeout: 20_000 });
         await shoot(page, device, "admin-portal-registrations");
       }
       if (view("admin-checklists") || view("checklist-template-editor")) {
-        await page.getByText("Checklists", { exact: true }).first().click();
+        await openAdminSection(page, "Checklists");
         await page.getByText("Reusable boilerplate lists", { exact: false }).waitFor({ timeout: 20_000 });
         if (view("admin-checklists")) await shoot(page, device, "admin-checklists");
         if (view("checklist-template-editor")) {
@@ -509,12 +553,12 @@ async function captureDevice(browser, device) {
         }
       }
       if (view("admin-automations")) {
-        await page.getByText("Automations", { exact: true }).first().click();
+        await openAdminSection(page, "Automations");
         await page.getByText("Run ordered actions", { exact: false }).waitFor({ timeout: 20_000 });
         await shoot(page, device, "admin-automations");
       }
       if (view("admin-ticket-sync") || view("ticket-sync-connection-editor") || view("ticket-sync-job-editor") || view("ticket-sync-run-history") || view("ticket-sync-run-detail")) {
-        await page.getByText("Ticket Sync", { exact: true }).first().click();
+        await openAdminSection(page, "Ticket Sync");
         await page.getByText("Sync jobs", { exact: true }).waitFor({ timeout: 20_000 });
         if (view("admin-ticket-sync")) await shoot(page, device, "admin-ticket-sync");
 
@@ -557,7 +601,7 @@ async function captureDevice(browser, device) {
         }
       }
       if (view("admin-devices") || view("device-assets")) {
-        await page.getByText("Devices", { exact: true }).first().click();
+        await openAdminSection(page, "Devices");
         await page.getByText("ACME edge firewall", { exact: true }).waitFor({ timeout: 20_000 });
         if (view("admin-devices")) await shoot(page, device, "admin-devices");
         if (view("device-assets")) {

@@ -17,7 +17,9 @@ mocked `/api/*` responses (no backend or database needed):
   **composer**, **merge dialog**, **merge acknowledgements**,
   **ticket hierarchy**, **cards**, **Reports** (overview plus a scrolled proof
   of each report), **TIME day spread**, **TIME ticket SLA timeline**,
-  **Companies**, **Network**, **Sync**, and the **Admin** dashboard, teams,
+  **Companies**, **Network**, **Sync**, and the **Admin** dashboard, section sheet, users,
+  authentication, SLA policies, labels, mailboxes, mail identities, integrations, probes,
+  audit log, teams,
   custom fields, checklist templates, checklist-template editor, automations,
   devices, device-asset editor, the requester portal's login, ticket list,
   new-request/deflection form, ticket conversation, comment form, and attachment

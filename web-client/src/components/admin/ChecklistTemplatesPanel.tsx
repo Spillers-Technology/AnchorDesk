@@ -10,7 +10,6 @@ import {
   Button,
   Checkbox,
   Chip,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -33,6 +32,8 @@ import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import ChecklistOutlined from "@mui/icons-material/ChecklistOutlined";
+import { AdminPage, EmptyState, PanelError, PanelLoading, StatusChip } from "./kit";
 import { useIsPhone } from "../../theme/useIsPhone";
 import * as api from "../../api/client";
 
@@ -58,29 +59,31 @@ export default function ChecklistTemplatesPanel() {
   }, []);
   useEffect(reload, [reload]);
 
-  if (error) return <Alert severity="error">{error}</Alert>;
-  if (!templates) return <CircularProgress />;
+  if (error) return <PanelError message={error} onRetry={() => { setError(null); reload(); }} />;
+  if (!templates) return <PanelLoading />;
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between" }}>
-        <Typography variant="h5">Checklists</Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setEditing("new")}>New template</Button>
-      </Stack>
-      <Typography variant="body2" sx={{ color: "text.secondary" }}>
+    <AdminPage
+      icon={ChecklistOutlined}
+      title="Checklists"
+      subtitle={<>
         Reusable boilerplate lists. Applying a template copies its items onto a ticket — editing or
         deleting a template never changes checklists already on tickets. Item offsets become
         independent per-item deadlines counted from the moment of application.
-      </Typography>
-
+      </>}
+      status={templates.length > 0 ? <Chip size="small" label={`${templates.filter((t) => t.active).length} active`} /> : undefined}
+      actions={<Button variant="contained" startIcon={<AddIcon />} onClick={() => setEditing("new")}>New template</Button>}
+    >
       {templates.length === 0 ? (
-        <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
-          <Typography variant="body1" gutterBottom>No checklist templates yet.</Typography>
-          <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>
+        <Paper variant="outlined">
+          <EmptyState
+            icon={ChecklistOutlined}
+            title="No checklist templates yet"
+            action={<Button variant="outlined" startIcon={<AddIcon />} onClick={() => setEditing("new")}>Create your first template</Button>}
+          >
             Create one for a recurring runbook — new-user onboarding, workstation setup, offboarding —
             and technicians can apply it to any ticket in one click.
-          </Typography>
-          <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setEditing("new")}>Create your first template</Button>
+          </EmptyState>
         </Paper>
       ) : (
         <Paper variant="outlined" sx={{ overflowX: "auto" }}>
@@ -102,10 +105,10 @@ export default function ChecklistTemplatesPanel() {
                   </TableCell>
                   <TableCell>{t.items.length}</TableCell>
                   <TableCell>
-                    <Chip size="small" label={t.active ? "Active" : "Inactive"} color={t.active ? "success" : "default"} />
+                    {t.active ? <StatusChip tone="success" label="Active" /> : <StatusChip tone="neutral" label="Inactive" />}
                   </TableCell>
                   <TableCell align="right">
-                    <Tooltip title="Edit"><IconButton size="small" onClick={() => setEditing(t)}><EditIcon fontSize="small" /></IconButton></Tooltip>
+                    <Tooltip title="Edit"><IconButton size="small" aria-label={`Edit ${t.name}`} onClick={() => setEditing(t)}><EditIcon fontSize="small" /></IconButton></Tooltip>
                     <DeleteTemplateButton template={t} onDeleted={reload} />
                   </TableCell>
                 </TableRow>
@@ -122,7 +125,7 @@ export default function ChecklistTemplatesPanel() {
           onSaved={() => { setEditing(null); reload(); }}
         />
       )}
-    </Stack>
+    </AdminPage>
   );
 }
 
@@ -132,7 +135,7 @@ function DeleteTemplateButton({ template, onDeleted }: { template: api.Checklist
   return (
     <>
       <Tooltip title="Delete">
-        <IconButton size="small" onClick={() => setConfirming(true)}><DeleteIcon fontSize="small" /></IconButton>
+        <IconButton size="small" color="error" aria-label={`Delete ${template.name}`} onClick={() => setConfirming(true)}><DeleteIcon fontSize="small" /></IconButton>
       </Tooltip>
       <Dialog open={confirming} onClose={busy ? undefined : () => setConfirming(false)}>
         <DialogTitle>Delete “{template.name}”?</DialogTitle>

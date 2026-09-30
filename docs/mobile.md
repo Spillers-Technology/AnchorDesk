@@ -58,6 +58,12 @@ and `useIsPhone`.
    zeroes the Grid's negative margin — wrap the Grid in a `Box`).
 5. **Test with touch device profiles** (`isMobile: true, hasTouch: true`), not
    just a narrow window — hover media queries and touch actionability differ.
+6. **Tables prioritize before they scroll.** In the admin console a row keeps its
+   name, status and actions at phone width; secondary columns take
+   `sx={hideOnPhone}` (`components/admin/kit.tsx`), and a table whose every
+   column is a control (Users) renders as cards under `useIsPhone()`. Anything
+   that explains a state — an error reason, a failing mailbox — is printed, not
+   tooltip-only.
 
 ## Verifying (the matrix)
 
