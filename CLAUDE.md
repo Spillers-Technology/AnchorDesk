@@ -660,7 +660,9 @@ OIDC_ISSUER_URL=https://authentik.yourdomain.com/application/o/<app-slug>/
 | `web-client/src/auth/` | `AuthContext`, `LoginView`, `AccountMenu` |
 | `backend/src/services/oui/` · `deviceClassify.ts` | Lazy OUI vendor lookup and non-destructive port/vendor device classification |
 | `web-client/src/components/NetworkView.tsx` · `NetworkMap.tsx` | AnchorDesk filtering/linked tickets around the netviz Canvas map |
-| `web-client/src/components/AdminView.tsx` | Admin: Users, Authentication, Teams, Custom Fields, Automations, Ticket Sync, Probes, Devices, Mail |
+| `web-client/src/components/AdminView.tsx` | Admin console shell: rail/section switcher, `?admin=` routing, toast provider. One panel per section in `components/admin/*Panel.tsx` |
+| `web-client/src/components/admin/kit.tsx` · `nav.tsx` · `AdminRail.tsx` | The console kit (`AdminPage`, `SectionCard`, `SettingRow`, `EmptyState`/`EmptyRow`, `StatusChip`, `PanelLoading`/`PanelError`, `CopyField`, `useAdminToast`, `hideOnPhone`) — build new panels from it, colors from the palette only; section registry (labels, descriptions, search keywords); desktop rail + phone bottom-sheet switcher |
+| `web-client/src/components/admin/OverviewPanel.tsx` | Stat tiles, setup readiness (`buildChecks` over integrations/auth/SLA/mailboxes/probes), activity timeline |
 | `web-client/src/components/admin/TicketSyncPanel.tsx` · `SyncRunHistoryDialog.tsx` | Connection/job setup, filters, truthful health, and activity drill-down |
 | `web-client/src/App.tsx` | Main React component, auth gating, state management |
 | `docs/architecture.md` | Architecture diagram and pattern rationale |

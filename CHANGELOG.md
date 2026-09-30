@@ -1,5 +1,53 @@
 # Changelog
 
+## Unreleased — admin console redesign
+
+The admin console gets the same level-up netviz's UI did: one kit, one header, one way to say
+"saved" — and an Overview that tells an admin what's actually wrong. Frontend only; no schema or
+API change.
+
+### Changed
+
+- **One kit for every panel** (`components/admin/kit.tsx`): page header with icon and inline
+  status, section cards, setting rows, empty states with one next step, status chips that always
+  pair color with an icon and a word, skeleton loading, errors with Retry, copy-to-clipboard fields,
+  and a console-wide toast replacing per-panel inline alerts. Colors come from the active palette
+  only, so all seven themes stay deliberate.
+- **`AdminView.tsx` split** from 2,200 lines into a shell plus one file per panel; section
+  metadata lives in `admin/nav.tsx`.
+- **Navigation.** Desktop rail gains *Find a setting* (matches keywords — "smtp", "sso", "imap").
+  Below `md`, a one-line breadcrumb switcher opens the section list in a bottom sheet instead of a
+  sideways-scrolling strip of twenty items.
+- **Overview.** Keyboard-reachable stat tiles with online meters; **setup readiness** scored from
+  the settings the panels already read (outbound SMTP, inbound mailboxes and their last poll, a
+  catch-all SLA default, required MFA, attachment storage; SSO and probes as optional), each item
+  linking to its fix; activity as a timeline with relative times.
+- **Panels.** Users show avatars, sign-in method, MFA state and last seen, and become cards on
+  phones; Integrations collapse to one summary row each with Save/Discard only when dirty;
+  Authentication gets a floating unsaved-changes bar and copyable redirect/ACS URLs; SLA durations
+  read as "4 h / 3 d" with the match order drawn out; Labels get swatches, a live preview, and text
+  color chosen for contrast; Mailboxes show health (and the failure reason, not tooltip-only);
+  Devices fold IP/MAC under the name; wide tables drop low-value columns on phones.
+
+### Fixed
+
+- Password reset used `window.prompt`; it's now a dialog with confirmation and a length check.
+- Users, probes, mailboxes, SLA policies, labels, mail identities and templates deleted on a single
+  click with no confirmation; all now confirm and say what is kept.
+- Several mutations (probe/label/identity/template create and delete, device company edits) had no
+  error handling — failures were unhandled rejections. All report through the toast.
+- The last active admin's role, active switch and delete are disabled up front (the API already
+  refused them).
+- Secret fields hid their "set — blank keeps it" placeholder behind the label.
+- Delete buttons in seven panels, and checklist edit/delete, were icon-only with no accessible name.
+
+### Tests
+
+- `admin/kit.test.ts` (formatters, contrast, nav search, readiness scoring) and `AdminView.test.tsx`
+  (overview readiness, phone switcher search, delete confirmation, password reset dialog).
+- The mobile matrix adds Users, Authentication, SLA, Labels, Mailboxes, Mail identities,
+  Integrations, Probes, Audit and the section sheet; `mock-api.mjs` gains the fixtures they need.
+
 ## 2.9.0 — 2026-09-12 — True Bearing (minor)
 
 Schema application moves from `prisma db push` to versioned, recorded migrations, and the public
