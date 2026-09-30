@@ -8,8 +8,8 @@ Reports are taken seriously and handled by the person who wrote the code.
 
 | Version | Security fixes |
 |---|---|
-| 2.8.x (latest patch) | Yes |
-| Anything older | No — upgrade to the latest 2.8.x first ([docs/upgrading.md](docs/upgrading.md)) |
+| 2.10.x (latest patch) | Yes |
+| Anything older | No — upgrade to the latest 2.10.x ([docs/upgrading.md](docs/upgrading.md)) |
 
 Fixes ship as a new patch release on the current minor line. There is no
 long-term-support branch.

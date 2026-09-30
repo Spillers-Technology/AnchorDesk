@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased — sync scope: what decides how much syncs
+## 2.10.0 — 2026-09-30 — Sounding Line (minor)
+
+Two things: sync gets a definite answer to *how much* reaches a PSA, and the admin console gets
+the redesign the rest of the product already had. Migration `1_sync_scope` is additive. Rolling
+back by image swap is not safe after the first 2.10.0 start — restore the pre-upgrade backup.
+
+### Sync scope
 
 "Syncs to a PSA" now has a definite answer: each job owns the tickets it imported, filters by
 technician **ID**, sends its filter to the remote, can be previewed before it's enabled, and a
@@ -8,7 +14,7 @@ ticket that leaves its scope stops syncing *visibly*. Tickets can also be create
 AnchorDesk. Design and decisions: `docs/roadmap-sync-scope.md`. Migration `1_sync_scope`
 (additive: ticket ownership/detach columns, `detached` sync state, bypass requests).
 
-### Added
+#### Added
 
 - **Sync to external PSA** on New ticket, and **Send to PSA** on any local ticket (email tickets
   included): created in Jira (job's project; issue type configurable) or ConnectWise (job's board;
@@ -26,34 +32,37 @@ AnchorDesk. Design and decisions: `docs/roadmap-sync-scope.md`. Migration `1_syn
   admin approves or rejects — from the ticket or the queue in Admin → Ticket sync. Admins are
   notified of requests; requesters of decisions.
 
-### Changed
+#### Changed
 
 - ConnectWise pushes the filter's includes (status, priority, company, technicians) into its query
   instead of downloading the whole board and discarding most of it.
 - A ticket imported by one job is no longer also reconciled by every other job on the same account.
 - Run summaries count tickets that stopped syncing.
 
-### Fixed
+#### Fixed
 
 - A ConnectWise technician filter never matched tickets with more than one resource
   (`"jsmith, bdoe"` was compared as one string).
 - The ticket header's chips ran under the download/close buttons on phones.
 
-### Tests
+#### Tests
 
 - Backend: the scope decision table, the run-level final-reconcile/detach and full-scan sweep,
   provider push-down and creation, filter explanations, bypass/send route access, and a Postgres
   proof of the ownership backfill. Web: the stopped-sync banner, bypass requests, Send to PSA, and
   New ticket's create-then-send flow. The mobile matrix adds the stopped ticket and New ticket's
   PSA picker.
+- `scripts/verify-baseline-upgrade.mjs` now expects migrations after `0_init`: adopting a 2.8.x
+  database must keep every pre-existing row value and alter or drop no 2.8 object, then apply every
+  later migration. Refusal cases keep their strict whole-row, whole-schema checks.
 
-## Unreleased — admin console redesign
+### Admin console redesign
 
 The admin console gets the same level-up netviz's UI did: one kit, one header, one way to say
 "saved" — and an Overview that tells an admin what's actually wrong. Frontend only; no schema or
 API change.
 
-### Changed
+#### Changed
 
 - **One kit for every panel** (`components/admin/kit.tsx`): page header with icon and inline
   status, section cards, setting rows, empty states with one next step, status chips that always
@@ -76,7 +85,7 @@ API change.
   color chosen for contrast; Mailboxes show health (and the failure reason, not tooltip-only);
   Devices fold IP/MAC under the name; wide tables drop low-value columns on phones.
 
-### Fixed
+#### Fixed
 
 - Password reset used `window.prompt`; it's now a dialog with confirmation and a length check.
 - Users, probes, mailboxes, SLA policies, labels, mail identities and templates deleted on a single
@@ -88,7 +97,7 @@ API change.
 - Secret fields hid their "set — blank keeps it" placeholder behind the label.
 - Delete buttons in seven panels, and checklist edit/delete, were icon-only with no accessible name.
 
-### Tests
+#### Tests
 
 - `admin/kit.test.ts` (formatters, contrast, nav search, readiness scoring) and `AdminView.test.tsx`
   (overview readiness, phone switcher search, delete confirmation, password reset dialog).

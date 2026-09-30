@@ -1,6 +1,6 @@
 # Sync scope — what decides how much syncs
 
-Status: implemented on `feat/sync-scope` (stacked on the admin console redesign); unreleased.
+Status: shipped in 2.10.0 (Sounding Line).
 
 ## The problem
 

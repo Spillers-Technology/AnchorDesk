@@ -329,6 +329,21 @@ anchordesk is a **local-first ticketing system** built on Material UI design pri
 > live arrival. No schema/API change. Later phases will look at Kanban drag physics, route
 > transitions, and the Reports charts individually.
 
+> **As of 2.10.0 ("Sounding Line"):** sync gets a definite answer to *how much* reaches a PSA,
+> and the admin console gets the kit-based redesign. **Sync scope:** tickets record their owning
+> job (`Ticket.syncJobId`, migration `1_sync_scope` + a boot backfill where provable); the filter
+> matches technicians by remote ID; ConnectWise pushes includes into its query; `POST
+> /sync/preview` counts a first run; an owned ticket that leaves its job's filter gets one final
+> reconcile and then `syncState = detached` with a stated reason, resuming automatically if it
+> returns; full scans sweep owned tickets the remote no longer returns; bypass requests
+> (`sync_bypass_requests`) pin a ticket on any admin's approval; New ticket / Send to PSA create
+> in Jira or ConnectWise (`services/syncOutService.ts`). **Admin console:** `components/admin/kit.tsx`
+> (page header, section card, setting row, empty state, icon+word status chip, toast) builds every
+> panel; `AdminView.tsx` is a shell over one file per panel; the Overview scores setup readiness.
+> **Release tooling:** `verify-baseline-upgrade.mjs` expects migrations after `0_init` — adoption
+> must keep every pre-existing value and alter no 2.8 object, then apply every later migration.
+> Rolling back to 2.9.0 by image swap is unsafe after first start (it can't read `detached`).
+
 > **As of 2.9.0 ("True Bearing"):** the schema moves through **versioned migrations**, and the
 > public surface stops overclaiming. `scripts/apply-schema.mjs` replaces `db push` in Compose and
 > the Kubernetes init container: fresh databases get `prisma migrate deploy`; an existing 2.8.x
@@ -423,7 +438,7 @@ never been exercised against a live tenant and `connectionTest.ts` says so rathe
 faking a pass — alpha. Keep README "Integration maturity", `docs/documentation.html`
 integration tags, and this section in agreement when either changes.
 
-**Sync scope (unreleased; `docs/roadmap-sync-scope.md`).** What a job syncs is decided per job:
+**Sync scope (2.10.0; `docs/roadmap-sync-scope.md`).** What a job syncs is decided per job:
 `Ticket.syncJobId` records the owning job (boot backfill assigns it where provable). The shared
 filter (`services/syncFilter.ts`) matches technicians by remote ID (`assigneeId`: Jira accountId,
 ConnectWise owner/resource identifier) and both providers push includes into the first-run query.

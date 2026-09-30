@@ -100,6 +100,17 @@ swap is safe — 2.9.0 adds no schema beyond 2.8, and the 2.8.2 image's
 
 ## Version notes
 
+### → 2.10.0 (Sounding Line — sync scope, admin console)
+- First start applies migration `1_sync_scope` (additive: ticket sync-ownership and
+  detach columns, the `detached` sync state, a run counter, `sync_bypass_requests`),
+  then assigns existing synced tickets to their sync job where the owner is provable.
+- From 2.9.0: pull and restart. From 2.8.x: pull and restart — adoption runs first, then
+  `1_sync_scope` (proven in CI by `verify-baseline-upgrade.mjs`).
+- **Do not roll back by image swap** after the first 2.10.0 start: 2.9.0 cannot read a
+  ticket whose sync stopped (`detached`). Restore the pre-upgrade backup instead.
+- Sync jobs keep their configuration. A job's next *full* scan (its first run, or the first
+  after an edit) is when tickets outside its filter stop syncing — each one says why.
+
 ### → 2.9.0 (True Bearing — versioned migrations)
 - Schema application moves from `db push` to `apply-schema.mjs` +
   `prisma migrate deploy`. No schema change: `0_init` is the 2.8 schema.

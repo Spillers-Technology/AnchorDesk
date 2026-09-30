@@ -28,7 +28,12 @@ And it travels: the web client is **mobile-first**, so triaging the board, reply
 <img width="360" alt="AnchorDesk Kanban board on a phone: full toolbar, SLA and label chips, and touch-visible card actions at 412px" src="docs/assets/screenshots/anchordesk-mobile-board.jpg" />
 </div>
 
-## What ships in 2.9 (latest: 2.9.0)
+## What ships in 2.10 (latest: 2.10.0)
+
+- **🧭 Sync scope** — each sync job owns the tickets it imported and filters technicians by their Jira or ConnectWise identity; preview a job's size before enabling it; a ticket that leaves a job's scope stops syncing *and says why*, with a bypass request any admin can approve; and new tickets can be created straight in the PSA. See [docs/roadmap-sync-scope.md](docs/roadmap-sync-scope.md).
+- **🛠️ Admin console redesign** — an Overview that scores setup readiness from your real settings, *Find a setting* search, a phone-friendly section switcher, and one consistent design across every panel.
+
+From 2.9:
 
 - **🧱 Versioned schema migrations** — upgrades apply committed, recorded migrations instead of reconciling the schema to whatever image is running. An existing 2.8.x install is adopted as the baseline only after its schema is verified; anything else is refused rather than half-migrated. See [docs/upgrading.md](docs/upgrading.md).
 
@@ -151,8 +156,8 @@ Open **http://localhost:5173** — `/api/*`, `/probe/*`, and `/mcp/*` are proxie
 
 For the complete Compose stack, run `docker compose up --build`. Tagged release images are published as:
 
-- `ghcr.io/spillers-technology/anchordesk-backend:2.9.0`
-- `ghcr.io/spillers-technology/anchordesk-web-client:2.9.0`
+- `ghcr.io/spillers-technology/anchordesk-backend:2.10.0`
+- `ghcr.io/spillers-technology/anchordesk-web-client:2.10.0`
 
 Before running AnchorDesk for real work, read [docs/backup-restore.md](docs/backup-restore.md) — the database **and** your `ENCRYPTION_KEY` are both needed to restore.
 
@@ -223,7 +228,7 @@ The wire contract lives in [backend/src/providers/NetVizProvider.ts](backend/src
 - [docs/upgrading.md](docs/upgrading.md) — the upgrade procedure and per-version notes
 - [docs/backup-restore.md](docs/backup-restore.md) — what to back up, how, and a restore you can rehearse
 - [SECURITY.md](SECURITY.md) — supported versions and how to report a vulnerability
-- [docs/releases/](docs/releases/) — full per-version release notes (latest: [2.9.0 — True Bearing](docs/releases/RELEASE_NOTES_v2.9.0.md)); see [CHANGELOG.md](CHANGELOG.md) for the condensed log
+- [docs/releases/](docs/releases/) — full per-version release notes (latest: [2.10.0 — Sounding Line](docs/releases/RELEASE_NOTES_v2.10.0.md)); see [CHANGELOG.md](CHANGELOG.md) for the condensed log
 - [CLAUDE.md](CLAUDE.md) — developer reference
 
 ## Support and pricing
