@@ -56,6 +56,7 @@ describe('toPublic', () => {
       name: 'Voice agent',
       tokenHash: 'a'.repeat(64),
       prefix: 'adk_deadbeef',
+      scope: 'full',
       lastUsedAt: null,
       expiresAt: null,
       revokedAt: null,
