@@ -8,6 +8,9 @@ integration currently consumes it, but it is designed for the same class of call
 closed draft named — an unattended phone/voicemail-to-ticket agent that should never be able
 to read ticket data, only file new tickets.
 
+Migration `2_intake_scope` is additive: an `ApiTokenScope` enum, `api_tokens.scope` (default
+`full`, so existing tokens keep full access) and the `intake_create_receipts` table.
+
 ### Added
 
 - **`intake` API token scope.** `POST /auth/tokens` accepts `scope: "full" | "intake"`
